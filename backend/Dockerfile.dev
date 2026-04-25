@@ -1,0 +1,9 @@
+FROM golang:1.25
+RUN go install github.com/air-verse/air@latest
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+EXPOSE 8080
+CMD ["air", "-c", ".air.toml"]
