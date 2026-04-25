@@ -1,4 +1,4 @@
-# ReviewArena - プロジェクト仕様書
+# ReviewArena(仮) - プロジェクト仕様書
 
 このドキュメントは Claude Code 向けのプロジェクト全体仕様書です。実装中はこのドキュメントを正として動作してください。
 
@@ -75,7 +75,18 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 - **Go バックエンド**: `go/ast`, `go/callgraph` は Go ネイティブで他言語に代替手段がない。将来の多言語対応は LSP ベースに移行する設計にしておく。
 - **@xyflow/react**: reactflow v12 から改名。v11（`reactflow` パッケージ）は使わない。
 
-## 3. 機能
+## 3. ブランチ戦略
+
+- `main` ブランチは本番環境に対応する。
+- `develop` ブランチが統合用のブランチ。機能ブランチはここにマージする。
+- 作業は各 Issue に対応したブランチを `develop` から作成し、そこで行う。
+- ブランチ命名規則: `{種類}_{issue番号}_{概要}` （例: `feature_1_project-structure`, `fix_12_analysis-timeout`）
+  - 種類: `feature`（新機能）, `fix`（バグ修正）, `chore`（設定・環境整備）, `docs`（ドキュメント）
+- `main`・`develop` への直接コミットは禁止。必ず Pull Request を出してマージする。
+
+---
+
+## 4. 機能
 - 機能を3層に分解
 - Layer 1: AST + 依存解析エンジン（バックエンド）
   - PR前後のコードを tree-sitter でパース
