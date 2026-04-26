@@ -14,3 +14,8 @@ type JobResponse struct {
 	AnalysisID string `json:"analysis_id,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
+
+// MeResponse は GET /auth/me のレスポンス
+type MeResponse struct {
+	Login string `json:"login"`
+}

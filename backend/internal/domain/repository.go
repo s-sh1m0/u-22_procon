@@ -15,3 +15,10 @@ type JobRepository interface {
 	UpdateStatus(ctx context.Context, id JobID, status JobStatus, errMsg string) error
 	FindByID(ctx context.Context, id JobID) (*Job, error)
 }
+
+// SessionRepository はログインセッションの永続化インターフェース
+type SessionRepository interface {
+	Save(ctx context.Context, s *Session) error
+	FindByID(ctx context.Context, id SessionID) (*Session, error)
+	Delete(ctx context.Context, id SessionID) error
+}
