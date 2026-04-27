@@ -45,7 +45,8 @@
 
 ## 4. 言語・領域別ルール
 
-- Go コード: [`.claude/rules/go-style.md`](./.claude/rules/go-style.md)
+- Go コード（コーディング規約）: [`.claude/rules/go-style.md`](./.claude/rules/go-style.md)
+- バックエンド アーキテクチャ（オニオン + リポジトリ DIP）: [`.claude/rules/backend-architecture.md`](./.claude/rules/backend-architecture.md)
 - TypeScript / React: [`.claude/rules/frontend-style.md`](./.claude/rules/frontend-style.md)
 
 ---

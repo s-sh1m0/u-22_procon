@@ -9,6 +9,7 @@ Claude Code（および類似 AI エージェント）向けの **領域別ル�
 |---|---|
 | [`commit-style.md`](./commit-style.md) | コミットメッセージ規約 |
 | [`go-style.md`](./go-style.md) | Go コーディング規約（バックエンド） |
+| [`backend-architecture.md`](./backend-architecture.md) | バックエンド アーキテクチャ規約（オニオン + DIP） |
 | [`frontend-style.md`](./frontend-style.md) | TypeScript / React 規約（フロントエンド） |
 
 ## 追加ルール
