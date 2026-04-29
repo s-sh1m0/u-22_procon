@@ -9,6 +9,21 @@ React 19 + TypeScript + Vite。
 - リンタ: ESLint（導入予定）
 - 型チェック: `tsc --noEmit` を CI で必須化する想定
 
+## パッケージ管理（重要）
+
+- **`npm install` / `npm add` / `npm uninstall` / `npx` は必ず Docker コンテナ内で実行する**
+- 理由: 環境一貫性のため。ホストとコンテナで Node のバージョンや lock の解決結果が食い違うと再現性が崩れる。常にコンテナ側を「正」とする
+- 前提: `frontend/Dockerfile.dev` は `node` ユーザ (UID 1000) で実行し、`compose.yml` で `./frontend:/app` を bind mount している。これにより install 結果（`package.json` / `package-lock.json` / `node_modules/`）はホストにも反映され、ホスト IDE の補完も効く
+- 実行方法:
+  ```bash
+  # 単発（コンテナを使い捨て）
+  docker compose run --rm frontend npm install <パッケージ>
+
+  # frontend コンテナが起動済みなら exec でも可
+  docker compose exec frontend npm install <パッケージ>
+  ```
+- shadcn CLI 等の npx 経由ツールも同様に `docker compose run --rm frontend npx shadcn@latest add button` でコンテナから実行する
+
 ## ファイル構成
 
 - `frontend/src/` 配下にコード

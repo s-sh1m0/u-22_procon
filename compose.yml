@@ -34,10 +34,9 @@ services:
       - "5173"
     env_file:
       - .env
+    volumes:
+      - ./frontend:/app
     develop:
       watch:
-        - action: sync
-          path: ./frontend/src
-          target: /app/src
         - action: rebuild
           path: ./frontend/package.json

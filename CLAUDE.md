@@ -21,6 +21,7 @@
 
 - `main` / `develop` への直接コミット禁止
 - 作業ブランチは **`develop` から** 切る（`main` からではない）
+- タスクを一つ終わらせるごとにコミットする。
 - ブランチ名: `{種類}_{issue番号}_{概要}`
   - 種類: `feature` / `fix` / `chore` / `docs`
   - 例: `feature_1_project-structure`, `chore_22_claude-config`
@@ -51,7 +52,19 @@
 
 ---
 
-## 5. 困ったとき
+## 5. パッケージ管理
+
+- **フロントエンドの `npm install` / `npx <CLI>` は必ず Docker コンテナ内で実行する**（ホスト直接実行禁止）
+  ```bash
+  docker compose run --rm frontend npm install <パッケージ>
+  docker compose run --rm frontend npx shadcn@latest add button
+  ```
+- 理由: 環境一貫性のため（コンテナ側を「正」とする）。`Dockerfile.dev` は `node` ユーザ (UID 1000) で動作し、`compose.yml` の bind mount で結果がホストにも反映される
+- 詳細は [`.claude/rules/frontend-style.md`](./.claude/rules/frontend-style.md) の「パッケージ管理」節を参照
+
+---
+
+## 6. 困ったとき
 
 - 仕様が曖昧 → ユーザーに質問する（推測で実装しない）
 - ルールが矛盾 → README > CLAUDE.md > `.claude/rules/` の優先順
