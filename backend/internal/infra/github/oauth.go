@@ -42,7 +42,7 @@ func (c *OAuthConfig) FetchUserLogin(ctx context.Context, token *oauth2.Token) (
 	if err != nil {
 		return "", fmt.Errorf("fetch user: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("github /user returned %d", resp.StatusCode)
 	}

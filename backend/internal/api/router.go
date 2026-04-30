@@ -1,6 +1,8 @@
 package api
 
 import (
+	"log"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
@@ -12,7 +14,16 @@ import (
 // /api/* ルートは Issue #3 以降で追加予定。
 func NewRouter(authHandler *AuthHandler, sessions domain.SessionRepository) *echo.Echo {
 	e := echo.New()
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogStatus:  true,
+		LogURI:     true,
+		LogMethod:  true,
+		LogLatency: true,
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			log.Printf("%s %s -> %d (%s)", v.Method, v.URI, v.Status, v.Latency)
+			return nil
+		},
+	}))
 	e.Use(middleware.Recover())
 
 	auth := e.Group("/auth")
