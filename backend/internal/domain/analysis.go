@@ -23,3 +23,13 @@ type Analysis struct {
 	Result    *ClusterResult
 	CreatedAt time.Time
 }
+
+// ChangedFile はPRで変更されたファイル1件の情報。
+// Patch は GitHub API が返す unified diff テキスト（バイナリや巨大ファイルでは空になり得る）。
+type ChangedFile struct {
+	Filename  string // リポジトリルートからの相対パス
+	Status    string // "added" | "modified" | "removed" | "renamed"
+	Additions int
+	Deletions int
+	Patch     string
+}

@@ -22,3 +22,10 @@ type SessionRepository interface {
 	FindByID(ctx context.Context, id SessionID) (*Session, error)
 	Delete(ctx context.Context, id SessionID) error
 }
+
+// PRRepository は GitHub から PR メタ情報・変更ファイル一覧を取得するインターフェース。
+// token はユーザーの OAuth アクセストークン（domain は oauth2 に依存しないため string で受ける）。
+type PRRepository interface {
+	GetPR(ctx context.Context, token, owner, repo string, number int) (*PRInfo, error)
+	ListChangedGoFiles(ctx context.Context, token, owner, repo string, number int) ([]ChangedFile, error)
+}
