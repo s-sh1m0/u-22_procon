@@ -9,10 +9,10 @@ type JobID string
 type JobStatus string
 
 const (
-	JobStatusPending  JobStatus = "pending"
-	JobStatusRunning  JobStatus = "running"
-	JobStatusDone     JobStatus = "done"
-	JobStatusError    JobStatus = "error"
+	JobStatusPending JobStatus = "pending"
+	JobStatusRunning JobStatus = "running"
+	JobStatusDone    JobStatus = "done"
+	JobStatusError   JobStatus = "error"
 )
 
 // Job は非同期解析ジョブのエンティティ

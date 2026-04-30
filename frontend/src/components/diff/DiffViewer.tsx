@@ -1,4 +1,4 @@
 // TODO: @monaco-editor/react の diff エディタラッパー
 export default function DiffViewer() {
-  return <div>DiffViewer</div>;
+  return <div>DiffViewer</div>
 }

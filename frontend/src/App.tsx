@@ -8,8 +8,22 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
-      <Route path="/analysis/:jobId" element={<RequireAuth><Analysis /></RequireAuth>} />
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <Home />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/analysis/:jobId"
+        element={
+          <RequireAuth>
+            <Analysis />
+          </RequireAuth>
+        }
+      />
     </Routes>
   )
 }

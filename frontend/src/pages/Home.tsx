@@ -1,5 +1,5 @@
-import { Button } from "@/components/ui/button"
-import Header from "@/components/layout/Header"
+import { Button } from '@/components/ui/button'
+import Header from '@/components/layout/Header'
 
 // TODO: PR URL 入力フォーム・解析リクエスト送信
 export default function Home() {
@@ -11,5 +11,5 @@ export default function Home() {
         <Button>動作確認</Button>
       </main>
     </div>
-  );
+  )
 }
