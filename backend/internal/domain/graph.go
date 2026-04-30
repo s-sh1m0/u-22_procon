@@ -5,12 +5,12 @@ type NodeID string
 
 // Node は関数・メソッドをグラフノードとして表す
 type Node struct {
-	ID       NodeID
-	Name     string // 関数名
-	Package  string // パッケージパス
-	File     string // ファイルパス
-	Line     int    // 定義行
-	Changed  bool   // このPRで変更されたか
+	ID      NodeID
+	Name    string // 関数名
+	Package string // パッケージパス
+	File    string // ファイルパス
+	Line    int    // 定義行
+	Changed bool   // このPRで変更されたか
 }
 
 // Edge はノード間の呼び出し関係を表す

@@ -22,6 +22,9 @@
 - `main` / `develop` への直接コミット禁止
 - 作業ブランチは **`develop` から** 切る（`main` からではない）
 - タスクを一つ終わらせるごとにコミットする。
+- **コミット前にリンター・フォーマッターを必ず通す**
+  - バックエンド: `docker run --rm -v $(pwd)/backend:/app -w /app golang:1.25 sh -c 'gofmt -w . && go vet ./...'`
+  - フロントエンド: `docker compose run --rm frontend sh -c 'npm run lint && npx tsc -b && npx prettier --write .'`
 - ブランチ名: `{種類}_{issue番号}_{概要}`
   - 種類: `feature` / `fix` / `chore` / `docs`
   - 例: `feature_1_project-structure`, `chore_22_claude-config`

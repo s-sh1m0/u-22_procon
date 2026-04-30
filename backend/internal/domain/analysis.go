@@ -7,10 +7,10 @@ type AnalysisID string
 
 // PRInfo はGitHub PRの基本情報
 type PRInfo struct {
-	Owner  string
-	Repo   string
-	Number int
-	Title  string
+	Owner   string
+	Repo    string
+	Number  int
+	Title   string
 	BaseRef string
 	HeadRef string
 	HeadSHA string
