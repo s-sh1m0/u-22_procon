@@ -114,3 +114,8 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 
 - `@xyflow/react` でクラスタ単位の依存グラフを可視化
 - ノードクリックで `@monaco-editor/react` による diff 表示
+
+---
+
+## 5. デザイン
+- [こちら](https://raw.githack.com/s-sh1m0/u-22_procon/develop/design/preview.html)から確認可能
