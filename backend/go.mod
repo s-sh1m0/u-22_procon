@@ -6,6 +6,7 @@ require (
 	github.com/google/go-github/v69 v69.2.0
 	github.com/labstack/echo/v4 v4.15.1
 	golang.org/x/oauth2 v0.36.0
+	golang.org/x/tools v0.44.0
 	modernc.org/sqlite v1.50.0
 )
 
@@ -21,7 +22,9 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
+	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
