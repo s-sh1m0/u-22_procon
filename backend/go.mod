@@ -7,6 +7,7 @@ require (
 	github.com/labstack/echo/v4 v4.15.1
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/tools v0.44.0
+	gonum.org/v1/gonum v0.17.0
 	modernc.org/sqlite v1.50.0
 )
 
