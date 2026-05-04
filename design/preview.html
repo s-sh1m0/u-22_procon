@@ -1,0 +1,5939 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>diffmap. — PR依存関係可視化ツール</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #faf8f3; font-family: "Inter Tight", -apple-system, system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script>// DesignCanvas.jsx — Figma-ish design canvas wrapper
+// Warm gray grid bg + Sections + Artboards + PostIt notes.
+// Artboards are reorderable (grip-drag), labels/titles are inline-editable,
+// and any artboard can be opened in a fullscreen focus overlay (←/→/Esc).
+// State persists to a .design-canvas.state.json sidecar via the host
+// bridge. No assets, no deps.
+//
+// Usage:
+//   <DesignCanvas>
+//     <DCSection id="onboarding" title="Onboarding" subtitle="First-run variants">
+//       <DCArtboard id="a" label="A · Dusk" width={260} height={480}>…</DCArtboard>
+//       <DCArtboard id="b" label="B · Minimal" width={260} height={480}>…</DCArtboard>
+//     </DCSection>
+//   </DesignCanvas>
+
+const DC = {
+  bg: '#f0eee9',
+  grid: 'rgba(0,0,0,0.06)',
+  label: 'rgba(60,50,40,0.7)',
+  title: 'rgba(40,30,20,0.85)',
+  subtitle: 'rgba(60,50,40,0.6)',
+  postitBg: '#fef4a8',
+  postitText: '#5a4a2a',
+  font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif'
+};
+
+// One-time CSS injection (classes are dc-prefixed so they don't collide with
+// the hosted design's own styles).
+if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
+  const s = document.createElement('style');
+  s.id = 'dc-styles';
+  s.textContent = ['.dc-editable{cursor:text;outline:none;white-space:nowrap;border-radius:3px;padding:0 2px;margin:0 -2px}', '.dc-editable:focus{background:#fff;box-shadow:0 0 0 1.5px #c96442}', '[data-dc-slot]{transition:transform .18s cubic-bezier(.2,.7,.3,1)}', '[data-dc-slot].dc-dragging{transition:none;z-index:10;pointer-events:none}', '[data-dc-slot].dc-dragging .dc-card{box-shadow:0 12px 40px rgba(0,0,0,.25),0 0 0 2px #c96442;transform:scale(1.02)}', '.dc-card{transition:box-shadow .15s,transform .15s}', '.dc-card *{scrollbar-width:none}', '.dc-card *::-webkit-scrollbar{display:none}', '.dc-labelrow{display:flex;align-items:center;gap:4px;height:24px}', '.dc-grip{cursor:grab;display:flex;align-items:center;padding:5px 4px;border-radius:4px;transition:background .12s}', '.dc-grip:hover{background:rgba(0,0,0,.08)}', '.dc-grip:active{cursor:grabbing}', '.dc-labeltext{cursor:pointer;border-radius:4px;padding:3px 6px;display:flex;align-items:center;transition:background .12s}', '.dc-labeltext:hover{background:rgba(0,0,0,.05)}', '.dc-expand{position:absolute;bottom:100%;right:0;margin-bottom:5px;z-index:2;opacity:0;transition:opacity .12s,background .12s;', '  width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;padding:0;', '  background:transparent;color:rgba(60,50,40,.7);display:flex;align-items:center;justify-content:center}', '.dc-expand:hover{background:rgba(0,0,0,.06);color:#2a251f}', '[data-dc-slot]:hover .dc-expand{opacity:1}'].join('\n');
+  document.head.appendChild(s);
+}
+const DCCtx = React.createContext(null);
+
+// ─────────────────────────────────────────────────────────────
+// DesignCanvas — stateful wrapper around the pan/zoom viewport.
+// Owns runtime state (per-section order, renamed titles/labels, focused
+// artboard). Order/titles/labels persist to a .design-canvas.state.json
+// sidecar next to the HTML. Reads go via plain fetch() so the saved
+// arrangement is visible anywhere the HTML + sidecar are served together
+// (omelette preview, direct link, downloaded zip). Writes go through the
+// host's window.omelette bridge — editing requires the omelette runtime.
+// Focus is ephemeral.
+// ─────────────────────────────────────────────────────────────
+const DC_STATE_FILE = '.design-canvas.state.json';
+function DesignCanvas({
+  children,
+  minScale,
+  maxScale,
+  style
+}) {
+  const [state, setState] = React.useState({
+    sections: {},
+    focus: null
+  });
+  // Hold rendering until the sidecar read settles so the saved order/titles
+  // appear on first paint (no source-order flash). didRead gates writes until
+  // the read settles so the empty initial state can't clobber a slow read;
+  // skipNextWrite suppresses the one echo-write that would otherwise follow
+  // hydration.
+  const [ready, setReady] = React.useState(false);
+  const didRead = React.useRef(false);
+  const skipNextWrite = React.useRef(false);
+  React.useEffect(() => {
+    let off = false;
+    fetch('./' + DC_STATE_FILE).then(r => r.ok ? r.json() : null).then(saved => {
+      if (off || !saved || !saved.sections) return;
+      skipNextWrite.current = true;
+      setState(s => ({
+        ...s,
+        sections: saved.sections
+      }));
+    }).catch(() => {}).finally(() => {
+      didRead.current = true;
+      if (!off) setReady(true);
+    });
+    const t = setTimeout(() => {
+      if (!off) setReady(true);
+    }, 150);
+    return () => {
+      off = true;
+      clearTimeout(t);
+    };
+  }, []);
+  React.useEffect(() => {
+    if (!didRead.current) return;
+    if (skipNextWrite.current) {
+      skipNextWrite.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      window.omelette?.writeFile(DC_STATE_FILE, JSON.stringify({
+        sections: state.sections
+      })).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [state.sections]);
+
+  // Build registries synchronously from children so FocusOverlay can read
+  // them in the same render. Only direct DCSection > DCArtboard children are
+  // walked — wrapping them in other elements opts out of focus/reorder.
+  const registry = {}; // slotId -> { sectionId, artboard }
+  const sectionMeta = {}; // sectionId -> { title, subtitle, slotIds[] }
+  const sectionOrder = [];
+  React.Children.forEach(children, sec => {
+    if (!sec || sec.type !== DCSection) return;
+    const sid = sec.props.id ?? sec.props.title;
+    if (!sid) return;
+    sectionOrder.push(sid);
+    const persisted = state.sections[sid] || {};
+    const srcIds = [];
+    React.Children.forEach(sec.props.children, ab => {
+      if (!ab || ab.type !== DCArtboard) return;
+      const aid = ab.props.id ?? ab.props.label;
+      if (!aid) return;
+      registry[`${sid}/${aid}`] = {
+        sectionId: sid,
+        artboard: ab
+      };
+      srcIds.push(aid);
+    });
+    const kept = (persisted.order || []).filter(k => srcIds.includes(k));
+    sectionMeta[sid] = {
+      title: persisted.title ?? sec.props.title,
+      subtitle: sec.props.subtitle,
+      slotIds: [...kept, ...srcIds.filter(k => !kept.includes(k))]
+    };
+  });
+  const api = React.useMemo(() => ({
+    state,
+    section: id => state.sections[id] || {},
+    patchSection: (id, p) => setState(s => ({
+      ...s,
+      sections: {
+        ...s.sections,
+        [id]: {
+          ...s.sections[id],
+          ...(typeof p === 'function' ? p(s.sections[id] || {}) : p)
+        }
+      }
+    })),
+    setFocus: slotId => setState(s => ({
+      ...s,
+      focus: slotId
+    }))
+  }), [state]);
+
+  // Esc exits focus; any outside pointerdown commits an in-progress rename.
+  React.useEffect(() => {
+    const onKey = e => {
+      if (e.key === 'Escape') api.setFocus(null);
+    };
+    const onPd = e => {
+      const ae = document.activeElement;
+      if (ae && ae.isContentEditable && !ae.contains(e.target)) ae.blur();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPd, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPd, true);
+    };
+  }, [api]);
+  return /*#__PURE__*/React.createElement(DCCtx.Provider, {
+    value: api
+  }, /*#__PURE__*/React.createElement(DCViewport, {
+    minScale: minScale,
+    maxScale: maxScale,
+    style: style
+  }, ready && children), state.focus && registry[state.focus] && /*#__PURE__*/React.createElement(DCFocusOverlay, {
+    entry: registry[state.focus],
+    sectionMeta: sectionMeta,
+    sectionOrder: sectionOrder
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────
+// DCViewport — transform-based pan/zoom (internal)
+//
+// Input mapping (Figma-style):
+//   • trackpad pinch  → zoom   (ctrlKey wheel; Safari gesture* events)
+//   • trackpad scroll → pan    (two-finger)
+//   • mouse wheel     → zoom   (notched; distinguished from trackpad scroll)
+//   • middle-drag / primary-drag-on-bg → pan
+//
+// Transform state lives in a ref and is written straight to the DOM
+// (translate3d + will-change) so wheel ticks don't go through React —
+// keeps pans at 60fps on dense canvases.
+// ─────────────────────────────────────────────────────────────
+function DCViewport({
+  children,
+  minScale = 0.1,
+  maxScale = 8,
+  style = {}
+}) {
+  const vpRef = React.useRef(null);
+  const worldRef = React.useRef(null);
+  const tf = React.useRef({
+    x: 0,
+    y: 0,
+    scale: 1
+  });
+  const apply = React.useCallback(() => {
+    const {
+      x,
+      y,
+      scale
+    } = tf.current;
+    const el = worldRef.current;
+    if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+  }, []);
+  React.useEffect(() => {
+    const vp = vpRef.current;
+    if (!vp) return;
+    const zoomAt = (cx, cy, factor) => {
+      const r = vp.getBoundingClientRect();
+      const px = cx - r.left,
+        py = cy - r.top;
+      const t = tf.current;
+      const next = Math.min(maxScale, Math.max(minScale, t.scale * factor));
+      const k = next / t.scale;
+      // keep the world point under the cursor fixed
+      t.x = px - (px - t.x) * k;
+      t.y = py - (py - t.y) * k;
+      t.scale = next;
+      apply();
+    };
+
+    // Mouse-wheel vs trackpad-scroll heuristic. A physical wheel sends
+    // line-mode deltas (Firefox) or large integer pixel deltas with no X
+    // component (Chrome/Safari, typically multiples of 100/120). Trackpad
+    // two-finger scroll sends small/fractional pixel deltas, often with
+    // non-zero deltaX. ctrlKey is set by the browser for trackpad pinch.
+    const isMouseWheel = e => e.deltaMode !== 0 || e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40;
+    const onWheel = e => {
+      e.preventDefault();
+      if (isGesturing) return; // Safari: gesture* owns the pinch — discard concurrent wheels
+      if (e.ctrlKey) {
+        // trackpad pinch (or explicit ctrl+wheel)
+        zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
+      } else if (isMouseWheel(e)) {
+        // notched mouse wheel — fixed-ratio step per click
+        zoomAt(e.clientX, e.clientY, Math.exp(-Math.sign(e.deltaY) * 0.18));
+      } else {
+        // trackpad two-finger scroll — pan
+        tf.current.x -= e.deltaX;
+        tf.current.y -= e.deltaY;
+        apply();
+      }
+    };
+
+    // Safari sends native gesture* events for trackpad pinch with a smooth
+    // e.scale; preferring these over the ctrl+wheel fallback gives a much
+    // better feel there. No-ops on other browsers. Safari also fires
+    // ctrlKey wheel events during the same pinch — isGesturing makes
+    // onWheel drop those entirely so they neither zoom nor pan.
+    let gsBase = 1;
+    let isGesturing = false;
+    const onGestureStart = e => {
+      e.preventDefault();
+      isGesturing = true;
+      gsBase = tf.current.scale;
+    };
+    const onGestureChange = e => {
+      e.preventDefault();
+      zoomAt(e.clientX, e.clientY, gsBase * e.scale / tf.current.scale);
+    };
+    const onGestureEnd = e => {
+      e.preventDefault();
+      isGesturing = false;
+    };
+
+    // Drag-pan: middle button anywhere, or primary button on canvas
+    // background (anything that isn't an artboard or an inline editor).
+    let drag = null;
+    const onPointerDown = e => {
+      const onBg = !e.target.closest('[data-dc-slot], .dc-editable');
+      if (!(e.button === 1 || e.button === 0 && onBg)) return;
+      e.preventDefault();
+      vp.setPointerCapture(e.pointerId);
+      drag = {
+        id: e.pointerId,
+        lx: e.clientX,
+        ly: e.clientY
+      };
+      vp.style.cursor = 'grabbing';
+    };
+    const onPointerMove = e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      tf.current.x += e.clientX - drag.lx;
+      tf.current.y += e.clientY - drag.ly;
+      drag.lx = e.clientX;
+      drag.ly = e.clientY;
+      apply();
+    };
+    const onPointerUp = e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      vp.releasePointerCapture(e.pointerId);
+      drag = null;
+      vp.style.cursor = '';
+    };
+    vp.addEventListener('wheel', onWheel, {
+      passive: false
+    });
+    vp.addEventListener('gesturestart', onGestureStart, {
+      passive: false
+    });
+    vp.addEventListener('gesturechange', onGestureChange, {
+      passive: false
+    });
+    vp.addEventListener('gestureend', onGestureEnd, {
+      passive: false
+    });
+    vp.addEventListener('pointerdown', onPointerDown);
+    vp.addEventListener('pointermove', onPointerMove);
+    vp.addEventListener('pointerup', onPointerUp);
+    vp.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      vp.removeEventListener('wheel', onWheel);
+      vp.removeEventListener('gesturestart', onGestureStart);
+      vp.removeEventListener('gesturechange', onGestureChange);
+      vp.removeEventListener('gestureend', onGestureEnd);
+      vp.removeEventListener('pointerdown', onPointerDown);
+      vp.removeEventListener('pointermove', onPointerMove);
+      vp.removeEventListener('pointerup', onPointerUp);
+      vp.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [apply, minScale, maxScale]);
+  const gridSvg = `url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M120 0H0v120' fill='none' stroke='${encodeURIComponent(DC.grid)}' stroke-width='1'/%3E%3C/svg%3E")`;
+  return /*#__PURE__*/React.createElement("div", {
+    ref: vpRef,
+    className: "design-canvas",
+    style: {
+      height: '100vh',
+      width: '100vw',
+      background: DC.bg,
+      overflow: 'hidden',
+      overscrollBehavior: 'none',
+      touchAction: 'none',
+      position: 'relative',
+      fontFamily: DC.font,
+      boxSizing: 'border-box',
+      ...style
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    ref: worldRef,
+    style: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      transformOrigin: '0 0',
+      willChange: 'transform',
+      width: 'max-content',
+      minWidth: '100%',
+      minHeight: '100%',
+      padding: '60px 0 80px'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'absolute',
+      inset: -6000,
+      backgroundImage: gridSvg,
+      backgroundSize: '120px 120px',
+      pointerEvents: 'none',
+      zIndex: -1
+    }
+  }), children));
+}
+
+// ─────────────────────────────────────────────────────────────
+// DCSection — editable title + h-row of artboards in persisted order
+// ─────────────────────────────────────────────────────────────
+function DCSection({
+  id,
+  title,
+  subtitle,
+  children,
+  gap = 48
+}) {
+  const ctx = React.useContext(DCCtx);
+  const sid = id ?? title;
+  const all = React.Children.toArray(children);
+  const artboards = all.filter(c => c && c.type === DCArtboard);
+  const rest = all.filter(c => !(c && c.type === DCArtboard));
+  const srcOrder = artboards.map(a => a.props.id ?? a.props.label);
+  const sec = ctx && sid && ctx.section(sid) || {};
+  const order = React.useMemo(() => {
+    const kept = (sec.order || []).filter(k => srcOrder.includes(k));
+    return [...kept, ...srcOrder.filter(k => !kept.includes(k))];
+  }, [sec.order, srcOrder.join('|')]);
+  const byId = Object.fromEntries(artboards.map(a => [a.props.id ?? a.props.label, a]));
+  return /*#__PURE__*/React.createElement("div", {
+    "data-dc-section": sid,
+    style: {
+      marginBottom: 80,
+      position: 'relative'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '0 60px 56px'
+    }
+  }, /*#__PURE__*/React.createElement(DCEditable, {
+    tag: "div",
+    value: sec.title ?? title,
+    onChange: v => ctx && sid && ctx.patchSection(sid, {
+      title: v
+    }),
+    style: {
+      fontSize: 28,
+      fontWeight: 600,
+      color: DC.title,
+      letterSpacing: -0.4,
+      marginBottom: 6,
+      display: 'inline-block'
+    }
+  }), subtitle && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 16,
+      color: DC.subtitle
+    }
+  }, subtitle)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap,
+      padding: '0 60px',
+      alignItems: 'flex-start',
+      width: 'max-content'
+    }
+  }, order.map(k => /*#__PURE__*/React.createElement(DCArtboardFrame, {
+    key: k,
+    sectionId: sid,
+    artboard: byId[k],
+    order: order,
+    label: (sec.labels || {})[k] ?? byId[k].props.label,
+    onRename: v => ctx && ctx.patchSection(sid, x => ({
+      labels: {
+        ...x.labels,
+        [k]: v
+      }
+    })),
+    onReorder: next => ctx && ctx.patchSection(sid, {
+      order: next
+    }),
+    onFocus: () => ctx && ctx.setFocus(`${sid}/${k}`)
+  }))), rest);
+}
+
+// DCArtboard — marker; rendered by DCArtboardFrame via DCSection.
+function DCArtboard() {
+  return null;
+}
+function DCArtboardFrame({
+  sectionId,
+  artboard,
+  label,
+  order,
+  onRename,
+  onReorder,
+  onFocus
+}) {
+  const {
+    id: rawId,
+    label: rawLabel,
+    width = 260,
+    height = 480,
+    children,
+    style = {}
+  } = artboard.props;
+  const id = rawId ?? rawLabel;
+  const ref = React.useRef(null);
+
+  // Live drag-reorder: dragged card sticks to cursor; siblings slide into
+  // their would-be slots in real time via transforms. DOM order only
+  // changes on drop.
+  const onGripDown = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const me = ref.current;
+    // translateX is applied in local (pre-scale) space but pointer deltas and
+    // getBoundingClientRect().left are screen-space — divide by the viewport's
+    // current scale so the dragged card tracks the cursor at any zoom level.
+    const scale = me.getBoundingClientRect().width / me.offsetWidth || 1;
+    const peers = Array.from(document.querySelectorAll(`[data-dc-section="${sectionId}"] [data-dc-slot]`));
+    const homes = peers.map(el => ({
+      el,
+      id: el.dataset.dcSlot,
+      x: el.getBoundingClientRect().left
+    }));
+    const slotXs = homes.map(h => h.x);
+    const startIdx = order.indexOf(id);
+    const startX = e.clientX;
+    let liveOrder = order.slice();
+    me.classList.add('dc-dragging');
+    const layout = () => {
+      for (const h of homes) {
+        if (h.id === id) continue;
+        const slot = liveOrder.indexOf(h.id);
+        h.el.style.transform = `translateX(${(slotXs[slot] - h.x) / scale}px)`;
+      }
+    };
+    const move = ev => {
+      const dx = ev.clientX - startX;
+      me.style.transform = `translateX(${dx / scale}px)`;
+      const cur = homes[startIdx].x + dx;
+      let nearest = 0,
+        best = Infinity;
+      for (let i = 0; i < slotXs.length; i++) {
+        const d = Math.abs(slotXs[i] - cur);
+        if (d < best) {
+          best = d;
+          nearest = i;
+        }
+      }
+      if (liveOrder.indexOf(id) !== nearest) {
+        liveOrder = order.filter(k => k !== id);
+        liveOrder.splice(nearest, 0, id);
+        layout();
+      }
+    };
+    const up = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      const finalSlot = liveOrder.indexOf(id);
+      me.classList.remove('dc-dragging');
+      me.style.transform = `translateX(${(slotXs[finalSlot] - homes[startIdx].x) / scale}px)`;
+      // After the settle transition, kill transitions + clear transforms +
+      // commit the reorder in the same frame so there's no visual snap-back.
+      setTimeout(() => {
+        for (const h of homes) {
+          h.el.style.transition = 'none';
+          h.el.style.transform = '';
+        }
+        if (liveOrder.join('|') !== order.join('|')) onReorder(liveOrder);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          for (const h of homes) h.el.style.transition = '';
+        }));
+      }, 180);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    ref: ref,
+    "data-dc-slot": id,
+    style: {
+      position: 'relative',
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dc-labelrow",
+    style: {
+      position: 'absolute',
+      bottom: '100%',
+      left: -4,
+      marginBottom: 4,
+      color: DC.label
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dc-grip",
+    onPointerDown: onGripDown,
+    title: "Drag to reorder"
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: "9",
+    height: "13",
+    viewBox: "0 0 9 13",
+    fill: "currentColor"
+  }, /*#__PURE__*/React.createElement("circle", {
+    cx: "2",
+    cy: "2",
+    r: "1.1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "7",
+    cy: "2",
+    r: "1.1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "2",
+    cy: "6.5",
+    r: "1.1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "7",
+    cy: "6.5",
+    r: "1.1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "2",
+    cy: "11",
+    r: "1.1"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "7",
+    cy: "11",
+    r: "1.1"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "dc-labeltext",
+    onClick: onFocus,
+    title: "Click to focus"
+  }, /*#__PURE__*/React.createElement(DCEditable, {
+    value: label,
+    onChange: onRename,
+    onClick: e => e.stopPropagation(),
+    style: {
+      fontSize: 15,
+      fontWeight: 500,
+      color: DC.label,
+      lineHeight: 1
+    }
+  }))), /*#__PURE__*/React.createElement("button", {
+    className: "dc-expand",
+    onClick: onFocus,
+    onPointerDown: e => e.stopPropagation(),
+    title: "Focus"
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: "12",
+    height: "12",
+    viewBox: "0 0 12 12",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.6",
+    strokeLinecap: "round"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M7 1h4v4M5 11H1V7M11 1L7.5 4.5M1 11l3.5-3.5"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "dc-card",
+    style: {
+      borderRadius: 2,
+      boxShadow: '0 1px 3px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06)',
+      overflow: 'hidden',
+      width,
+      height,
+      background: '#fff',
+      ...style
+    }
+  }, children || /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#bbb',
+      fontSize: 13,
+      fontFamily: DC.font
+    }
+  }, id)));
+}
+
+// Inline rename — commits on blur or Enter.
+function DCEditable({
+  value,
+  onChange,
+  style,
+  tag = 'span',
+  onClick
+}) {
+  const T = tag;
+  return /*#__PURE__*/React.createElement(T, {
+    className: "dc-editable",
+    contentEditable: true,
+    suppressContentEditableWarning: true,
+    onClick: onClick,
+    onPointerDown: e => e.stopPropagation(),
+    onBlur: e => onChange && onChange(e.currentTarget.textContent),
+    onKeyDown: e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.currentTarget.blur();
+      }
+    },
+    style: style
+  }, value);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Focus mode — overlay one artboard; ←/→ within section, ↑/↓ across
+// sections, Esc or backdrop click to exit.
+// ─────────────────────────────────────────────────────────────
+function DCFocusOverlay({
+  entry,
+  sectionMeta,
+  sectionOrder
+}) {
+  const ctx = React.useContext(DCCtx);
+  const {
+    sectionId,
+    artboard
+  } = entry;
+  const sec = ctx.section(sectionId);
+  const meta = sectionMeta[sectionId];
+  const peers = meta.slotIds;
+  const aid = artboard.props.id ?? artboard.props.label;
+  const idx = peers.indexOf(aid);
+  const secIdx = sectionOrder.indexOf(sectionId);
+  const go = d => {
+    const n = peers[(idx + d + peers.length) % peers.length];
+    if (n) ctx.setFocus(`${sectionId}/${n}`);
+  };
+  const goSection = d => {
+    const ns = sectionOrder[(secIdx + d + sectionOrder.length) % sectionOrder.length];
+    const first = sectionMeta[ns] && sectionMeta[ns].slotIds[0];
+    if (first) ctx.setFocus(`${ns}/${first}`);
+  };
+  React.useEffect(() => {
+    const k = e => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        go(-1);
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        go(1);
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        goSection(-1);
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        goSection(1);
+      }
+    };
+    document.addEventListener('keydown', k);
+    return () => document.removeEventListener('keydown', k);
+  });
+  const {
+    width = 260,
+    height = 480,
+    children
+  } = artboard.props;
+  const [vp, setVp] = React.useState({
+    w: window.innerWidth,
+    h: window.innerHeight
+  });
+  React.useEffect(() => {
+    const r = () => setVp({
+      w: window.innerWidth,
+      h: window.innerHeight
+    });
+    window.addEventListener('resize', r);
+    return () => window.removeEventListener('resize', r);
+  }, []);
+  const scale = Math.max(0.1, Math.min((vp.w - 200) / width, (vp.h - 260) / height, 2));
+  const [ddOpen, setDd] = React.useState(false);
+  const Arrow = ({
+    dir,
+    onClick
+  }) => /*#__PURE__*/React.createElement("button", {
+    onClick: e => {
+      e.stopPropagation();
+      onClick();
+    },
+    style: {
+      position: 'absolute',
+      top: '50%',
+      [dir]: 28,
+      transform: 'translateY(-50%)',
+      border: 'none',
+      background: 'rgba(255,255,255,.08)',
+      color: 'rgba(255,255,255,.9)',
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      fontSize: 18,
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: 'background .15s'
+    },
+    onMouseEnter: e => e.currentTarget.style.background = 'rgba(255,255,255,.18)',
+    onMouseLeave: e => e.currentTarget.style.background = 'rgba(255,255,255,.08)'
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: "18",
+    height: "18",
+    viewBox: "0 0 18 18",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2",
+    strokeLinecap: "round"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: dir === 'left' ? 'M11 3L5 9l6 6' : 'M7 3l6 6-6 6'
+  })));
+
+  // Portal to body so position:fixed is the real viewport regardless of any
+  // transform on DesignCanvas's ancestors (including the canvas zoom itself).
+  return ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
+    onClick: () => ctx.setFocus(null),
+    onWheel: e => e.preventDefault(),
+    style: {
+      position: 'fixed',
+      inset: 0,
+      zIndex: 100,
+      background: 'rgba(24,20,16,.6)',
+      backdropFilter: 'blur(14px)',
+      fontFamily: DC.font,
+      color: '#fff'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 72,
+      display: 'flex',
+      alignItems: 'flex-start',
+      padding: '16px 20px 0',
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'relative'
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDd(o => !o),
+    style: {
+      border: 'none',
+      background: 'transparent',
+      color: '#fff',
+      cursor: 'pointer',
+      padding: '6px 8px',
+      borderRadius: 6,
+      textAlign: 'left',
+      fontFamily: 'inherit'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 18,
+      fontWeight: 600,
+      letterSpacing: -0.3
+    }
+  }, meta.title), /*#__PURE__*/React.createElement("svg", {
+    width: "11",
+    height: "11",
+    viewBox: "0 0 11 11",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.8",
+    strokeLinecap: "round",
+    style: {
+      opacity: .7
+    }
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M2 4l3.5 3.5L9 4"
+  }))), meta.subtitle && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'block',
+      fontSize: 13,
+      opacity: .6,
+      fontWeight: 400,
+      marginTop: 2
+    }
+  }, meta.subtitle)), ddOpen && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'absolute',
+      top: '100%',
+      left: 0,
+      marginTop: 4,
+      background: '#2a251f',
+      borderRadius: 8,
+      boxShadow: '0 8px 32px rgba(0,0,0,.4)',
+      padding: 4,
+      minWidth: 200,
+      zIndex: 10
+    }
+  }, sectionOrder.map(sid => /*#__PURE__*/React.createElement("button", {
+    key: sid,
+    onClick: () => {
+      setDd(false);
+      const f = sectionMeta[sid].slotIds[0];
+      if (f) ctx.setFocus(`${sid}/${f}`);
+    },
+    style: {
+      display: 'block',
+      width: '100%',
+      textAlign: 'left',
+      border: 'none',
+      cursor: 'pointer',
+      background: sid === sectionId ? 'rgba(255,255,255,.1)' : 'transparent',
+      color: '#fff',
+      padding: '8px 12px',
+      borderRadius: 5,
+      fontSize: 14,
+      fontWeight: sid === sectionId ? 600 : 400,
+      fontFamily: 'inherit'
+    }
+  }, sectionMeta[sid].title)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => ctx.setFocus(null),
+    onMouseEnter: e => e.currentTarget.style.background = 'rgba(255,255,255,.12)',
+    onMouseLeave: e => e.currentTarget.style.background = 'transparent',
+    style: {
+      border: 'none',
+      background: 'transparent',
+      color: 'rgba(255,255,255,.7)',
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      fontSize: 20,
+      cursor: 'pointer',
+      lineHeight: 1,
+      transition: 'background .12s'
+    }
+  }, "\xD7")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'absolute',
+      top: 64,
+      bottom: 56,
+      left: 100,
+      right: 100,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      width: width * scale,
+      height: height * scale,
+      position: 'relative'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width,
+      height,
+      transform: `scale(${scale})`,
+      transformOrigin: 'top left',
+      background: '#fff',
+      borderRadius: 2,
+      overflow: 'hidden',
+      boxShadow: '0 20px 80px rgba(0,0,0,.4)'
+    }
+  }, children || /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#bbb'
+    }
+  }, aid))), /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      fontSize: 14,
+      fontWeight: 500,
+      opacity: .85,
+      textAlign: 'center'
+    }
+  }, (sec.labels || {})[aid] ?? artboard.props.label, /*#__PURE__*/React.createElement("span", {
+    style: {
+      opacity: .5,
+      marginLeft: 10,
+      fontVariantNumeric: 'tabular-nums'
+    }
+  }, idx + 1, " / ", peers.length))), /*#__PURE__*/React.createElement(Arrow, {
+    dir: "left",
+    onClick: () => go(-1)
+  }), /*#__PURE__*/React.createElement(Arrow, {
+    dir: "right",
+    onClick: () => go(1)
+  }), /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.stopPropagation(),
+    style: {
+      position: 'absolute',
+      bottom: 20,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      display: 'flex',
+      gap: 8
+    }
+  }, peers.map((p, i) => /*#__PURE__*/React.createElement("button", {
+    key: p,
+    onClick: () => ctx.setFocus(`${sectionId}/${p}`),
+    style: {
+      border: 'none',
+      padding: 0,
+      cursor: 'pointer',
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      background: i === idx ? '#fff' : 'rgba(255,255,255,.3)'
+    }
+  })))), document.body);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Post-it — absolute-positioned sticky note
+// ─────────────────────────────────────────────────────────────
+function DCPostIt({
+  children,
+  top,
+  left,
+  right,
+  bottom,
+  rotate = -2,
+  width = 180
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'absolute',
+      top,
+      left,
+      right,
+      bottom,
+      width,
+      background: DC.postitBg,
+      padding: '14px 16px',
+      fontFamily: '"Comic Sans MS", "Marker Felt", "Segoe Print", cursive',
+      fontSize: 14,
+      lineHeight: 1.4,
+      color: DC.postitText,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)',
+      transform: `rotate(${rotate}deg)`,
+      zIndex: 5
+    }
+  }, children);
+}
+Object.assign(window, {
+  DesignCanvas,
+  DCSection,
+  DCArtboard,
+  DCPostIt
+});</script>
+<script>// tweaks-panel.jsx
+// Reusable Tweaks shell + form-control helpers.
+//
+// Owns the host protocol (listens for __activate_edit_mode / __deactivate_edit_mode,
+// posts __edit_mode_available / __edit_mode_set_keys / __edit_mode_dismissed) so
+// individual prototypes don't re-roll it. Ships a consistent set of controls so you
+// don't hand-draw <input type="range">, segmented radios, steppers, etc.
+//
+// Usage (in an HTML file that loads React + Babel):
+//
+//   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+//     "primaryColor": "#D97757",
+//     "fontSize": 16,
+//     "density": "regular",
+//     "dark": false
+//   }/*EDITMODE-END*/;
+//
+//   function App() {
+//     const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+//     return (
+//       <div style={{ fontSize: t.fontSize, color: t.primaryColor }}>
+//         Hello
+//         <TweaksPanel>
+//           <TweakSection label="Typography" />
+//           <TweakSlider label="Font size" value={t.fontSize} min={10} max={32} unit="px"
+//                        onChange={(v) => setTweak('fontSize', v)} />
+//           <TweakRadio  label="Density" value={t.density}
+//                        options={['compact', 'regular', 'comfy']}
+//                        onChange={(v) => setTweak('density', v)} />
+//           <TweakSection label="Theme" />
+//           <TweakColor  label="Primary" value={t.primaryColor}
+//                        onChange={(v) => setTweak('primaryColor', v)} />
+//           <TweakToggle label="Dark mode" value={t.dark}
+//                        onChange={(v) => setTweak('dark', v)} />
+//         </TweaksPanel>
+//       </div>
+//     );
+//   }
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+
+  .twk-field{appearance:none;width:100%;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  select.twk-field{padding-right:22px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.5)' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center}
+
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:rgba(0,0,0,.12);outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:#fff;
+    border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:#fff;border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;
+    overflow-wrap:anywhere}
+
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+
+  .twk-num{display:flex;align-items:center;height:26px;padding:0 0 0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;background:rgba(255,255,255,.6)}
+  .twk-num-lbl{font-weight:500;color:rgba(41,38,27,.6);cursor:ew-resize;
+    user-select:none;padding-right:8px}
+  .twk-num input{flex:1;min-width:0;height:100%;border:0;background:transparent;
+    font:inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0 8px 0 0;
+    outline:none;color:inherit;-moz-appearance:textfield}
+  .twk-num input::-webkit-inner-spin-button,.twk-num input::-webkit-outer-spin-button{
+    -webkit-appearance:none;margin:0}
+  .twk-num-unit{padding-right:8px;color:rgba(41,38,27,.45)}
+
+  .twk-btn{appearance:none;height:26px;padding:0 12px;border:0;border-radius:7px;
+    background:rgba(0,0,0,.78);color:#fff;font:inherit;font-weight:500;cursor:default}
+  .twk-btn:hover{background:rgba(0,0,0,.88)}
+  .twk-btn.secondary{background:rgba(0,0,0,.06);color:inherit}
+  .twk-btn.secondary:hover{background:rgba(0,0,0,.1)}
+
+  .twk-swatch{appearance:none;-webkit-appearance:none;width:56px;height:22px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:6px;padding:0;cursor:default;
+    background:transparent;flex-shrink:0}
+  .twk-swatch::-webkit-color-swatch-wrapper{padding:0}
+  .twk-swatch::-webkit-color-swatch{border:0;border-radius:5.5px}
+  .twk-swatch::-moz-color-swatch{border:0;border-radius:5.5px}
+`;
+
+// ── useTweaks ───────────────────────────────────────────────────────────────
+// Single source of truth for tweak values. setTweak persists via the host
+// (__edit_mode_set_keys → host rewrites the EDITMODE block on disk).
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  // Accepts either setTweak('key', value) or setTweak({ key: value, ... }) so a
+  // useState-style call doesn't write a "[object Object]" key into the persisted
+  // JSON block.
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null ? keyOrEdits : {
+      [keyOrEdits]: val
+    };
+    setValues(prev => ({
+      ...prev,
+      ...edits
+    }));
+    window.parent.postMessage({
+      type: '__edit_mode_set_keys',
+      edits
+    }, '*');
+  }, []);
+  return [values, setTweak];
+}
+
+// ── TweaksPanel ─────────────────────────────────────────────────────────────
+// Floating shell. Registers the protocol listener BEFORE announcing
+// availability — if the announce ran first, the host's activate could land
+// before our handler exists and the toolbar toggle would silently no-op.
+// The close button posts __edit_mode_dismissed so the host's toolbar toggle
+// flips off in lockstep; the host echoes __deactivate_edit_mode back which
+// is what actually hides the panel.
+function TweaksPanel({
+  title = 'Tweaks',
+  children
+}) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  const offsetRef = React.useRef({
+    x: 16,
+    y: 16
+  });
+  const PAD = 16;
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth,
+      h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y))
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', clampToViewport);
+      return () => window.removeEventListener('resize', clampToViewport);
+    }
+    const ro = new ResizeObserver(clampToViewport);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [open, clampToViewport]);
+  React.useEffect(() => {
+    const onMsg = e => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({
+      type: '__edit_mode_available'
+    }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+  const dismiss = () => {
+    setOpen(false);
+    window.parent.postMessage({
+      type: '__edit_mode_dismissed'
+    }, '*');
+  };
+  const onDragStart = e => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX,
+      sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = ev => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startBottom - (ev.clientY - sy)
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+  if (!open) return null;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("style", null, __TWEAKS_STYLE), /*#__PURE__*/React.createElement("div", {
+    ref: dragRef,
+    className: "twk-panel",
+    "data-noncommentable": "",
+    style: {
+      right: offsetRef.current.x,
+      bottom: offsetRef.current.y
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "twk-hd",
+    onMouseDown: onDragStart
+  }, /*#__PURE__*/React.createElement("b", null, title), /*#__PURE__*/React.createElement("button", {
+    className: "twk-x",
+    "aria-label": "Close tweaks",
+    onMouseDown: e => e.stopPropagation(),
+    onClick: dismiss
+  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+    className: "twk-body"
+  }, children)));
+}
+
+// ── Layout helpers ──────────────────────────────────────────────────────────
+
+function TweakSection({
+  label,
+  children
+}) {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "twk-sect"
+  }, label), children);
+}
+function TweakRow({
+  label,
+  value,
+  children,
+  inline = false
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: inline ? 'twk-row twk-row-h' : 'twk-row'
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "twk-lbl"
+  }, /*#__PURE__*/React.createElement("span", null, label), value != null && /*#__PURE__*/React.createElement("span", {
+    className: "twk-val"
+  }, value)), children);
+}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+
+function TweakSlider({
+  label,
+  value,
+  min = 0,
+  max = 100,
+  step = 1,
+  unit = '',
+  onChange
+}) {
+  return /*#__PURE__*/React.createElement(TweakRow, {
+    label: label,
+    value: `${value}${unit}`
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "range",
+    className: "twk-slider",
+    min: min,
+    max: max,
+    step: step,
+    value: value,
+    onChange: e => onChange(Number(e.target.value))
+  }));
+}
+function TweakToggle({
+  label,
+  value,
+  onChange
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "twk-row twk-row-h"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "twk-lbl"
+  }, /*#__PURE__*/React.createElement("span", null, label)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "twk-toggle",
+    "data-on": value ? '1' : '0',
+    role: "switch",
+    "aria-checked": !!value,
+    onClick: () => onChange(!value)
+  }, /*#__PURE__*/React.createElement("i", null)));
+}
+function TweakRadio({
+  label,
+  value,
+  options,
+  onChange
+}) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  const opts = options.map(o => typeof o === 'object' ? o : {
+    value: o,
+    label: o
+  });
+  const idx = Math.max(0, opts.findIndex(o => o.value === value));
+  const n = opts.length;
+
+  // The active value is read by pointer-move handlers attached for the lifetime
+  // of a drag — ref it so a stale closure doesn't fire onChange for every move.
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+  const segAt = clientX => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor((clientX - r.left - 2) / inner * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+  const onPointerDown = e => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = ev => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return /*#__PURE__*/React.createElement(TweakRow, {
+    label: label
+  }, /*#__PURE__*/React.createElement("div", {
+    ref: trackRef,
+    role: "radiogroup",
+    onPointerDown: onPointerDown,
+    className: dragging ? 'twk-seg dragging' : 'twk-seg'
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "twk-seg-thumb",
+    style: {
+      left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+      width: `calc((100% - 4px) / ${n})`
+    }
+  }), opts.map(o => /*#__PURE__*/React.createElement("button", {
+    key: o.value,
+    type: "button",
+    role: "radio",
+    "aria-checked": o.value === value
+  }, o.label))));
+}
+function TweakSelect({
+  label,
+  value,
+  options,
+  onChange
+}) {
+  return /*#__PURE__*/React.createElement(TweakRow, {
+    label: label
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "twk-field",
+    value: value,
+    onChange: e => onChange(e.target.value)
+  }, options.map(o => {
+    const v = typeof o === 'object' ? o.value : o;
+    const l = typeof o === 'object' ? o.label : o;
+    return /*#__PURE__*/React.createElement("option", {
+      key: v,
+      value: v
+    }, l);
+  })));
+}
+function TweakText({
+  label,
+  value,
+  placeholder,
+  onChange
+}) {
+  return /*#__PURE__*/React.createElement(TweakRow, {
+    label: label
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "twk-field",
+    type: "text",
+    value: value,
+    placeholder: placeholder,
+    onChange: e => onChange(e.target.value)
+  }));
+}
+function TweakNumber({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  unit = '',
+  onChange
+}) {
+  const clamp = n => {
+    if (min != null && n < min) return min;
+    if (max != null && n > max) return max;
+    return n;
+  };
+  const startRef = React.useRef({
+    x: 0,
+    val: 0
+  });
+  const onScrubStart = e => {
+    e.preventDefault();
+    startRef.current = {
+      x: e.clientX,
+      val: value
+    };
+    const decimals = (String(step).split('.')[1] || '').length;
+    const move = ev => {
+      const dx = ev.clientX - startRef.current.x;
+      const raw = startRef.current.val + dx * step;
+      const snapped = Math.round(raw / step) * step;
+      onChange(clamp(Number(snapped.toFixed(decimals))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "twk-num"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "twk-num-lbl",
+    onPointerDown: onScrubStart
+  }, label), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: value,
+    min: min,
+    max: max,
+    step: step,
+    onChange: e => onChange(clamp(Number(e.target.value)))
+  }), unit && /*#__PURE__*/React.createElement("span", {
+    className: "twk-num-unit"
+  }, unit));
+}
+function TweakColor({
+  label,
+  value,
+  onChange
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "twk-row twk-row-h"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "twk-lbl"
+  }, /*#__PURE__*/React.createElement("span", null, label)), /*#__PURE__*/React.createElement("input", {
+    type: "color",
+    className: "twk-swatch",
+    value: value,
+    onChange: e => onChange(e.target.value)
+  }));
+}
+function TweakButton({
+  label,
+  onClick,
+  secondary = false
+}) {
+  return /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: secondary ? 'twk-btn secondary' : 'twk-btn',
+    onClick: onClick
+  }, label);
+}
+Object.assign(window, {
+  useTweaks,
+  TweaksPanel,
+  TweakSection,
+  TweakRow,
+  TweakSlider,
+  TweakToggle,
+  TweakRadio,
+  TweakSelect,
+  TweakText,
+  TweakNumber,
+  TweakColor,
+  TweakButton
+});</script>
+<script>// サンプルPRのデータ — 大きめ（30+ファイル）の架空ネットアプリPR
+// 4つのクラスタ: 追加(added) / 削除(removed) / 修正(modified) / リファクタ(refactor)
+
+const PR_META = {
+  repo: "kobold/checkout-service",
+  number: 1284,
+  title: "feat(payments): Stripe連携のリファクタと領収書PDF生成を追加",
+  author: "okuda-y",
+  authorAvatar: "OY",
+  branch: "feat/payments-refactor",
+  base: "main",
+  commits: 18,
+  filesChanged: 34,
+  additions: 1247,
+  deletions: 583,
+  status: "open",
+  createdAt: "2日前",
+  description: "決済フローのStripe SDK v14対応、領収書PDF生成のサービス分離、レガシーWebhookハンドラの削除を含む。"
+};
+
+// モジュール（≒ファイル/ファイル群）
+// id, name, path, cluster: added|removed|modified|refactor, layer: ui|domain|data|infra
+// loc, additions, deletions, functions: [{name, change}]
+const MODULES = [
+// === UI Layer ===
+{
+  id: "m1",
+  name: "CheckoutForm",
+  path: "src/ui/checkout/CheckoutForm.tsx",
+  cluster: "modified",
+  layer: "ui",
+  additions: 87,
+  deletions: 42,
+  loc: 312,
+  functions: [{
+    name: "handleSubmit",
+    change: "modified"
+  }, {
+    name: "validateCard",
+    change: "modified"
+  }, {
+    name: "renderError",
+    change: "added"
+  }]
+}, {
+  id: "m2",
+  name: "PaymentMethodPicker",
+  path: "src/ui/checkout/PaymentMethodPicker.tsx",
+  cluster: "added",
+  layer: "ui",
+  additions: 156,
+  deletions: 0,
+  loc: 156,
+  functions: [{
+    name: "PaymentMethodPicker",
+    change: "added"
+  }, {
+    name: "useMethodList",
+    change: "added"
+  }]
+}, {
+  id: "m3",
+  name: "ReceiptModal",
+  path: "src/ui/checkout/ReceiptModal.tsx",
+  cluster: "added",
+  layer: "ui",
+  additions: 98,
+  deletions: 0,
+  loc: 98,
+  functions: [{
+    name: "ReceiptModal",
+    change: "added"
+  }, {
+    name: "downloadPdf",
+    change: "added"
+  }]
+}, {
+  id: "m4",
+  name: "OrderSummary",
+  path: "src/ui/checkout/OrderSummary.tsx",
+  cluster: "refactor",
+  layer: "ui",
+  additions: 41,
+  deletions: 78,
+  loc: 145,
+  functions: [{
+    name: "OrderSummary",
+    change: "modified"
+  }, {
+    name: "formatLine",
+    change: "refactor"
+  }]
+}, {
+  id: "m5",
+  name: "LegacyCardForm",
+  path: "src/ui/checkout/LegacyCardForm.tsx",
+  cluster: "removed",
+  layer: "ui",
+  additions: 0,
+  deletions: 184,
+  loc: 0,
+  functions: [{
+    name: "LegacyCardForm",
+    change: "removed"
+  }, {
+    name: "validateLegacy",
+    change: "removed"
+  }]
+}, {
+  id: "m6",
+  name: "Button",
+  path: "src/ui/common/Button.tsx",
+  cluster: "modified",
+  layer: "ui",
+  additions: 12,
+  deletions: 8,
+  loc: 88,
+  functions: [{
+    name: "Button",
+    change: "modified"
+  }]
+}, {
+  id: "m7",
+  name: "useCheckoutFlow",
+  path: "src/ui/hooks/useCheckoutFlow.ts",
+  cluster: "refactor",
+  layer: "ui",
+  additions: 64,
+  deletions: 91,
+  loc: 142,
+  functions: [{
+    name: "useCheckoutFlow",
+    change: "refactor"
+  }, {
+    name: "useStep",
+    change: "refactor"
+  }]
+},
+// === Domain Layer ===
+{
+  id: "m8",
+  name: "PaymentService",
+  path: "src/domain/payment/PaymentService.ts",
+  cluster: "refactor",
+  layer: "domain",
+  additions: 142,
+  deletions: 168,
+  loc: 287,
+  functions: [{
+    name: "charge",
+    change: "refactor"
+  }, {
+    name: "refund",
+    change: "refactor"
+  }, {
+    name: "capture",
+    change: "modified"
+  }]
+}, {
+  id: "m9",
+  name: "StripeAdapter",
+  path: "src/domain/payment/StripeAdapter.ts",
+  cluster: "added",
+  layer: "domain",
+  additions: 218,
+  deletions: 0,
+  loc: 218,
+  functions: [{
+    name: "StripeAdapter",
+    change: "added"
+  }, {
+    name: "createIntent",
+    change: "added"
+  }, {
+    name: "confirmIntent",
+    change: "added"
+  }, {
+    name: "mapError",
+    change: "added"
+  }]
+}, {
+  id: "m10",
+  name: "LegacyStripeClient",
+  path: "src/domain/payment/LegacyStripeClient.ts",
+  cluster: "removed",
+  layer: "domain",
+  additions: 0,
+  deletions: 245,
+  loc: 0,
+  functions: [{
+    name: "LegacyStripeClient",
+    change: "removed"
+  }, {
+    name: "legacyCharge",
+    change: "removed"
+  }]
+}, {
+  id: "m11",
+  name: "ReceiptGenerator",
+  path: "src/domain/receipt/ReceiptGenerator.ts",
+  cluster: "added",
+  layer: "domain",
+  additions: 187,
+  deletions: 0,
+  loc: 187,
+  functions: [{
+    name: "ReceiptGenerator",
+    change: "added"
+  }, {
+    name: "renderPdf",
+    change: "added"
+  }, {
+    name: "buildLineItems",
+    change: "added"
+  }]
+}, {
+  id: "m12",
+  name: "OrderRepository",
+  path: "src/domain/order/OrderRepository.ts",
+  cluster: "modified",
+  layer: "domain",
+  additions: 28,
+  deletions: 14,
+  loc: 196,
+  functions: [{
+    name: "save",
+    change: "modified"
+  }, {
+    name: "findById",
+    change: "modified"
+  }, {
+    name: "markPaid",
+    change: "added"
+  }]
+}, {
+  id: "m13",
+  name: "TaxCalculator",
+  path: "src/domain/tax/TaxCalculator.ts",
+  cluster: "modified",
+  layer: "domain",
+  additions: 23,
+  deletions: 11,
+  loc: 142,
+  functions: [{
+    name: "calculate",
+    change: "modified"
+  }, {
+    name: "applyRegion",
+    change: "modified"
+  }]
+}, {
+  id: "m14",
+  name: "PriceFormatter",
+  path: "src/domain/format/PriceFormatter.ts",
+  cluster: "refactor",
+  layer: "domain",
+  additions: 18,
+  deletions: 32,
+  loc: 64,
+  functions: [{
+    name: "format",
+    change: "refactor"
+  }, {
+    name: "parseCurrency",
+    change: "refactor"
+  }]
+},
+// === Data Layer ===
+{
+  id: "m15",
+  name: "PaymentRecord",
+  path: "src/data/models/PaymentRecord.ts",
+  cluster: "modified",
+  layer: "data",
+  additions: 22,
+  deletions: 8,
+  loc: 88,
+  functions: [{
+    name: "PaymentRecord",
+    change: "modified"
+  }]
+}, {
+  id: "m16",
+  name: "ReceiptRecord",
+  path: "src/data/models/ReceiptRecord.ts",
+  cluster: "added",
+  layer: "data",
+  additions: 64,
+  deletions: 0,
+  loc: 64,
+  functions: [{
+    name: "ReceiptRecord",
+    change: "added"
+  }, {
+    name: "toJson",
+    change: "added"
+  }]
+}, {
+  id: "m17",
+  name: "OrderDao",
+  path: "src/data/dao/OrderDao.ts",
+  cluster: "modified",
+  layer: "data",
+  additions: 31,
+  deletions: 18,
+  loc: 154,
+  functions: [{
+    name: "insert",
+    change: "modified"
+  }, {
+    name: "update",
+    change: "modified"
+  }]
+}, {
+  id: "m18",
+  name: "MigrationsV14",
+  path: "src/data/migrations/2026_04_v14.sql",
+  cluster: "added",
+  layer: "data",
+  additions: 42,
+  deletions: 0,
+  loc: 42,
+  functions: [{
+    name: "up",
+    change: "added"
+  }, {
+    name: "down",
+    change: "added"
+  }]
+}, {
+  id: "m19",
+  name: "LegacyPaymentTable",
+  path: "src/data/migrations/2024_legacy.sql",
+  cluster: "removed",
+  layer: "data",
+  additions: 0,
+  deletions: 38,
+  loc: 0,
+  functions: [{
+    name: "drop_legacy",
+    change: "removed"
+  }]
+},
+// === Infra Layer ===
+{
+  id: "m20",
+  name: "WebhookHandler",
+  path: "src/infra/webhook/WebhookHandler.ts",
+  cluster: "refactor",
+  layer: "infra",
+  additions: 96,
+  deletions: 124,
+  loc: 188,
+  functions: [{
+    name: "handle",
+    change: "refactor"
+  }, {
+    name: "verifySignature",
+    change: "refactor"
+  }]
+}, {
+  id: "m21",
+  name: "LegacyWebhook",
+  path: "src/infra/webhook/LegacyWebhook.ts",
+  cluster: "removed",
+  layer: "infra",
+  additions: 0,
+  deletions: 116,
+  loc: 0,
+  functions: [{
+    name: "LegacyWebhook",
+    change: "removed"
+  }]
+}, {
+  id: "m22",
+  name: "PdfRenderer",
+  path: "src/infra/pdf/PdfRenderer.ts",
+  cluster: "added",
+  layer: "infra",
+  additions: 142,
+  deletions: 0,
+  loc: 142,
+  functions: [{
+    name: "PdfRenderer",
+    change: "added"
+  }, {
+    name: "renderTemplate",
+    change: "added"
+  }]
+}, {
+  id: "m23",
+  name: "S3Uploader",
+  path: "src/infra/storage/S3Uploader.ts",
+  cluster: "modified",
+  layer: "infra",
+  additions: 18,
+  deletions: 6,
+  loc: 92,
+  functions: [{
+    name: "upload",
+    change: "modified"
+  }, {
+    name: "presign",
+    change: "added"
+  }]
+}, {
+  id: "m24",
+  name: "Logger",
+  path: "src/infra/log/Logger.ts",
+  cluster: "modified",
+  layer: "infra",
+  additions: 8,
+  deletions: 4,
+  loc: 76,
+  functions: [{
+    name: "info",
+    change: "modified"
+  }, {
+    name: "error",
+    change: "modified"
+  }]
+}, {
+  id: "m25",
+  name: "EnvConfig",
+  path: "src/infra/config/env.ts",
+  cluster: "modified",
+  layer: "infra",
+  additions: 14,
+  deletions: 6,
+  loc: 58,
+  functions: [{
+    name: "loadEnv",
+    change: "modified"
+  }]
+},
+// === Tests ===
+{
+  id: "m26",
+  name: "PaymentService.test",
+  path: "src/domain/payment/__tests__/PaymentService.test.ts",
+  cluster: "modified",
+  layer: "data",
+  additions: 88,
+  deletions: 64,
+  loc: 234,
+  functions: [{
+    name: "describe charge",
+    change: "refactor"
+  }, {
+    name: "describe refund",
+    change: "modified"
+  }]
+}, {
+  id: "m27",
+  name: "StripeAdapter.test",
+  path: "src/domain/payment/__tests__/StripeAdapter.test.ts",
+  cluster: "added",
+  layer: "data",
+  additions: 184,
+  deletions: 0,
+  loc: 184,
+  functions: [{
+    name: "describe StripeAdapter",
+    change: "added"
+  }]
+}, {
+  id: "m28",
+  name: "ReceiptGenerator.test",
+  path: "src/domain/receipt/__tests__/ReceiptGenerator.test.ts",
+  cluster: "added",
+  layer: "data",
+  additions: 122,
+  deletions: 0,
+  loc: 122,
+  functions: [{
+    name: "describe ReceiptGenerator",
+    change: "added"
+  }]
+}, {
+  id: "m29",
+  name: "checkout.e2e",
+  path: "e2e/checkout.spec.ts",
+  cluster: "modified",
+  layer: "data",
+  additions: 56,
+  deletions: 32,
+  loc: 198,
+  functions: [{
+    name: "checkout flow",
+    change: "modified"
+  }, {
+    name: "receipt download",
+    change: "added"
+  }]
+},
+// === Misc ===
+{
+  id: "m30",
+  name: "package.json",
+  path: "package.json",
+  cluster: "modified",
+  layer: "infra",
+  additions: 6,
+  deletions: 2,
+  loc: 88,
+  functions: [{
+    name: "deps",
+    change: "modified"
+  }]
+}, {
+  id: "m31",
+  name: "README",
+  path: "README.md",
+  cluster: "modified",
+  layer: "infra",
+  additions: 24,
+  deletions: 8,
+  loc: 142,
+  functions: [{
+    name: "section: payments",
+    change: "modified"
+  }]
+}, {
+  id: "m32",
+  name: "CHANGELOG",
+  path: "CHANGELOG.md",
+  cluster: "modified",
+  layer: "infra",
+  additions: 18,
+  deletions: 0,
+  loc: 88,
+  functions: [{
+    name: "v14.0.0",
+    change: "added"
+  }]
+}, {
+  id: "m33",
+  name: "stripe.types",
+  path: "src/domain/payment/stripe.types.ts",
+  cluster: "added",
+  layer: "domain",
+  additions: 78,
+  deletions: 0,
+  loc: 78,
+  functions: [{
+    name: "type StripeIntent",
+    change: "added"
+  }, {
+    name: "type StripeError",
+    change: "added"
+  }]
+}, {
+  id: "m34",
+  name: "PaymentError",
+  path: "src/domain/payment/PaymentError.ts",
+  cluster: "refactor",
+  layer: "domain",
+  additions: 32,
+  deletions: 28,
+  loc: 64,
+  functions: [{
+    name: "PaymentError",
+    change: "refactor"
+  }, {
+    name: "fromStripe",
+    change: "added"
+  }]
+}];
+
+// 依存関係（id -> id）
+const EDGES = [
+// UI -> Domain
+["m1", "m8"], ["m1", "m6"], ["m1", "m2"], ["m1", "m7"], ["m2", "m8"], ["m2", "m6"], ["m3", "m11"], ["m3", "m6"], ["m3", "m7"], ["m4", "m13"], ["m4", "m14"], ["m7", "m8"], ["m7", "m12"],
+// Domain -> Domain
+["m8", "m9"], ["m8", "m34"], ["m8", "m12"], ["m8", "m13"], ["m9", "m33"], ["m9", "m34"], ["m11", "m22"], ["m11", "m14"], ["m11", "m12"], ["m12", "m17"], ["m12", "m15"], ["m13", "m14"],
+// Domain -> Data
+["m8", "m15"], ["m11", "m16"], ["m17", "m15"], ["m17", "m16"],
+// Domain -> Infra
+["m9", "m24"], ["m9", "m25"], ["m11", "m23"], ["m22", "m23"], ["m20", "m8"], ["m20", "m9"], ["m20", "m24"],
+// Tests -> targets
+["m26", "m8"], ["m27", "m9"], ["m28", "m11"], ["m29", "m1"], ["m29", "m3"],
+// Migrations
+["m18", "m15"], ["m18", "m16"]];
+
+// クラスタ統計
+const CLUSTER_STATS = {
+  added: {
+    count: MODULES.filter(m => m.cluster === "added").length,
+    additions: MODULES.filter(m => m.cluster === "added").reduce((s, m) => s + m.additions, 0),
+    deletions: 0
+  },
+  removed: {
+    count: MODULES.filter(m => m.cluster === "removed").length,
+    additions: 0,
+    deletions: MODULES.filter(m => m.cluster === "removed").reduce((s, m) => s + m.deletions, 0)
+  },
+  modified: {
+    count: MODULES.filter(m => m.cluster === "modified").length,
+    additions: MODULES.filter(m => m.cluster === "modified").reduce((s, m) => s + m.additions, 0),
+    deletions: MODULES.filter(m => m.cluster === "modified").reduce((s, m) => s + m.deletions, 0)
+  },
+  refactor: {
+    count: MODULES.filter(m => m.cluster === "refactor").length,
+    additions: MODULES.filter(m => m.cluster === "refactor").reduce((s, m) => s + m.additions, 0),
+    deletions: MODULES.filter(m => m.cluster === "refactor").reduce((s, m) => s + m.deletions, 0)
+  }
+};
+
+// クラスタ定義（色とラベル）
+const CLUSTERS = {
+  added: {
+    label: "追加",
+    short: "Added",
+    color: "#16a34a",
+    bg: "#dcfce7",
+    border: "#86efac",
+    icon: "+"
+  },
+  removed: {
+    label: "削除",
+    short: "Removed",
+    color: "#dc2626",
+    bg: "#fee2e2",
+    border: "#fca5a5",
+    icon: "−"
+  },
+  modified: {
+    label: "修正",
+    short: "Modified",
+    color: "#d97706",
+    bg: "#fef3c7",
+    border: "#fcd34d",
+    icon: "~"
+  },
+  refactor: {
+    label: "リファクタ",
+    short: "Refactor",
+    color: "#7c3aed",
+    bg: "#ede9fe",
+    border: "#c4b5fd",
+    icon: "↻"
+  }
+};
+
+// 4階層
+const LAYERS = {
+  ui: {
+    label: "UI",
+    desc: "プレゼンテーション層"
+  },
+  domain: {
+    label: "Domain",
+    desc: "ドメイン・ビジネスロジック"
+  },
+  data: {
+    label: "Data",
+    desc: "データ・モデル・テスト"
+  },
+  infra: {
+    label: "Infra",
+    desc: "インフラ・外部I/O"
+  }
+};
+
+// サンプルdiff（モジュールクリック時の右パネル用）
+const SAMPLE_DIFF = {
+  m9: {
+    file: "src/domain/payment/StripeAdapter.ts",
+    hunks: [{
+      header: "@@ -0,0 +1,40 @@",
+      lines: [{
+        kind: "add",
+        n: 1,
+        text: "import Stripe from 'stripe';"
+      }, {
+        kind: "add",
+        n: 2,
+        text: "import type { StripeIntent, StripeError } from './stripe.types';"
+      }, {
+        kind: "add",
+        n: 3,
+        text: "import { PaymentError } from './PaymentError';"
+      }, {
+        kind: "add",
+        n: 4,
+        text: ""
+      }, {
+        kind: "add",
+        n: 5,
+        text: "export class StripeAdapter {"
+      }, {
+        kind: "add",
+        n: 6,
+        text: "  private client: Stripe;"
+      }, {
+        kind: "add",
+        n: 7,
+        text: ""
+      }, {
+        kind: "add",
+        n: 8,
+        text: "  constructor(apiKey: string) {"
+      }, {
+        kind: "add",
+        n: 9,
+        text: "    this.client = new Stripe(apiKey, { apiVersion: '2026-04-15' });"
+      }, {
+        kind: "add",
+        n: 10,
+        text: "  }"
+      }, {
+        kind: "add",
+        n: 11,
+        text: ""
+      }, {
+        kind: "add",
+        n: 12,
+        text: "  async createIntent(amount: number, currency: string): Promise<StripeIntent> {"
+      }, {
+        kind: "add",
+        n: 13,
+        text: "    try {"
+      }, {
+        kind: "add",
+        n: 14,
+        text: "      const intent = await this.client.paymentIntents.create({"
+      }, {
+        kind: "add",
+        n: 15,
+        text: "        amount, currency, automatic_payment_methods: { enabled: true },"
+      }, {
+        kind: "add",
+        n: 16,
+        text: "      });"
+      }, {
+        kind: "add",
+        n: 17,
+        text: "      return { id: intent.id, clientSecret: intent.client_secret! };"
+      }, {
+        kind: "add",
+        n: 18,
+        text: "    } catch (e) {"
+      }, {
+        kind: "add",
+        n: 19,
+        text: "      throw this.mapError(e);"
+      }, {
+        kind: "add",
+        n: 20,
+        text: "    }"
+      }, {
+        kind: "add",
+        n: 21,
+        text: "  }"
+      }]
+    }]
+  },
+  m8: {
+    file: "src/domain/payment/PaymentService.ts",
+    hunks: [{
+      header: "@@ -12,28 +12,18 @@ export class PaymentService {",
+      lines: [{
+        kind: "ctx",
+        n: 12,
+        text: "  constructor("
+      }, {
+        kind: "del",
+        n: 13,
+        text: "    private readonly legacy: LegacyStripeClient,"
+      }, {
+        kind: "del",
+        n: 14,
+        text: "    private readonly logger: Logger,"
+      }, {
+        kind: "add",
+        n: 13,
+        text: "    private readonly stripe: StripeAdapter,"
+      }, {
+        kind: "add",
+        n: 14,
+        text: "    private readonly orders: OrderRepository,"
+      }, {
+        kind: "ctx",
+        n: 15,
+        text: "  ) {}"
+      }, {
+        kind: "ctx",
+        n: 16,
+        text: ""
+      }, {
+        kind: "del",
+        n: 17,
+        text: "  async charge(amount: number, token: string): Promise<void> {"
+      }, {
+        kind: "del",
+        n: 18,
+        text: "    const result = await this.legacy.legacyCharge(amount, token);"
+      }, {
+        kind: "del",
+        n: 19,
+        text: "    if (!result.ok) throw new Error(result.code);"
+      }, {
+        kind: "add",
+        n: 17,
+        text: "  async charge(orderId: string, amount: number): Promise<PaymentRecord> {"
+      }, {
+        kind: "add",
+        n: 18,
+        text: "    const intent = await this.stripe.createIntent(amount, 'jpy');"
+      }, {
+        kind: "add",
+        n: 19,
+        text: "    const record = await this.orders.markPaid(orderId, intent.id);"
+      }, {
+        kind: "add",
+        n: 20,
+        text: "    return record;"
+      }, {
+        kind: "ctx",
+        n: 21,
+        text: "  }"
+      }]
+    }]
+  }
+};
+window.PR_META = PR_META;
+window.MODULES = MODULES;
+window.EDGES = EDGES;
+window.CLUSTER_STATS = CLUSTER_STATS;
+window.CLUSTERS = CLUSTERS;
+window.LAYERS = LAYERS;
+window.SAMPLE_DIFF = SAMPLE_DIFF;</script>
+<script>// graph-layout.jsx — DAG レイアウトヘルパ
+// 入力: モジュール配列 + エッジ配列
+// 出力: ノード位置 + エッジパス
+// 階層型: レイヤごとに段を分ける + cluster でも同じレイヤ内でグルーピング
+
+function computeDagLayout(modules, edges, opts = {}) {
+  const {
+    nodeWidth = 140,
+    nodeHeight = 56,
+    layerGapY = 140,
+    nodeGapX = 24,
+    layerOrder = ["ui", "domain", "data", "infra"],
+    paddingX = 60,
+    paddingY = 60,
+    groupByCluster = false
+  } = opts;
+
+  // レイヤごとにグループ化
+  const byLayer = {};
+  for (const ly of layerOrder) byLayer[ly] = [];
+  for (const m of modules) {
+    if (byLayer[m.layer]) byLayer[m.layer].push(m);
+  }
+
+  // 各レイヤ内でクラスタ順にソート
+  const clusterOrder = ["added", "modified", "refactor", "removed"];
+  for (const ly of layerOrder) {
+    byLayer[ly].sort((a, b) => {
+      if (groupByCluster) {
+        const ca = clusterOrder.indexOf(a.cluster);
+        const cb = clusterOrder.indexOf(b.cluster);
+        if (ca !== cb) return ca - cb;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  // 配置
+  const positions = {};
+  let maxRowWidth = 0;
+  for (let li = 0; li < layerOrder.length; li++) {
+    const ly = layerOrder[li];
+    const items = byLayer[ly];
+    const rowWidth = items.length * nodeWidth + (items.length - 1) * nodeGapX;
+    maxRowWidth = Math.max(maxRowWidth, rowWidth);
+  }
+  for (let li = 0; li < layerOrder.length; li++) {
+    const ly = layerOrder[li];
+    const items = byLayer[ly];
+    const rowWidth = items.length * nodeWidth + (items.length - 1) * nodeGapX;
+    const startX = paddingX + (maxRowWidth - rowWidth) / 2;
+    const y = paddingY + li * layerGapY;
+    items.forEach((m, idx) => {
+      positions[m.id] = {
+        x: startX + idx * (nodeWidth + nodeGapX),
+        y,
+        w: nodeWidth,
+        h: nodeHeight,
+        layer: ly,
+        layerIndex: li
+      };
+    });
+  }
+
+  // エッジパス（ベジェ曲線）
+  const edgePaths = edges.map(([from, to]) => {
+    const a = positions[from];
+    const b = positions[to];
+    if (!a || !b) return null;
+    const x1 = a.x + a.w / 2;
+    const y1 = a.y + a.h;
+    const x2 = b.x + b.w / 2;
+    const y2 = b.y;
+    const dy = Math.abs(y2 - y1);
+    const cy = dy * 0.45;
+    // 同レイヤや上→上のエッジは横にカーブ
+    if (b.layerIndex <= a.layerIndex) {
+      const offset = 32;
+      return {
+        from,
+        to,
+        d: `M ${x1} ${y1 - a.h / 2 + 2} C ${x1 + offset} ${y1 - a.h / 2}, ${x2 + offset} ${y2 + b.h / 2}, ${x2} ${y2 + b.h / 2 - 2}`,
+        x1,
+        y1: y1 - a.h / 2,
+        x2,
+        y2: y2 + b.h / 2,
+        backward: true
+      };
+    }
+    return {
+      from,
+      to,
+      d: `M ${x1} ${y1} C ${x1} ${y1 + cy}, ${x2} ${y2 - cy}, ${x2} ${y2}`,
+      x1,
+      y1,
+      x2,
+      y2,
+      backward: false
+    };
+  }).filter(Boolean);
+  const totalWidth = paddingX * 2 + maxRowWidth;
+  const totalHeight = paddingY * 2 + (layerOrder.length - 1) * layerGapY + nodeHeight;
+  return {
+    positions,
+    edgePaths,
+    totalWidth,
+    totalHeight,
+    byLayer
+  };
+}
+
+// スイムレーン版 — 横方向にクラスタ別レーン、縦方向にレイヤ
+function computeSwimlaneLayout(modules, edges, opts = {}) {
+  const {
+    nodeWidth = 130,
+    nodeHeight = 50,
+    layerGapY = 110,
+    nodeGapY = 12,
+    laneGapX = 32,
+    paddingX = 40,
+    paddingY = 60,
+    headerH = 48,
+    laneOrder = ["added", "modified", "refactor", "removed"],
+    layerOrder = ["ui", "domain", "data", "infra"]
+  } = opts;
+
+  // 各レーン×レイヤのセルにモジュールを格納
+  const cells = {};
+  for (const ly of layerOrder) {
+    for (const cl of laneOrder) cells[`${ly}/${cl}`] = [];
+  }
+  for (const m of modules) {
+    const k = `${m.layer}/${m.cluster}`;
+    if (cells[k]) cells[k].push(m);
+  }
+  for (const k of Object.keys(cells)) {
+    cells[k].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // 各レーンの幅 = max(各セルのノード数) * (nodeWidth)
+  // ただしここでは各レーン1列に並べる: 幅 = nodeWidth
+  const laneWidth = nodeWidth + 28;
+  const positions = {};
+  laneOrder.forEach((cl, ci) => {
+    const laneX = paddingX + ci * (laneWidth + laneGapX) + 14;
+    layerOrder.forEach((ly, li) => {
+      const list = cells[`${ly}/${cl}`];
+      const layerY = paddingY + headerH + li * layerGapY;
+      list.forEach((m, ni) => {
+        positions[m.id] = {
+          x: laneX,
+          y: layerY + ni * (nodeHeight + nodeGapY),
+          w: nodeWidth,
+          h: nodeHeight,
+          lane: cl,
+          layer: ly
+        };
+      });
+    });
+  });
+
+  // 各レーンの実際の高さを計算
+  const laneCols = laneOrder.map((cl, ci) => paddingX + ci * (laneWidth + laneGapX));
+  const totalWidth = paddingX * 2 + laneOrder.length * laneWidth + (laneOrder.length - 1) * laneGapX;
+
+  // レイヤ行の高さを計算
+  const layerHeights = layerOrder.map(ly => {
+    let max = 1;
+    for (const cl of laneOrder) {
+      max = Math.max(max, cells[`${ly}/${cl}`].length);
+    }
+    return max * (nodeHeight + nodeGapY) + 32;
+  });
+  // y位置を再計算
+  const layerYStarts = [];
+  let yc = paddingY + headerH;
+  for (let i = 0; i < layerOrder.length; i++) {
+    layerYStarts.push(yc);
+    yc += layerHeights[i];
+  }
+  laneOrder.forEach((cl, ci) => {
+    const laneX = paddingX + ci * (laneWidth + laneGapX) + 14;
+    layerOrder.forEach((ly, li) => {
+      const list = cells[`${ly}/${cl}`];
+      const layerY = layerYStarts[li] + 12;
+      list.forEach((m, ni) => {
+        positions[m.id] = {
+          x: laneX,
+          y: layerY + ni * (nodeHeight + nodeGapY),
+          w: nodeWidth,
+          h: nodeHeight,
+          lane: cl,
+          layer: ly
+        };
+      });
+    });
+  });
+  const totalHeight = yc + paddingY;
+
+  // エッジ
+  const edgePaths = edges.map(([from, to]) => {
+    const a = positions[from];
+    const b = positions[to];
+    if (!a || !b) return null;
+    const sameLane = a.lane === b.lane;
+    // 同レーン内: 縦の真ん中
+    if (sameLane) {
+      const x1 = a.x + a.w / 2;
+      const y1 = a.y + a.h;
+      const x2 = b.x + b.w / 2;
+      const y2 = b.y;
+      return {
+        from,
+        to,
+        d: `M ${x1} ${y1} L ${x1} ${(y1 + y2) / 2} L ${x2} ${(y1 + y2) / 2} L ${x2} ${y2}`,
+        sameLane: true
+      };
+    }
+    // 他レーン: ノードのサイドを使う
+    const x1 = a.x + a.w;
+    const y1 = a.y + a.h / 2;
+    const x2 = b.x;
+    const y2 = b.y + b.h / 2;
+    const mx = (x1 + x2) / 2;
+    return {
+      from,
+      to,
+      d: `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`,
+      sameLane: false
+    };
+  }).filter(Boolean);
+  return {
+    positions,
+    edgePaths,
+    totalWidth,
+    totalHeight,
+    layerYStarts,
+    layerHeights,
+    laneCols,
+    laneWidth,
+    laneGapX,
+    headerH,
+    layerOrder,
+    laneOrder,
+    cells
+  };
+}
+window.computeDagLayout = computeDagLayout;
+window.computeSwimlaneLayout = computeSwimlaneLayout;</script>
+<script>// shared.jsx — ランディング・ログイン・PR入力・解析中などの共通フロー画面
+// すべて 1080x720 (or 1080x780) の枠内に収まるようにデザイン
+
+const T = {
+  bg: "#fafaf9",
+  bgAlt: "#f5f5f4",
+  ink: "#1c1917",
+  ink2: "#44403c",
+  ink3: "#78716c",
+  border: "#e7e5e4",
+  borderStrong: "#d6d3d1",
+  brand: "#0f766e",
+  // teal-700, モダンSaaS
+  brandSoft: "#ccfbf1",
+  brandInk: "#134e4a",
+  added: "#16a34a",
+  addedBg: "#dcfce7",
+  addedBd: "#86efac",
+  removed: "#dc2626",
+  removedBg: "#fee2e2",
+  removedBd: "#fca5a5",
+  modified: "#d97706",
+  modifiedBg: "#fef3c7",
+  modifiedBd: "#fcd34d",
+  refactor: "#7c3aed",
+  refactorBg: "#ede9fe",
+  refactorBd: "#c4b5fd",
+  font: '"Inter Tight", "Inter", -apple-system, system-ui, sans-serif',
+  mono: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace'
+};
+
+// ロゴ（オリジナル — グラフ風アイコン）
+function Logo({
+  size = 28,
+  color = T.brand
+}) {
+  return /*#__PURE__*/React.createElement("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 32 32",
+    fill: "none"
+  }, /*#__PURE__*/React.createElement("circle", {
+    cx: "6",
+    cy: "8",
+    r: "3",
+    fill: color
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "26",
+    cy: "8",
+    r: "3",
+    fill: color,
+    opacity: "0.5"
+  }), /*#__PURE__*/React.createElement("circle", {
+    cx: "16",
+    cy: "22",
+    r: "3.5",
+    fill: color
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M8 10 L14 20",
+    stroke: color,
+    strokeWidth: "1.6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M24 10 L18 20",
+    stroke: color,
+    strokeWidth: "1.6",
+    opacity: "0.6"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M9 8 L23 8",
+    stroke: color,
+    strokeWidth: "1.6",
+    strokeDasharray: "2 2",
+    opacity: "0.4"
+  }));
+}
+function Brand({
+  size = 18
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(Logo, {
+    size: size + 8
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: size,
+      fontWeight: 600,
+      letterSpacing: -0.4,
+      color: T.ink,
+      fontFamily: T.font
+    }
+  }, "diffmap", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.brand
+    }
+  }, ".")));
+}
+
+// ─────────────── Landing ───────────────
+function Landing() {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      height: "100%",
+      background: T.bg,
+      fontFamily: T.font,
+      color: T.ink,
+      overflow: "hidden",
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "20px 36px",
+      borderBottom: `1px solid ${T.border}`
+    }
+  }, /*#__PURE__*/React.createElement(Brand, null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 24,
+      fontSize: 13,
+      color: T.ink2
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\u6A5F\u80FD"), /*#__PURE__*/React.createElement("span", null, "\u30C9\u30AD\u30E5\u30E1\u30F3\u30C8"), /*#__PURE__*/React.createElement("span", null, "\u6599\u91D1"), /*#__PURE__*/React.createElement("button", {
+    style: {
+      background: T.ink,
+      color: "#fff",
+      border: "none",
+      padding: "8px 14px",
+      borderRadius: 8,
+      fontSize: 13,
+      fontWeight: 500,
+      fontFamily: "inherit",
+      cursor: "pointer"
+    }
+  }, "\u30ED\u30B0\u30A4\u30F3"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "56px 36px 0",
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 48
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      padding: "5px 10px",
+      background: T.brandSoft,
+      color: T.brandInk,
+      borderRadius: 99,
+      fontSize: 12,
+      fontWeight: 500,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: 99,
+      background: T.brand
+    }
+  }), /*#__PURE__*/React.createElement("span", null, "v1.0 \u30EA\u30EA\u30FC\u30B9")), /*#__PURE__*/React.createElement("h1", {
+    style: {
+      fontSize: 44,
+      lineHeight: 1.05,
+      fontWeight: 600,
+      letterSpacing: -1.2,
+      margin: "0 0 16px",
+      textWrap: "pretty"
+    }
+  }, "\u30D7\u30EB\u30EA\u30AF\u306E\u4F9D\u5B58\u3092\u3001", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.brand
+    }
+  }, "\u4E00\u76EE\u3067\u3002")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 15,
+      lineHeight: 1.55,
+      color: T.ink2,
+      margin: "0 0 24px",
+      maxWidth: 460
+    }
+  }, "\u5909\u66F4\u3055\u308C\u305F\u30E2\u30B8\u30E5\u30FC\u30EB\u3068\u95A2\u6570\u306E\u4F9D\u5B58\u95A2\u4FC2\u3092\u53EF\u8996\u5316\u3057\u3001\u8FFD\u52A0\u30FB\u524A\u9664\u30FB\u4FEE\u6B63\u30FB\u30EA\u30D5\u30A1\u30AF\u30BF\u306E4\u30AF\u30E9\u30B9\u30BF\u306B\u81EA\u52D5\u5206\u985E\u3002\u30EC\u30D3\u30E5\u30FC\u306E\"\u8A8D\u77E5\u8CA0\u8377\"\u3092\u4E0B\u3052\u307E\u3059\u3002"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    style: {
+      background: T.ink,
+      color: "#fff",
+      border: "none",
+      padding: "12px 18px",
+      borderRadius: 10,
+      fontSize: 14,
+      fontWeight: 500,
+      fontFamily: "inherit",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: "14",
+    height: "14",
+    viewBox: "0 0 14 14",
+    fill: "currentColor"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M7 0a7 7 0 0 0-2.21 13.64c.35.06.48-.15.48-.34v-1.2c-1.95.42-2.36-.94-2.36-.94-.32-.81-.78-1.03-.78-1.03-.64-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.07 1.64.76 2.04.58.06-.45.24-.76.44-.94-1.55-.18-3.19-.78-3.19-3.46 0-.76.27-1.39.72-1.88-.07-.18-.31-.9.07-1.87 0 0 .59-.19 1.93.72A6.7 6.7 0 0 1 7 3.39a6.7 6.7 0 0 1 1.76.24c1.34-.91 1.93-.72 1.93-.72.38.97.14 1.69.07 1.87.45.49.72 1.12.72 1.88 0 2.69-1.64 3.28-3.2 3.46.25.22.48.65.48 1.31v1.94c0 .19.13.4.49.34A7 7 0 0 0 7 0z"
+  })), "GitHub\u3067\u59CB\u3081\u308B"), /*#__PURE__*/React.createElement("button", {
+    style: {
+      background: "transparent",
+      color: T.ink,
+      border: `1px solid ${T.borderStrong}`,
+      padding: "12px 18px",
+      borderRadius: 10,
+      fontSize: 14,
+      fontWeight: 500,
+      fontFamily: "inherit",
+      cursor: "pointer"
+    }
+  }, "\u30C7\u30E2\u3092\u898B\u308B \u2192")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 36,
+      display: "flex",
+      gap: 24,
+      fontSize: 12,
+      color: T.ink3
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      fontWeight: 600,
+      color: T.ink,
+      fontVariantNumeric: "tabular-nums"
+    }
+  }, "2,400+"), /*#__PURE__*/React.createElement("div", null, "\u89E3\u6790\u3055\u308C\u305FPR")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      background: T.border
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      fontWeight: 600,
+      color: T.ink,
+      fontVariantNumeric: "tabular-nums"
+    }
+  }, "38%"), /*#__PURE__*/React.createElement("div", null, "\u30EC\u30D3\u30E5\u30FC\u6642\u9593\u524A\u6E1B")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      background: T.border
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      fontWeight: 600,
+      color: T.ink,
+      fontVariantNumeric: "tabular-nums"
+    }
+  }, "14"), /*#__PURE__*/React.createElement("div", null, "\u5BFE\u5FDC\u8A00\u8A9E")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative",
+      height: 360,
+      background: "#fff",
+      borderRadius: 14,
+      border: `1px solid ${T.border}`,
+      overflow: "hidden",
+      boxShadow: "0 12px 40px rgba(15,23,42,0.06)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 14px",
+      borderBottom: `1px solid ${T.border}`,
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 5
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 9,
+      height: 9,
+      borderRadius: 99,
+      background: "#e5e5e5"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 9,
+      height: 9,
+      borderRadius: 99,
+      background: "#e5e5e5"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 9,
+      height: 9,
+      borderRadius: 99,
+      background: "#e5e5e5"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: T.mono,
+      fontSize: 11,
+      color: T.ink3
+    }
+  }, "kobold/checkout-service \xB7 #1284")), /*#__PURE__*/React.createElement("svg", {
+    viewBox: "0 0 480 320",
+    style: {
+      width: "100%",
+      height: "calc(100% - 36px)"
+    }
+  }, [["M120 80 C120 130, 200 130, 200 180", T.modified], ["M240 80 C240 130, 200 130, 200 180", T.added], ["M360 80 C360 130, 320 130, 320 180", T.added], ["M200 220 C200 260, 280 260, 280 280", T.removed], ["M320 220 C320 260, 280 260, 280 280", T.refactor], ["M120 220 C120 240, 160 250, 200 220", T.refactor]].map((e, i) => /*#__PURE__*/React.createElement("path", {
+    key: i,
+    d: e[0],
+    stroke: e[1],
+    strokeWidth: "1.5",
+    fill: "none",
+    opacity: "0.5"
+  })), [{
+    x: 80,
+    y: 60,
+    label: "CheckoutForm",
+    c: T.modified,
+    bg: T.modifiedBg,
+    bd: T.modifiedBd
+  }, {
+    x: 200,
+    y: 60,
+    label: "PaymentMethodPicker",
+    c: T.added,
+    bg: T.addedBg,
+    bd: T.addedBd
+  }, {
+    x: 320,
+    y: 60,
+    label: "ReceiptModal",
+    c: T.added,
+    bg: T.addedBg,
+    bd: T.addedBd
+  }, {
+    x: 160,
+    y: 170,
+    label: "PaymentService",
+    c: T.refactor,
+    bg: T.refactorBg,
+    bd: T.refactorBd
+  }, {
+    x: 280,
+    y: 170,
+    label: "StripeAdapter",
+    c: T.added,
+    bg: T.addedBg,
+    bd: T.addedBd
+  }, {
+    x: 80,
+    y: 170,
+    label: "useCheckoutFlow",
+    c: T.refactor,
+    bg: T.refactorBg,
+    bd: T.refactorBd
+  }, {
+    x: 240,
+    y: 270,
+    label: "LegacyStripeClient",
+    c: T.removed,
+    bg: T.removedBg,
+    bd: T.removedBd
+  }].map((n, i) => /*#__PURE__*/React.createElement("g", {
+    key: i
+  }, /*#__PURE__*/React.createElement("rect", {
+    x: n.x,
+    y: n.y,
+    width: "80",
+    height: "32",
+    rx: "6",
+    fill: n.bg,
+    stroke: n.bd
+  }), /*#__PURE__*/React.createElement("text", {
+    x: n.x + 40,
+    y: n.y + 20,
+    textAnchor: "middle",
+    fontSize: "9",
+    fill: n.c,
+    fontFamily: T.font,
+    fontWeight: "600"
+  }, n.label)))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "44px 36px 0",
+      display: "grid",
+      gridTemplateColumns: "repeat(4, 1fr)",
+      gap: 14
+    }
+  }, [{
+    label: "追加",
+    desc: "新規モジュール",
+    c: T.added,
+    bg: T.addedBg,
+    bd: T.addedBd,
+    n: 11
+  }, {
+    label: "削除",
+    desc: "削除されたモジュール",
+    c: T.removed,
+    bg: T.removedBg,
+    bd: T.removedBd,
+    n: 4
+  }, {
+    label: "修正",
+    desc: "ロジック変更",
+    c: T.modified,
+    bg: T.modifiedBg,
+    bd: T.modifiedBd,
+    n: 13
+  }, {
+    label: "リファクタ",
+    desc: "振る舞い保存",
+    c: T.refactor,
+    bg: T.refactorBg,
+    bd: T.refactorBd,
+    n: 6
+  }].map(k => /*#__PURE__*/React.createElement("div", {
+    key: k.label,
+    style: {
+      background: "#fff",
+      border: `1px solid ${T.border}`,
+      borderRadius: 12,
+      padding: "14px 16px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      background: k.bg,
+      border: `1px solid ${k.bd}`,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: k.c,
+      fontWeight: 600,
+      fontSize: 14
+    }
+  }, "\u25CF"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: T.mono,
+      fontSize: 12,
+      color: T.ink3
+    }
+  }, "n=", k.n)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600,
+      color: T.ink,
+      marginTop: 4
+    }
+  }, k.label), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: T.ink3,
+      marginTop: 2
+    }
+  }, k.desc)))));
+}
+
+// ─────────────── PR Input (login済み) ───────────────
+function PrInput() {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      height: "100%",
+      background: T.bg,
+      fontFamily: T.font,
+      color: T.ink,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "16px 28px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement(Brand, null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      fontSize: 13,
+      color: T.ink2
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\u5C65\u6B74"), /*#__PURE__*/React.createElement("span", null, "\u8A2D\u5B9A"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 28,
+      height: 28,
+      borderRadius: 99,
+      background: T.brand,
+      color: "#fff",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 11,
+      fontWeight: 600
+    }
+  }, "OY"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "60px 36px",
+      maxWidth: 720,
+      margin: "0 auto"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: T.ink3,
+      fontFamily: T.mono,
+      marginBottom: 8
+    }
+  }, "STEP 1 / 2"), /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 28,
+      fontWeight: 600,
+      letterSpacing: -0.6,
+      margin: "0 0 8px"
+    }
+  }, "\u89E3\u6790\u3059\u308B\u30D7\u30EB\u30EA\u30AF\u30A8\u30B9\u30C8\u3092\u6307\u5B9A"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 14,
+      color: T.ink2,
+      margin: "0 0 28px"
+    }
+  }, "GitHub\u306EPR URL\u3092\u8CBC\u308A\u4ED8\u3051\u308B\u3068\u3001\u30EA\u30DD\u30B8\u30C8\u30EA\u3092\u30AF\u30ED\u30FC\u30F3\u3057\u3001\u4F9D\u5B58\u89E3\u6790\u3092\u59CB\u3081\u307E\u3059\u3002"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#fff",
+      borderRadius: 12,
+      border: `1px solid ${T.border}`,
+      padding: 18,
+      boxShadow: "0 1px 2px rgba(0,0,0,0.02)"
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      fontSize: 12,
+      color: T.ink2,
+      fontWeight: 500,
+      display: "block",
+      marginBottom: 6
+    }
+  }, "PR URL"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      border: `1.5px solid ${T.brand}`,
+      borderRadius: 8,
+      padding: "10px 12px",
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: "14",
+    height: "14",
+    viewBox: "0 0 14 14",
+    fill: T.ink3
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M7 0a7 7 0 0 0-2.21 13.64c.35.06.48-.15.48-.34v-1.2c-1.95.42-2.36-.94-2.36-.94-.32-.81-.78-1.03-.78-1.03-.64-.43.05-.42.05-.42.7.05 1.07.72 1.07.72.62 1.07 1.64.76 2.04.58.06-.45.24-.76.44-.94-1.55-.18-3.19-.78-3.19-3.46 0-.76.27-1.39.72-1.88-.07-.18-.31-.9.07-1.87 0 0 .59-.19 1.93.72A6.7 6.7 0 0 1 7 3.39a6.7 6.7 0 0 1 1.76.24c1.34-.91 1.93-.72 1.93-.72.38.97.14 1.69.07 1.87.45.49.72 1.12.72 1.88 0 2.69-1.64 3.28-3.2 3.46.25.22.48.65.48 1.31v1.94c0 .19.13.4.49.34A7 7 0 0 0 7 0z"
+  })), /*#__PURE__*/React.createElement("input", {
+    value: "https://github.com/kobold/checkout-service/pull/1284",
+    readOnly: true,
+    style: {
+      flex: 1,
+      border: "none",
+      outline: "none",
+      fontFamily: T.mono,
+      fontSize: 13,
+      color: T.ink,
+      background: "transparent"
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.added,
+      fontSize: 12,
+      fontWeight: 500
+    }
+  }, "\u2713 \u6709\u52B9")), /*#__PURE__*/React.createElement("button", {
+    style: {
+      background: T.ink,
+      color: "#fff",
+      border: "none",
+      padding: "0 18px",
+      borderRadius: 8,
+      fontSize: 13,
+      fontWeight: 500,
+      fontFamily: "inherit",
+      cursor: "pointer",
+      whiteSpace: "nowrap"
+    }
+  }, "\u89E3\u6790\u3092\u958B\u59CB")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 14,
+      padding: 12,
+      background: T.bgAlt,
+      borderRadius: 8,
+      fontSize: 12,
+      color: T.ink2
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink3
+    }
+  }, "\u30EA\u30DD\u30B8\u30C8\u30EA"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.mono
+    }
+  }, "kobold/checkout-service")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink3
+    }
+  }, "PR #"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.mono
+    }
+  }, "1284 \xB7 feat(payments): Stripe\u9023\u643A\u306E\u30EA\u30D5\u30A1\u30AF\u30BF...")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink3
+    }
+  }, "\u30D6\u30E9\u30F3\u30C1"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.mono
+    }
+  }, "feat/payments-refactor \u2192 main")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 22,
+      fontSize: 12,
+      color: T.ink3
+    }
+  }, "\u6700\u8FD1\u306E\u89E3\u6790"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, [{
+    repo: "kobold/checkout-service",
+    n: 1278,
+    t: "fix: Webhook署名検証",
+    time: "1日前"
+  }, {
+    repo: "kobold/api-gateway",
+    n: 442,
+    t: "refactor: ミドルウェアチェーン",
+    time: "3日前"
+  }, {
+    repo: "kobold/admin-ui",
+    n: 88,
+    t: "feat: ユーザー検索",
+    time: "1週間前"
+  }].map((p, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: "10px 14px",
+      background: "#fff",
+      border: `1px solid ${T.border}`,
+      borderRadius: 8,
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: T.mono,
+      color: T.ink3,
+      fontSize: 12
+    }
+  }, p.repo, "#", p.n), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink
+    }
+  }, p.t)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink3,
+      fontSize: 12
+    }
+  }, p.time))))));
+}
+
+// ─────────────── Analyzing (進捗) ───────────────
+function Analyzing() {
+  const steps = [{
+    label: "リポジトリのクローン",
+    status: "done",
+    time: "0.8s"
+  }, {
+    label: "依存グラフの構築 (AST解析)",
+    status: "done",
+    time: "2.4s"
+  }, {
+    label: "差分との突き合わせ",
+    status: "done",
+    time: "1.1s"
+  }, {
+    label: "クラスタ分類（4-way）",
+    status: "active",
+    time: "..."
+  }, {
+    label: "可視化の生成",
+    status: "pending",
+    time: ""
+  }];
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      height: "100%",
+      background: T.bg,
+      fontFamily: T.font,
+      color: T.ink,
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "16px 28px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement(Brand, null), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: T.ink3,
+      fontFamily: T.mono
+    }
+  }, "kobold/checkout-service#1284")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 36
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 480
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 14,
+      alignItems: "center",
+      marginBottom: 24
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      background: T.brandSoft,
+      color: T.brand,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: "20",
+    height: "20",
+    viewBox: "0 0 20 20",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2"
+  }, /*#__PURE__*/React.createElement("circle", {
+    cx: "10",
+    cy: "10",
+    r: "7",
+    strokeDasharray: "32",
+    strokeDashoffset: "8"
+  }, /*#__PURE__*/React.createElement("animateTransform", {
+    attributeName: "transform",
+    type: "rotate",
+    from: "0 10 10",
+    to: "360 10 10",
+    dur: "1.4s",
+    repeatCount: "indefinite"
+  })))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 20,
+      fontWeight: 600,
+      letterSpacing: -0.4
+    }
+  }, "\u89E3\u6790\u4E2D..."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: T.ink3
+    }
+  }, "34\u30D5\u30A1\u30A4\u30EB\u306E\u4F9D\u5B58\u95A2\u4FC2\u3092\u8A08\u7B97\u3057\u3066\u3044\u307E\u3059"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#fff",
+      border: `1px solid ${T.border}`,
+      borderRadius: 12,
+      padding: 6
+    }
+  }, steps.map((s, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "10px 14px",
+      borderBottom: i < steps.length - 1 ? `1px solid ${T.border}` : "none"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 18,
+      height: 18,
+      borderRadius: 99,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: s.status === "done" ? T.brand : s.status === "active" ? T.brandSoft : T.bgAlt,
+      color: s.status === "done" ? "#fff" : T.brand,
+      border: s.status === "active" ? `1.5px solid ${T.brand}` : "none"
+    }
+  }, s.status === "done" && /*#__PURE__*/React.createElement("svg", {
+    width: "10",
+    height: "10",
+    viewBox: "0 0 10 10",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M2 5l2 2 4-4"
+  })), s.status === "active" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: 99,
+      background: T.brand
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      fontSize: 13,
+      color: s.status === "pending" ? T.ink3 : T.ink,
+      fontWeight: s.status === "active" ? 500 : 400
+    }
+  }, s.label), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: T.mono,
+      fontSize: 11,
+      color: T.ink3
+    }
+  }, s.time)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 14,
+      fontSize: 12,
+      color: T.ink3,
+      fontFamily: T.mono
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.brand
+    }
+  }, "\u25BA"), " module: ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink2
+    }
+  }, "src/domain/payment/StripeAdapter.ts"), " ... \u4F9D\u5B58\u5143 4 \u4EF6\u3092\u767A\u898B"))));
+}
+window.Landing = Landing;
+window.PrInput = PrInput;
+window.Analyzing = Analyzing;
+window.Brand = Brand;
+window.Logo = Logo;
+window.T = T;</script>
+<script>// variant-a.jsx — 案A: クラシックDAG (右パネルでdiff詳細)
+// 階層レイアウトで上から下へ流れる依存グラフ + クリックで右にdiff
+
+function VariantA() {
+  const [selected, setSelected] = React.useState("m9");
+  const [hover, setHover] = React.useState(null);
+  const [filter, setFilter] = React.useState("all");
+  const filteredModules = filter === "all" ? MODULES : MODULES.filter(m => m.cluster === filter);
+  const filteredIds = new Set(filteredModules.map(m => m.id));
+  const filteredEdges = EDGES.filter(([a, b]) => filteredIds.has(a) && filteredIds.has(b));
+  const layout = React.useMemo(() => computeDagLayout(filteredModules, filteredEdges, {
+    nodeWidth: 134,
+    nodeHeight: 50,
+    layerGapY: 116,
+    nodeGapX: 14
+  }), [filter]);
+
+  // hover/selected に関わるエッジをハイライト
+  const highlightId = hover || selected;
+  const connectedIds = React.useMemo(() => {
+    if (!highlightId) return new Set();
+    const s = new Set([highlightId]);
+    for (const [a, b] of filteredEdges) {
+      if (a === highlightId) s.add(b);
+      if (b === highlightId) s.add(a);
+    }
+    return s;
+  }, [highlightId, filteredEdges]);
+  const sel = MODULES.find(m => m.id === selected);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      height: "100%",
+      background: T.bg,
+      fontFamily: T.font,
+      color: T.ink,
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "12px 24px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(Brand, {
+    size: 15
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 20,
+      background: T.border
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: T.ink,
+      letterSpacing: -0.2
+    }
+  }, PR_META.title), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontFamily: T.mono,
+      marginTop: 1
+    }
+  }, PR_META.repo, " #", PR_META.number, " \xB7 ", PR_META.branch, " \u2192 ", PR_META.base))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.added,
+      fontFamily: T.mono,
+      fontWeight: 500
+    }
+  }, "+", PR_META.additions), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.removed,
+      fontFamily: T.mono,
+      fontWeight: 500
+    }
+  }, "\u2212", PR_META.deletions), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink3,
+      fontFamily: T.mono
+    }
+  }, PR_META.filesChanged, " files"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 24,
+      height: 24,
+      borderRadius: 99,
+      background: T.brand,
+      color: "#fff",
+      fontSize: 10,
+      fontWeight: 600,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, PR_META.authorAvatar))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "8px 24px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 4
+    }
+  }, [{
+    k: "all",
+    label: "全て",
+    n: MODULES.length,
+    c: T.ink
+  }, {
+    k: "added",
+    label: "追加",
+    n: CLUSTER_STATS.added.count,
+    c: T.added,
+    bg: T.addedBg
+  }, {
+    k: "removed",
+    label: "削除",
+    n: CLUSTER_STATS.removed.count,
+    c: T.removed,
+    bg: T.removedBg
+  }, {
+    k: "modified",
+    label: "修正",
+    n: CLUSTER_STATS.modified.count,
+    c: T.modified,
+    bg: T.modifiedBg
+  }, {
+    k: "refactor",
+    label: "リファクタ",
+    n: CLUSTER_STATS.refactor.count,
+    c: T.refactor,
+    bg: T.refactorBg
+  }].map(f => {
+    const active = filter === f.k;
+    return /*#__PURE__*/React.createElement("button", {
+      key: f.k,
+      onClick: () => setFilter(f.k),
+      style: {
+        padding: "6px 12px",
+        borderRadius: 7,
+        border: "none",
+        cursor: "pointer",
+        fontFamily: "inherit",
+        fontSize: 12,
+        fontWeight: active ? 600 : 500,
+        background: active ? f.bg || T.bgAlt : "transparent",
+        color: active ? f.c : T.ink2,
+        display: "flex",
+        alignItems: "center",
+        gap: 6
+      }
+    }, f.k !== "all" && /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 6,
+        height: 6,
+        borderRadius: 99,
+        background: f.c
+      }
+    }), /*#__PURE__*/React.createElement("span", null, f.label), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.mono,
+        fontSize: 11,
+        opacity: 0.7
+      }
+    }, f.n));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      fontSize: 11,
+      color: T.ink3,
+      fontFamily: T.mono
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\u30EC\u30A4\u30A2\u30A6\u30C8: \u968E\u5C64DAG"), /*#__PURE__*/React.createElement("span", null, "\xB7"), /*#__PURE__*/React.createElement("span", null, "34 nodes / ", EDGES.length, " edges"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "grid",
+      gridTemplateColumns: "1fr 380px",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative",
+      overflow: "auto",
+      background: T.bg
+    }
+  }, /*#__PURE__*/React.createElement(GraphCanvas, {
+    modules: filteredModules,
+    edges: filteredEdges,
+    layout: layout,
+    selected: selected,
+    hover: hover,
+    connectedIds: connectedIds,
+    onSelect: setSelected,
+    onHover: setHover
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      left: 12,
+      top: 60,
+      display: "flex",
+      flexDirection: "column",
+      gap: 90,
+      fontSize: 10,
+      fontFamily: T.mono,
+      color: T.ink3,
+      pointerEvents: "none"
+    }
+  }, ["UI", "DOMAIN", "DATA", "INFRA"].map(l => /*#__PURE__*/React.createElement("div", {
+    key: l,
+    style: {
+      background: "#fff",
+      padding: "3px 6px",
+      borderRadius: 4,
+      border: `1px solid ${T.border}`,
+      height: 18,
+      display: "flex",
+      alignItems: "center"
+    }
+  }, l))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      right: 14,
+      bottom: 14,
+      background: "#fff",
+      border: `1px solid ${T.border}`,
+      borderRadius: 8,
+      padding: "8px 12px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+      fontSize: 11
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 600,
+      marginBottom: 6,
+      color: T.ink2
+    }
+  }, "\u51E1\u4F8B"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "auto auto",
+      gap: "4px 12px"
+    }
+  }, Object.entries(CLUSTERS).map(([k, c]) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 5,
+      color: T.ink2
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 9,
+      height: 9,
+      borderRadius: 2,
+      background: c.bg,
+      border: `1px solid ${c.border}`
+    }
+  }), /*#__PURE__*/React.createElement("span", null, c.label)))))), /*#__PURE__*/React.createElement(SidePanel, {
+    module: sel
+  })));
+}
+
+// ─────────── Graph SVG ───────────
+function GraphCanvas({
+  modules,
+  edges,
+  layout,
+  selected,
+  hover,
+  connectedIds,
+  onSelect,
+  onHover
+}) {
+  const {
+    positions,
+    edgePaths,
+    totalWidth,
+    totalHeight
+  } = layout;
+  return /*#__PURE__*/React.createElement("svg", {
+    width: totalWidth,
+    height: totalHeight,
+    style: {
+      display: "block",
+      minWidth: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("defs", null, Object.entries(CLUSTERS).map(([k, c]) => /*#__PURE__*/React.createElement("marker", {
+    key: k,
+    id: `arr-${k}`,
+    viewBox: "0 0 8 8",
+    refX: "7",
+    refY: "4",
+    markerWidth: "6",
+    markerHeight: "6",
+    orient: "auto"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M0,0 L8,4 L0,8 z",
+    fill: c.color,
+    opacity: "0.7"
+  }))), /*#__PURE__*/React.createElement("marker", {
+    id: "arr-dim",
+    viewBox: "0 0 8 8",
+    refX: "7",
+    refY: "4",
+    markerWidth: "5",
+    markerHeight: "5",
+    orient: "auto"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M0,0 L8,4 L0,8 z",
+    fill: T.borderStrong
+  }))), edgePaths.map((e, i) => {
+    const fromMod = modules.find(m => m.id === e.from);
+    const cluster = fromMod ? fromMod.cluster : "modified";
+    const dim = (selected || hover) && !(connectedIds.has(e.from) && connectedIds.has(e.to));
+    const color = dim ? T.borderStrong : CLUSTERS[cluster].color;
+    return /*#__PURE__*/React.createElement("path", {
+      key: i,
+      d: e.d,
+      fill: "none",
+      stroke: color,
+      strokeWidth: dim ? 1 : 1.4,
+      opacity: dim ? 0.4 : 0.75,
+      markerEnd: dim ? "url(#arr-dim)" : `url(#arr-${cluster})`
+    });
+  }), modules.map(m => {
+    const p = positions[m.id];
+    if (!p) return null;
+    const c = CLUSTERS[m.cluster];
+    const isSel = selected === m.id;
+    const isHover = hover === m.id;
+    const dim = (selected || hover) && !connectedIds.has(m.id);
+    return /*#__PURE__*/React.createElement("g", {
+      key: m.id,
+      transform: `translate(${p.x},${p.y})`,
+      onClick: () => onSelect(m.id),
+      onMouseEnter: () => onHover(m.id),
+      onMouseLeave: () => onHover(null),
+      style: {
+        cursor: "pointer",
+        opacity: dim ? 0.35 : 1,
+        transition: "opacity 0.15s"
+      }
+    }, /*#__PURE__*/React.createElement("rect", {
+      width: p.w,
+      height: p.h,
+      rx: "6",
+      ry: "6",
+      fill: c.bg,
+      stroke: isSel ? T.ink : isHover ? c.color : c.border,
+      strokeWidth: isSel ? 2 : isHover ? 1.5 : 1
+    }), /*#__PURE__*/React.createElement("rect", {
+      x: "0",
+      y: "0",
+      width: "3",
+      height: p.h,
+      rx: "2",
+      fill: c.color
+    }), /*#__PURE__*/React.createElement("text", {
+      x: p.w / 2,
+      y: "20",
+      textAnchor: "middle",
+      fontSize: "11",
+      fontWeight: "600",
+      fill: T.ink,
+      fontFamily: T.font
+    }, m.name.length > 16 ? m.name.slice(0, 15) + "…" : m.name), /*#__PURE__*/React.createElement("text", {
+      x: p.w / 2,
+      y: "35",
+      textAnchor: "middle",
+      fontSize: "9",
+      fill: c.color,
+      fontFamily: T.mono,
+      fontWeight: "500"
+    }, "+", m.additions, " \u2212", m.deletions), /*#__PURE__*/React.createElement("text", {
+      x: p.w / 2,
+      y: "46",
+      textAnchor: "middle",
+      fontSize: "8",
+      fill: T.ink3,
+      fontFamily: T.mono
+    }, m.functions.length, " fn"));
+  }));
+}
+
+// ─────────── Side Panel ───────────
+function SidePanel({
+  module: m
+}) {
+  if (!m) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderLeft: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  });
+  const c = CLUSTERS[m.cluster];
+  const diff = SAMPLE_DIFF[m.id];
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderLeft: `1px solid ${T.border}`,
+      background: "#fff",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "16px 18px",
+      borderBottom: `1px solid ${T.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 600,
+      color: c.color,
+      background: c.bg,
+      border: `1px solid ${c.border}`,
+      padding: "2px 7px",
+      borderRadius: 99,
+      letterSpacing: 0.5,
+      textTransform: "uppercase"
+    }
+  }, c.short), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: T.ink3,
+      fontFamily: T.mono,
+      padding: "2px 6px",
+      background: T.bgAlt,
+      borderRadius: 4
+    }
+  }, LAYERS[m.layer].label)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 16,
+      fontWeight: 600,
+      letterSpacing: -0.3,
+      color: T.ink,
+      marginBottom: 4,
+      textWrap: "pretty"
+    }
+  }, m.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      fontFamily: T.mono,
+      color: T.ink3,
+      wordBreak: "break-all"
+    }
+  }, m.path), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 14,
+      marginTop: 12,
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.added,
+      fontWeight: 600,
+      fontFamily: T.mono
+    }
+  }, "+", m.additions), " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink3
+    }
+  }, "\u8FFD\u52A0")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.removed,
+      fontWeight: 600,
+      fontFamily: T.mono
+    }
+  }, "\u2212", m.deletions), " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink3
+    }
+  }, "\u524A\u9664")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink,
+      fontWeight: 600,
+      fontFamily: T.mono
+    }
+  }, m.loc), " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink3
+    }
+  }, "LOC")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 18px",
+      borderBottom: `1px solid ${T.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontWeight: 600,
+      marginBottom: 8,
+      letterSpacing: 0.5
+    }
+  }, "\u5909\u66F4\u3055\u308C\u305F\u95A2\u6570 (", m.functions.length, ")"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, m.functions.map((fn, i) => {
+    const fc = CLUSTERS[fn.change] || CLUSTERS.modified;
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 8px",
+        background: T.bgAlt,
+        borderRadius: 5
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 14,
+        height: 14,
+        borderRadius: 3,
+        background: fc.bg,
+        border: `1px solid ${fc.border}`,
+        color: fc.color,
+        fontSize: 10,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 700
+      }
+    }, fc.icon), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.mono,
+        fontSize: 12,
+        color: T.ink,
+        flex: 1
+      }
+    }, fn.name), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: fc.color,
+        textTransform: "uppercase",
+        fontWeight: 600,
+        letterSpacing: 0.4
+      }
+    }, fc.short));
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      overflow: "auto",
+      background: T.bgAlt
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 18px",
+      fontSize: 11,
+      color: T.ink3,
+      fontWeight: 600,
+      letterSpacing: 0.5,
+      position: "sticky",
+      top: 0,
+      background: T.bgAlt,
+      borderBottom: `1px solid ${T.border}`
+    }
+  }, "DIFF \u30D7\u30EC\u30D3\u30E5\u30FC"), diff ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: T.mono,
+      fontSize: 11,
+      lineHeight: 1.55
+    }
+  }, diff.hunks.map((h, hi) => /*#__PURE__*/React.createElement("div", {
+    key: hi
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "4px 18px",
+      background: "#e0e7ff",
+      color: "#3730a3",
+      fontSize: 10
+    }
+  }, h.header), h.lines.map((ln, li) => {
+    const bg = ln.kind === "add" ? "#ecfdf5" : ln.kind === "del" ? "#fef2f2" : "transparent";
+    const sign = ln.kind === "add" ? "+" : ln.kind === "del" ? "−" : " ";
+    const col = ln.kind === "add" ? T.added : ln.kind === "del" ? T.removed : T.ink2;
+    return /*#__PURE__*/React.createElement("div", {
+      key: li,
+      style: {
+        display: "flex",
+        background: bg
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 32,
+        padding: "0 8px",
+        textAlign: "right",
+        color: T.ink3,
+        fontSize: 10,
+        borderRight: `1px solid ${T.border}`
+      }
+    }, ln.n), /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 14,
+        textAlign: "center",
+        color: col,
+        fontWeight: 600
+      }
+    }, sign), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        padding: "0 8px",
+        color: T.ink,
+        whiteSpace: "pre"
+      }
+    }, ln.text));
+  })))) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "20px 18px",
+      fontSize: 12,
+      color: T.ink3,
+      fontStyle: "italic"
+    }
+  }, "\u3053\u306E\u30E2\u30B8\u30E5\u30FC\u30EB\u306Ediff\u30D7\u30EC\u30D3\u30E5\u30FC\u306F\u30B5\u30F3\u30D7\u30EB\u306B\u542B\u307E\u308C\u3066\u3044\u307E\u305B\u3093\u3002", /*#__PURE__*/React.createElement("br", null), "\u5B9F\u969B\u306E\u30C4\u30FC\u30EB\u3067\u306F GitHub API \u304B\u3089\u53D6\u5F97\u3057\u307E\u3059\u3002")));
+}
+window.VariantA = VariantA;</script>
+<script>// variant-b.jsx — 案B: スイムレーン式 — 4クラスタを縦レーンに分けて視覚化
+// 横軸: 4クラスタ (added / modified / refactor / removed)
+// 縦軸: 4レイヤ (UI / Domain / Data / Infra)
+// 同じセルに属するモジュールを並べる + クロスレーンエッジで依存関係を見せる
+
+function VariantB() {
+  const [selected, setSelected] = React.useState("m11");
+  const [hover, setHover] = React.useState(null);
+  const layout = React.useMemo(() => computeSwimlaneLayout(MODULES, EDGES, {
+    nodeWidth: 142,
+    nodeHeight: 44,
+    layerGapY: 100,
+    nodeGapY: 8,
+    laneGapX: 22,
+    headerH: 56
+  }), []);
+  const highlightId = hover || selected;
+  const connectedIds = React.useMemo(() => {
+    if (!highlightId) return new Set();
+    const s = new Set([highlightId]);
+    for (const [a, b] of EDGES) {
+      if (a === highlightId) s.add(b);
+      if (b === highlightId) s.add(a);
+    }
+    return s;
+  }, [highlightId]);
+  const sel = MODULES.find(m => m.id === selected);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      height: "100%",
+      background: T.bg,
+      fontFamily: T.font,
+      color: T.ink,
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "12px 24px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(Brand, {
+    size: 15
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 20,
+      background: T.border
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: T.ink,
+      letterSpacing: -0.2
+    }
+  }, PR_META.title), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontFamily: T.mono,
+      marginTop: 1
+    }
+  }, PR_META.repo, " #", PR_META.number, " \xB7 \u30B9\u30A4\u30E0\u30EC\u30FC\u30F3\u8868\u793A"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.added,
+      fontFamily: T.mono,
+      fontWeight: 500
+    }
+  }, "+", PR_META.additions), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.removed,
+      fontFamily: T.mono,
+      fontWeight: 500
+    }
+  }, "\u2212", PR_META.deletions), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 24,
+      height: 24,
+      borderRadius: 99,
+      background: T.brand,
+      color: "#fff",
+      fontSize: 10,
+      fontWeight: 600,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }
+  }, PR_META.authorAvatar))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 24px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff",
+      display: "grid",
+      gridTemplateColumns: "repeat(4, 1fr)",
+      gap: 12
+    }
+  }, Object.entries(CLUSTERS).map(([k, c]) => {
+    const stat = CLUSTER_STATS[k];
+    return /*#__PURE__*/React.createElement("div", {
+      key: k,
+      style: {
+        background: c.bg,
+        border: `1px solid ${c.border}`,
+        borderRadius: 10,
+        padding: "10px 14px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        background: "#fff",
+        color: c.color,
+        fontSize: 16,
+        fontWeight: 700,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }
+    }, c.icon), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: c.color,
+        letterSpacing: 0.3
+      }
+    }, c.label), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: T.ink2,
+        fontFamily: T.mono
+      }
+    }, stat.count, " mods \xB7 +", stat.additions, " \u2212", stat.deletions)));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "grid",
+      gridTemplateColumns: "1fr 360px",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative",
+      overflow: "auto",
+      background: T.bg
+    }
+  }, /*#__PURE__*/React.createElement(SwimlaneCanvas, {
+    modules: MODULES,
+    edges: EDGES,
+    layout: layout,
+    selected: selected,
+    hover: hover,
+    connectedIds: connectedIds,
+    onSelect: setSelected,
+    onHover: setHover
+  })), /*#__PURE__*/React.createElement(SidePanel, {
+    module: sel
+  })));
+}
+function SwimlaneCanvas({
+  modules,
+  edges,
+  layout,
+  selected,
+  hover,
+  connectedIds,
+  onSelect,
+  onHover
+}) {
+  const {
+    positions,
+    edgePaths,
+    totalWidth,
+    totalHeight,
+    layerYStarts,
+    layerHeights,
+    laneCols,
+    laneWidth,
+    laneGapX,
+    layerOrder,
+    laneOrder
+  } = layout;
+  return /*#__PURE__*/React.createElement("svg", {
+    width: totalWidth,
+    height: totalHeight,
+    style: {
+      display: "block",
+      minWidth: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("defs", null, Object.entries(CLUSTERS).map(([k, c]) => /*#__PURE__*/React.createElement("marker", {
+    key: k,
+    id: `arrB-${k}`,
+    viewBox: "0 0 8 8",
+    refX: "7",
+    refY: "4",
+    markerWidth: "6",
+    markerHeight: "6",
+    orient: "auto"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M0,0 L8,4 L0,8 z",
+    fill: c.color,
+    opacity: "0.7"
+  }))), /*#__PURE__*/React.createElement("marker", {
+    id: "arrB-dim",
+    viewBox: "0 0 8 8",
+    refX: "7",
+    refY: "4",
+    markerWidth: "5",
+    markerHeight: "5",
+    orient: "auto"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M0,0 L8,4 L0,8 z",
+    fill: T.borderStrong
+  }))), laneOrder.map((cl, ci) => {
+    const c = CLUSTERS[cl];
+    const x = laneCols[ci];
+    return /*#__PURE__*/React.createElement("g", {
+      key: cl
+    }, /*#__PURE__*/React.createElement("rect", {
+      x: x,
+      y: 40,
+      width: laneWidth + 28,
+      height: totalHeight - 60,
+      rx: "8",
+      fill: c.bg,
+      opacity: "0.35"
+    }), /*#__PURE__*/React.createElement("rect", {
+      x: x,
+      y: 40,
+      width: laneWidth + 28,
+      height: 32,
+      rx: "8",
+      fill: c.bg,
+      opacity: "0.85"
+    }), /*#__PURE__*/React.createElement("rect", {
+      x: x,
+      y: 56,
+      width: laneWidth + 28,
+      height: 16,
+      fill: c.bg,
+      opacity: "0.85"
+    }), /*#__PURE__*/React.createElement("text", {
+      x: x + (laneWidth + 28) / 2,
+      y: 60,
+      textAnchor: "middle",
+      fontSize: "12",
+      fontWeight: "700",
+      fill: c.color,
+      fontFamily: T.font,
+      letterSpacing: "0.5"
+    }, c.label.toUpperCase()));
+  }), layerOrder.map((ly, li) => {
+    const y = layerYStarts[li];
+    return /*#__PURE__*/React.createElement("g", {
+      key: ly
+    }, li > 0 && /*#__PURE__*/React.createElement("line", {
+      x1: 20,
+      y1: y - 6,
+      x2: totalWidth - 20,
+      y2: y - 6,
+      stroke: T.border,
+      strokeDasharray: "2 4"
+    }), /*#__PURE__*/React.createElement("text", {
+      x: 26,
+      y: y + 6,
+      fontSize: "10",
+      fontWeight: "600",
+      fill: T.ink3,
+      fontFamily: T.mono,
+      letterSpacing: "0.5"
+    }, LAYERS[ly].label.toUpperCase()));
+  }), edgePaths.map((e, i) => {
+    const fromMod = modules.find(m => m.id === e.from);
+    const cluster = fromMod ? fromMod.cluster : "modified";
+    const dim = (selected || hover) && !(connectedIds.has(e.from) && connectedIds.has(e.to));
+    return /*#__PURE__*/React.createElement("path", {
+      key: i,
+      d: e.d,
+      fill: "none",
+      stroke: dim ? T.borderStrong : CLUSTERS[cluster].color,
+      strokeWidth: dim ? 1 : 1.3,
+      opacity: dim ? 0.3 : e.sameLane ? 0.55 : 0.65,
+      strokeDasharray: e.sameLane ? "none" : "3 3",
+      markerEnd: dim ? "url(#arrB-dim)" : `url(#arrB-${cluster})`
+    });
+  }), modules.map(m => {
+    const p = positions[m.id];
+    if (!p) return null;
+    const c = CLUSTERS[m.cluster];
+    const isSel = selected === m.id;
+    const dim = (selected || hover) && !connectedIds.has(m.id);
+    return /*#__PURE__*/React.createElement("g", {
+      key: m.id,
+      transform: `translate(${p.x},${p.y})`,
+      onClick: () => onSelect(m.id),
+      onMouseEnter: () => onHover(m.id),
+      onMouseLeave: () => onHover(null),
+      style: {
+        cursor: "pointer",
+        opacity: dim ? 0.3 : 1
+      }
+    }, /*#__PURE__*/React.createElement("rect", {
+      width: p.w,
+      height: p.h,
+      rx: "5",
+      fill: "#fff",
+      stroke: isSel ? T.ink : c.border,
+      strokeWidth: isSel ? 2 : 1
+    }), /*#__PURE__*/React.createElement("rect", {
+      x: "0",
+      y: "0",
+      width: p.w,
+      height: "3",
+      rx: "2",
+      fill: c.color
+    }), /*#__PURE__*/React.createElement("text", {
+      x: "10",
+      y: "22",
+      fontSize: "11",
+      fontWeight: "600",
+      fill: T.ink,
+      fontFamily: T.font
+    }, m.name.length > 18 ? m.name.slice(0, 17) + "…" : m.name), /*#__PURE__*/React.createElement("text", {
+      x: "10",
+      y: "36",
+      fontSize: "9",
+      fill: T.ink3,
+      fontFamily: T.mono
+    }, /*#__PURE__*/React.createElement("tspan", {
+      fill: T.added
+    }, "+", m.additions), /*#__PURE__*/React.createElement("tspan", null, " "), /*#__PURE__*/React.createElement("tspan", {
+      fill: T.removed
+    }, "\u2212", m.deletions), /*#__PURE__*/React.createElement("tspan", {
+      fill: T.ink3
+    }, " \xB7 ", m.functions.length, "fn")));
+  }));
+}
+window.VariantB = VariantB;</script>
+<script>// variant-c.jsx — 案C: ダッシュボード型サマリー
+// 4クラスタを4象限に分けて、各セクションにモジュールカードを並べる
+// グラフは中央に小さめのオーバービュー、左右に統計
+
+function VariantC() {
+  const [selected, setSelected] = React.useState("m11");
+  const [activeCluster, setActiveCluster] = React.useState(null);
+  const sel = MODULES.find(m => m.id === selected);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      height: "100%",
+      background: T.bg,
+      fontFamily: T.font,
+      color: T.ink,
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "10px 24px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement(Brand, {
+    size: 14
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 18,
+      background: T.border
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      color: T.ink,
+      letterSpacing: -0.2
+    }
+  }, PR_META.title)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      fontSize: 11,
+      color: T.ink3,
+      fontFamily: T.mono
+    }
+  }, /*#__PURE__*/React.createElement("span", null, PR_META.repo, "#", PR_META.number), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.added
+    }
+  }, "+", PR_META.additions), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.removed
+    }
+  }, "\u2212", PR_META.deletions))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 20px",
+      background: "#fff",
+      borderBottom: `1px solid ${T.border}`,
+      display: "grid",
+      gridTemplateColumns: "1.4fr repeat(4, 1fr)",
+      gap: 12,
+      alignItems: "stretch"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: T.ink,
+      color: "#fff",
+      borderRadius: 10,
+      padding: "12px 16px",
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "space-between"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      opacity: 0.6,
+      fontWeight: 500,
+      letterSpacing: 0.4
+    }
+  }, "\u5909\u66F4\u30E2\u30B8\u30E5\u30FC\u30EB\u7DCF\u6570"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 8,
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 32,
+      fontWeight: 600,
+      fontVariantNumeric: "tabular-nums",
+      letterSpacing: -1
+    }
+  }, MODULES.length), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      opacity: 0.5
+    }
+  }, "modules")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      opacity: 0.55,
+      fontFamily: T.mono,
+      marginTop: 4
+    }
+  }, EDGES.length, " \u4F9D\u5B58\u30A8\u30C3\u30B8 \xB7 ", PR_META.commits, " commits")), Object.entries(CLUSTERS).map(([k, c]) => {
+    const stat = CLUSTER_STATS[k];
+    const active = activeCluster === k;
+    return /*#__PURE__*/React.createElement("button", {
+      key: k,
+      onClick: () => setActiveCluster(active ? null : k),
+      style: {
+        background: active ? c.color : c.bg,
+        color: active ? "#fff" : c.color,
+        border: `1px solid ${active ? c.color : c.border}`,
+        borderRadius: 10,
+        padding: "12px 14px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        fontFamily: "inherit",
+        cursor: "pointer",
+        textAlign: "left",
+        transition: "all 0.15s"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: 0.5
+      }
+    }, c.label.toUpperCase()), /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 20,
+        height: 20,
+        borderRadius: 5,
+        background: active ? "rgba(255,255,255,0.2)" : "#fff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 12,
+        fontWeight: 700
+      }
+    }, c.icon)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        gap: 6,
+        marginTop: 8
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 28,
+        fontWeight: 600,
+        fontVariantNumeric: "tabular-nums",
+        letterSpacing: -0.8
+      }
+    }, stat.count), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        opacity: 0.7
+      }
+    }, "mods")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        fontFamily: T.mono,
+        opacity: active ? 0.85 : 0.7,
+        marginTop: 2
+      }
+    }, "+", stat.additions, " \u2212", stat.deletions));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gridTemplateRows: "1fr 1fr",
+      gap: 12,
+      padding: 16,
+      overflow: "hidden"
+    }
+  }, Object.entries(CLUSTERS).map(([k, c]) => /*#__PURE__*/React.createElement(ClusterQuadrant, {
+    key: k,
+    cluster: k,
+    meta: c,
+    modules: MODULES.filter(m => m.cluster === k),
+    selected: selected,
+    dim: activeCluster && activeCluster !== k,
+    onSelect: setSelected
+  }))));
+}
+function ClusterQuadrant({
+  cluster,
+  meta,
+  modules,
+  selected,
+  dim,
+  onSelect
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#fff",
+      borderRadius: 12,
+      border: `1px solid ${T.border}`,
+      borderLeft: `3px solid ${meta.color}`,
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+      opacity: dim ? 0.4 : 1,
+      transition: "opacity 0.15s"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 14px",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderBottom: `1px solid ${T.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 22,
+      height: 22,
+      borderRadius: 5,
+      background: meta.bg,
+      color: meta.color,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 700,
+      fontSize: 12
+    }
+  }, meta.icon), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: T.ink
+    }
+  }, meta.label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontFamily: T.mono
+    }
+  }, "\xB7 ", modules.length, " modules")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      fontFamily: T.mono,
+      color: T.ink3
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.added
+    }
+  }, "+", modules.reduce((s, m) => s + m.additions, 0)), " ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.removed
+    }
+  }, "\u2212", modules.reduce((s, m) => s + m.deletions, 0)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      overflowY: "auto",
+      padding: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+      gap: 6
+    }
+  }, modules.map(m => {
+    const isSel = selected === m.id;
+    const max = Math.max(...modules.map(x => x.additions + x.deletions), 1);
+    const intensity = (m.additions + m.deletions) / max;
+    const total = m.additions + m.deletions;
+    return /*#__PURE__*/React.createElement("button", {
+      key: m.id,
+      onClick: () => onSelect(m.id),
+      style: {
+        background: isSel ? meta.bg : "#fff",
+        border: `1px solid ${isSel ? meta.color : T.border}`,
+        borderRadius: 7,
+        padding: "8px 10px",
+        cursor: "pointer",
+        textAlign: "left",
+        fontFamily: "inherit",
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        position: "relative",
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "absolute",
+        left: 0,
+        bottom: 0,
+        height: 2,
+        width: `${intensity * 100}%`,
+        background: meta.color,
+        opacity: 0.5
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: T.ink,
+        lineHeight: 1.2,
+        textWrap: "pretty"
+      }
+    }, m.name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        fontFamily: T.mono,
+        color: T.ink3,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center"
+      }
+    }, /*#__PURE__*/React.createElement("span", null, LAYERS[m.layer].label), /*#__PURE__*/React.createElement("span", null, m.additions > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.added
+      }
+    }, "+", m.additions), m.additions > 0 && m.deletions > 0 && " ", m.deletions > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.removed
+      }
+    }, "\u2212", m.deletions))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 2,
+        marginTop: 2
+      }
+    }, m.functions.slice(0, 8).map((fn, i) => {
+      const fc = CLUSTERS[fn.change] || CLUSTERS.modified;
+      return /*#__PURE__*/React.createElement("div", {
+        key: i,
+        style: {
+          flex: 1,
+          height: 3,
+          borderRadius: 1,
+          background: fc.color,
+          opacity: 0.7
+        },
+        title: fn.name
+      });
+    })));
+  }))));
+}
+window.VariantC = VariantC;</script>
+<script>// impact.jsx — diff影響範囲の計算 + 可視化案D
+// 「変更されたモジュール」を起点に、依存元（呼び出し側）へ何hop伝播するかを計算
+
+// 影響範囲を計算: 変更ノード集合から、エッジを「依存される→依存する」逆方向に辿る
+// 結果: { moduleId: { hop: 0|1|2|3..., source: changedModuleId } }
+// hop=0: 自分自身が変更されたモジュール
+// hop>=1: 変更モジュールに依存している（影響を受ける可能性あり）
+function computeImpact(modules, edges, changedClusters = ["added", "removed", "modified", "refactor"]) {
+  const isChanged = new Set(modules.filter(m => changedClusters.includes(m.cluster)).map(m => m.id));
+  // 逆向きエッジ: m -> [依存しているモジュール群]
+  const reverseAdj = {};
+  for (const [a, b] of edges) {
+    // a -> b の意味は「a が b を使う / 依存する」
+    // つまり b が変わると a が影響を受ける
+    if (!reverseAdj[b]) reverseAdj[b] = [];
+    reverseAdj[b].push(a);
+  }
+  const impact = {};
+  for (const m of modules) {
+    if (isChanged.has(m.id)) {
+      impact[m.id] = {
+        hop: 0,
+        fromChange: true
+      };
+    }
+  }
+  // BFS
+  let frontier = Array.from(isChanged);
+  let hop = 0;
+  while (frontier.length > 0 && hop < 5) {
+    hop++;
+    const next = [];
+    for (const id of frontier) {
+      const callers = reverseAdj[id] || [];
+      for (const c of callers) {
+        if (impact[c] === undefined || impact[c].hop > hop) {
+          impact[c] = {
+            hop,
+            fromChange: isChanged.has(c)
+          };
+          next.push(c);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return impact;
+}
+const IMPACT_LEVELS = {
+  0: {
+    label: "変更",
+    color: "#0f766e",
+    bg: "#ccfbf1",
+    border: "#5eead4"
+  },
+  1: {
+    label: "直接影響",
+    color: "#ea580c",
+    bg: "#ffedd5",
+    border: "#fdba74"
+  },
+  2: {
+    label: "2hop",
+    color: "#ca8a04",
+    bg: "#fef9c3",
+    border: "#fde047"
+  },
+  3: {
+    label: "3hop+",
+    color: "#65a30d",
+    bg: "#ecfccb",
+    border: "#bef264"
+  },
+  none: {
+    label: "影響なし",
+    color: "#a8a29e",
+    bg: "#f5f5f4",
+    border: "#e7e5e4"
+  }
+};
+function impactLevel(impactEntry) {
+  if (!impactEntry) return "none";
+  if (impactEntry.hop === 0) return 0;
+  if (impactEntry.hop === 1) return 1;
+  if (impactEntry.hop === 2) return 2;
+  return 3;
+}
+
+// ─────────── 案D: 影響範囲ヒートマップビュー ───────────
+function VariantD() {
+  const [selected, setSelected] = React.useState("m9");
+  const [hover, setHover] = React.useState(null);
+  const [mode, setMode] = React.useState("change"); // change|select
+
+  const impact = React.useMemo(() => computeImpact(MODULES, EDGES), []);
+
+  // 選択モジュールの波紋（選択モード時用）
+  const ripple = React.useMemo(() => {
+    if (mode !== "select") return null;
+    return computeImpact(MODULES, EDGES, []).constructor === Object ? computeImpactFrom(selected, MODULES, EDGES) : null;
+  }, [mode, selected]);
+  const layout = React.useMemo(() => computeDagLayout(MODULES, EDGES, {
+    nodeWidth: 130,
+    nodeHeight: 48,
+    layerGapY: 110,
+    nodeGapX: 10
+  }), []);
+  const sel = MODULES.find(m => m.id === selected);
+  const activeImpact = mode === "select" ? ripple : impact;
+
+  // 影響統計
+  const impactStats = React.useMemo(() => {
+    const counts = {
+      0: 0,
+      1: 0,
+      2: 0,
+      3: 0,
+      none: 0
+    };
+    for (const m of MODULES) {
+      const lv = impactLevel(activeImpact && activeImpact[m.id]);
+      counts[lv]++;
+    }
+    return counts;
+  }, [activeImpact]);
+
+  // 各モジュールの影響を受ける関数の数の概算
+  const totalAffected = (impactStats[1] || 0) + (impactStats[2] || 0) + (impactStats[3] || 0);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      height: "100%",
+      background: T.bg,
+      fontFamily: T.font,
+      color: T.ink,
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "12px 24px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement(Brand, {
+    size: 15
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 20,
+      background: T.border
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: T.ink,
+      letterSpacing: -0.2
+    }
+  }, "\u5F71\u97FF\u7BC4\u56F2\u30D3\u30E5\u30FC \u2014 ", PR_META.title), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontFamily: T.mono,
+      marginTop: 1
+    }
+  }, PR_META.repo, " #", PR_META.number, " \xB7 diff\u4F1D\u64AD\u89E3\u6790"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 4,
+      background: T.bgAlt,
+      borderRadius: 8,
+      padding: 3
+    }
+  }, [{
+    k: "change",
+    label: "変更全体の影響"
+  }, {
+    k: "select",
+    label: "選択モジュールの波紋"
+  }].map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.k,
+    onClick: () => setMode(t.k),
+    style: {
+      padding: "6px 12px",
+      borderRadius: 6,
+      border: "none",
+      cursor: "pointer",
+      fontFamily: "inherit",
+      fontSize: 12,
+      fontWeight: mode === t.k ? 600 : 500,
+      background: mode === t.k ? "#fff" : "transparent",
+      color: mode === t.k ? T.ink : T.ink3,
+      boxShadow: mode === t.k ? "0 1px 2px rgba(0,0,0,0.06)" : "none"
+    }
+  }, t.label)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 24px",
+      borderBottom: `1px solid ${T.border}`,
+      background: "#fff",
+      display: "flex",
+      gap: 10,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontWeight: 600,
+      letterSpacing: 0.5
+    }
+  }, "\u5F71\u97FF\u5EA6\u5206\u5E03"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      height: 24,
+      background: T.bgAlt,
+      borderRadius: 6,
+      overflow: "hidden",
+      display: "flex"
+    }
+  }, [0, 1, 2, 3, "none"].map(lv => {
+    const il = IMPACT_LEVELS[lv];
+    const count = impactStats[lv];
+    const pct = count / MODULES.length * 100;
+    if (pct === 0) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      key: lv,
+      style: {
+        width: `${pct}%`,
+        background: il.color,
+        opacity: lv === "none" ? 0.25 : 0.85,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: lv === "none" ? T.ink3 : "#fff",
+        fontSize: 10,
+        fontWeight: 600,
+        fontFamily: T.mono
+      }
+    }, pct > 6 ? `${il.label} ${count}` : count);
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink2,
+      fontFamily: T.mono
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.ink,
+      fontWeight: 600
+    }
+  }, totalAffected), " / ", MODULES.length, " \u4EF6\u304C\u5F71\u97FF\u3092\u53D7\u3051\u308B\u53EF\u80FD\u6027")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: "grid",
+      gridTemplateColumns: "1fr 320px",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative",
+      overflow: "auto",
+      background: T.bg
+    }
+  }, /*#__PURE__*/React.createElement(ImpactGraph, {
+    modules: MODULES,
+    edges: EDGES,
+    layout: layout,
+    impact: activeImpact,
+    selected: selected,
+    hover: hover,
+    mode: mode,
+    onSelect: setSelected,
+    onHover: setHover
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      right: 14,
+      bottom: 14,
+      background: "#fff",
+      border: `1px solid ${T.border}`,
+      borderRadius: 8,
+      padding: "10px 14px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+      fontSize: 11
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 600,
+      marginBottom: 8,
+      color: T.ink2
+    }
+  }, "\u5F71\u97FF\u5EA6"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, [0, 1, 2, 3, "none"].map(lv => {
+    const il = IMPACT_LEVELS[lv];
+    return /*#__PURE__*/React.createElement("div", {
+      key: lv,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 12,
+        height: 12,
+        borderRadius: 3,
+        background: il.bg,
+        border: `1.5px solid ${il.border}`
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: T.ink2
+      }
+    }, il.label), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.mono,
+        color: T.ink3,
+        marginLeft: "auto"
+      }
+    }, impactStats[lv]));
+  })))), /*#__PURE__*/React.createElement(ImpactPanel, {
+    module: sel,
+    impact: activeImpact,
+    mode: mode
+  })));
+}
+
+// 選択モジュールから下流（依存元）へ伝播
+function computeImpactFrom(rootId, modules, edges) {
+  const reverseAdj = {};
+  for (const [a, b] of edges) {
+    if (!reverseAdj[b]) reverseAdj[b] = [];
+    reverseAdj[b].push(a);
+  }
+  const impact = {
+    [rootId]: {
+      hop: 0,
+      fromChange: true
+    }
+  };
+  let frontier = [rootId];
+  let hop = 0;
+  while (frontier.length > 0 && hop < 5) {
+    hop++;
+    const next = [];
+    for (const id of frontier) {
+      const callers = reverseAdj[id] || [];
+      for (const c of callers) {
+        if (impact[c] === undefined) {
+          impact[c] = {
+            hop,
+            fromChange: false
+          };
+          next.push(c);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return impact;
+}
+function ImpactGraph({
+  modules,
+  edges,
+  layout,
+  impact,
+  selected,
+  hover,
+  mode,
+  onSelect,
+  onHover
+}) {
+  const {
+    positions,
+    edgePaths,
+    totalWidth,
+    totalHeight
+  } = layout;
+  return /*#__PURE__*/React.createElement("svg", {
+    width: totalWidth,
+    height: totalHeight,
+    style: {
+      display: "block",
+      minWidth: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("defs", null, Object.entries(IMPACT_LEVELS).map(([k, il]) => /*#__PURE__*/React.createElement("marker", {
+    key: k,
+    id: `imp-arr-${k}`,
+    viewBox: "0 0 8 8",
+    refX: "7",
+    refY: "4",
+    markerWidth: "6",
+    markerHeight: "6",
+    orient: "auto"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M0,0 L8,4 L0,8 z",
+    fill: il.color,
+    opacity: "0.7"
+  })))), edgePaths.map((e, i) => {
+    const aLv = impactLevel(impact && impact[e.from]);
+    const bLv = impactLevel(impact && impact[e.to]);
+    // 影響伝播エッジ: 両端ともにimpactあり
+    const isRipple = aLv !== "none" && bLv !== "none";
+    const il = IMPACT_LEVELS[isRipple ? Math.max(typeof aLv === "number" ? aLv : 0, typeof bLv === "number" ? bLv : 0) : "none"];
+    return /*#__PURE__*/React.createElement("path", {
+      key: i,
+      d: e.d,
+      fill: "none",
+      stroke: isRipple ? il.color : T.borderStrong,
+      strokeWidth: isRipple ? 1.6 : 0.8,
+      opacity: isRipple ? 0.8 : 0.3,
+      markerEnd: `url(#imp-arr-${isRipple ? typeof aLv === "number" ? aLv : 0 : "none"})`
+    });
+  }), modules.map(m => {
+    const p = positions[m.id];
+    if (!p) return null;
+    const lv = impactLevel(impact && impact[m.id]);
+    const il = IMPACT_LEVELS[lv];
+    const isSel = selected === m.id;
+    const cluster = CLUSTERS[m.cluster];
+    return /*#__PURE__*/React.createElement("g", {
+      key: m.id,
+      transform: `translate(${p.x},${p.y})`,
+      onClick: () => onSelect(m.id),
+      onMouseEnter: () => onHover(m.id),
+      onMouseLeave: () => onHover(null),
+      style: {
+        cursor: "pointer"
+      }
+    }, typeof lv === "number" && lv >= 1 && /*#__PURE__*/React.createElement("rect", {
+      x: "-4",
+      y: "-4",
+      width: p.w + 8,
+      height: p.h + 8,
+      rx: "9",
+      fill: "none",
+      stroke: il.color,
+      strokeWidth: "1.5",
+      opacity: 0.4 - lv * 0.08,
+      strokeDasharray: "3 3"
+    }), /*#__PURE__*/React.createElement("rect", {
+      width: p.w,
+      height: p.h,
+      rx: "6",
+      fill: il.bg,
+      stroke: isSel ? T.ink : il.border,
+      strokeWidth: isSel ? 2 : 1.2,
+      opacity: lv === "none" ? 0.55 : 1
+    }), typeof lv === "number" && /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("circle", {
+      cx: p.w - 10,
+      cy: "10",
+      r: "8",
+      fill: il.color
+    }), /*#__PURE__*/React.createElement("text", {
+      x: p.w - 10,
+      y: "13",
+      textAnchor: "middle",
+      fontSize: "9",
+      fontWeight: "700",
+      fill: "#fff",
+      fontFamily: T.mono
+    }, lv)), /*#__PURE__*/React.createElement("rect", {
+      x: "0",
+      y: "0",
+      width: "3",
+      height: p.h,
+      rx: "2",
+      fill: cluster.color,
+      opacity: lv === "none" ? 0.3 : 0.8
+    }), /*#__PURE__*/React.createElement("text", {
+      x: "9",
+      y: "18",
+      fontSize: "11",
+      fontWeight: "600",
+      fill: T.ink,
+      fontFamily: T.font,
+      opacity: lv === "none" ? 0.5 : 1
+    }, m.name.length > 17 ? m.name.slice(0, 16) + "…" : m.name), /*#__PURE__*/React.createElement("text", {
+      x: "9",
+      y: "32",
+      fontSize: "9",
+      fill: il.color,
+      fontFamily: T.mono,
+      fontWeight: "500",
+      opacity: lv === "none" ? 0.5 : 1
+    }, lv === 0 ? "● 変更元" : lv === "none" ? "影響なし" : `${lv}-hop 影響`), /*#__PURE__*/React.createElement("text", {
+      x: "9",
+      y: "42",
+      fontSize: "8",
+      fill: T.ink3,
+      fontFamily: T.mono,
+      opacity: 0.7
+    }, LAYERS[m.layer].label, " \xB7 ", m.functions.length, "fn"));
+  }));
+}
+function ImpactPanel({
+  module: m,
+  impact,
+  mode
+}) {
+  if (!m) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderLeft: `1px solid ${T.border}`,
+      background: "#fff"
+    }
+  });
+  const lv = impactLevel(impact && impact[m.id]);
+  const il = IMPACT_LEVELS[lv];
+  const cluster = CLUSTERS[m.cluster];
+
+  // この選択モジュールが影響を及ぼすモジュール一覧
+  const downstream = [];
+  const upstream = [];
+  for (const [a, b] of EDGES) {
+    if (a === m.id) downstream.push(b);
+    if (b === m.id) upstream.push(a);
+  }
+  const downstreamMods = downstream.map(id => MODULES.find(x => x.id === id)).filter(Boolean);
+  const upstreamMods = upstream.map(id => MODULES.find(x => x.id === id)).filter(Boolean);
+
+  // hop別の影響先
+  const buckets = {
+    1: [],
+    2: [],
+    3: []
+  };
+  if (mode === "select") {
+    for (const mod of MODULES) {
+      const e = impact && impact[mod.id];
+      if (!e || e.hop === 0) continue;
+      const b = e.hop >= 3 ? 3 : e.hop;
+      buckets[b].push(mod);
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderLeft: `1px solid ${T.border}`,
+      background: "#fff",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "16px 18px",
+      borderBottom: `1px solid ${T.border}`,
+      background: il.bg
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      color: il.color,
+      background: "#fff",
+      padding: "2px 8px",
+      borderRadius: 99,
+      letterSpacing: 0.4,
+      textTransform: "uppercase"
+    }
+  }, il.label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: cluster.color,
+      background: "#fff",
+      border: `1px solid ${cluster.border}`,
+      padding: "2px 7px",
+      borderRadius: 99,
+      fontWeight: 600
+    }
+  }, cluster.short), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: T.ink3,
+      fontFamily: T.mono,
+      padding: "2px 6px",
+      background: "rgba(255,255,255,0.6)",
+      borderRadius: 4
+    }
+  }, LAYERS[m.layer].label)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 16,
+      fontWeight: 600,
+      letterSpacing: -0.3,
+      color: T.ink,
+      marginBottom: 4
+    }
+  }, m.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      fontFamily: T.mono,
+      color: T.ink3,
+      wordBreak: "break-all"
+    }
+  }, m.path)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      overflow: "auto",
+      padding: "12px 18px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontWeight: 600,
+      letterSpacing: 0.5,
+      marginBottom: 8
+    }
+  }, mode === "select" ? "このモジュールの波紋" : "依存関係サマリー"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 12px",
+      background: T.bgAlt,
+      borderRadius: 7
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: T.ink3,
+      fontWeight: 600
+    }
+  }, "\u2191 \u4F9D\u5B58\u5143\uFF08\u5F71\u97FF\u3092\u53D7\u3051\u308B\uFF09"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      fontWeight: 600,
+      color: T.ink,
+      fontVariantNumeric: "tabular-nums",
+      letterSpacing: -0.4
+    }
+  }, upstreamMods.length)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 12px",
+      background: T.bgAlt,
+      borderRadius: 7
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: T.ink3,
+      fontWeight: 600
+    }
+  }, "\u2193 \u4F9D\u5B58\u5148\uFF08\u5F71\u97FF\u3092\u4E0E\u3048\u308B\uFF09"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      fontWeight: 600,
+      color: T.ink,
+      fontVariantNumeric: "tabular-nums",
+      letterSpacing: -0.4
+    }
+  }, downstreamMods.length)))), mode === "select" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontWeight: 600,
+      letterSpacing: 0.5,
+      marginBottom: 8
+    }
+  }, "\u5F71\u97FF\u7BC4\u56F2\uFF08hop\u5225\uFF09"), [1, 2, 3].map(hop => {
+    const list = buckets[hop];
+    const il2 = IMPACT_LEVELS[hop];
+    if (list.length === 0) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      key: hop,
+      style: {
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 4
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 18,
+        height: 18,
+        borderRadius: 4,
+        background: il2.color,
+        color: "#fff",
+        fontSize: 10,
+        fontWeight: 700,
+        fontFamily: T.mono,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }
+    }, hop), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: T.ink2,
+        fontWeight: 600
+      }
+    }, il2.label), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: T.ink3,
+        fontFamily: T.mono
+      }
+    }, list.length, "\u4EF6")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 4
+      }
+    }, list.map(mod => /*#__PURE__*/React.createElement("div", {
+      key: mod.id,
+      style: {
+        padding: "3px 7px",
+        background: il2.bg,
+        border: `1px solid ${il2.border}`,
+        color: il2.color,
+        borderRadius: 4,
+        fontSize: 10,
+        fontFamily: T.mono,
+        fontWeight: 500
+      }
+    }, mod.name))));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontWeight: 600,
+      letterSpacing: 0.5,
+      marginBottom: 6
+    }
+  }, "\u2191 \u4F9D\u5B58\u5143 (", upstreamMods.length, ")"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 3
+    }
+  }, upstreamMods.slice(0, 6).map(mod => {
+    const ml = impactLevel(impact && impact[mod.id]);
+    const mil = IMPACT_LEVELS[ml];
+    return /*#__PURE__*/React.createElement("div", {
+      key: mod.id,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 8px",
+        background: T.bgAlt,
+        borderRadius: 5,
+        fontSize: 11
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 6,
+        height: 6,
+        borderRadius: 99,
+        background: mil.color
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.mono,
+        color: T.ink,
+        flex: 1
+      }
+    }, mod.name), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: mil.color,
+        fontWeight: 600
+      }
+    }, typeof ml === "number" ? `${ml}hop` : ""));
+  }))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.ink3,
+      fontWeight: 600,
+      letterSpacing: 0.5,
+      marginBottom: 6
+    }
+  }, "\u5909\u66F4\u3055\u308C\u305F\u95A2\u6570"), m.functions.map((fn, i) => {
+    const fc = CLUSTERS[fn.change] || CLUSTERS.modified;
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 8px",
+        marginBottom: 3,
+        background: T.bgAlt,
+        borderRadius: 5
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 14,
+        height: 14,
+        borderRadius: 3,
+        background: fc.bg,
+        border: `1px solid ${fc.border}`,
+        color: fc.color,
+        fontSize: 10,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 700
+      }
+    }, fc.icon), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: T.mono,
+        fontSize: 11,
+        color: T.ink,
+        flex: 1
+      }
+    }, fn.name));
+  }))));
+}
+window.VariantD = VariantD;
+window.computeImpact = computeImpact;
+window.computeImpactFrom = computeImpactFrom;
+window.IMPACT_LEVELS = IMPACT_LEVELS;</script>
+
+<script>const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "showClusters": true,
+  "nodeDensity": "comfortable",
+  "panelPosition": "right",
+  "showLayerLabels": true
+} /*EDITMODE-END*/;
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DesignCanvas, null, /*#__PURE__*/React.createElement(DCSection, {
+    id: "flow",
+    title: "\u30E6\u30FC\u30B6\u30FC\u30D5\u30ED\u30FC",
+    subtitle: "\u30E9\u30F3\u30C7\u30A3\u30F3\u30B0 \u2192 \u30ED\u30B0\u30A4\u30F3\u5F8C PR\u5165\u529B \u2192 \u89E3\u6790\u4E2D"
+  }, /*#__PURE__*/React.createElement(DCArtboard, {
+    id: "landing",
+    label: "\u2460 \u30E9\u30F3\u30C7\u30A3\u30F3\u30B0",
+    width: 1080,
+    height: 780
+  }, /*#__PURE__*/React.createElement(Landing, null)), /*#__PURE__*/React.createElement(DCArtboard, {
+    id: "input",
+    label: "\u2461 PR\u5165\u529B (\u30ED\u30B0\u30A4\u30F3\u6E08\u307F)",
+    width: 1080,
+    height: 780
+  }, /*#__PURE__*/React.createElement(PrInput, null)), /*#__PURE__*/React.createElement(DCArtboard, {
+    id: "analyzing",
+    label: "\u2462 \u89E3\u6790\u4E2D",
+    width: 1080,
+    height: 780
+  }, /*#__PURE__*/React.createElement(Analyzing, null))), /*#__PURE__*/React.createElement(DCSection, {
+    id: "results",
+    title: "\u89E3\u6790\u7D50\u679C\u30D3\u30E5\u30FC",
+    subtitle: "3\u6848\u3092\u6BD4\u8F03 \u2014 \u30AF\u30EA\u30C3\u30AF\u3067\u30D5\u30A9\u30FC\u30AB\u30B9\u8868\u793A"
+  }, /*#__PURE__*/React.createElement(DCArtboard, {
+    id: "va",
+    label: "\u6848A \xB7 \u30AF\u30E9\u30B7\u30C3\u30AFDAG (\u53F3\u30D1\u30CD\u30EB)",
+    width: 1280,
+    height: 820
+  }, /*#__PURE__*/React.createElement(VariantA, null)), /*#__PURE__*/React.createElement(DCArtboard, {
+    id: "vb",
+    label: "\u6848B \xB7 \u30B9\u30A4\u30E0\u30EC\u30FC\u30F3 (4\u30AF\u30E9\u30B9\u30BF\u7E26\u5272\u308A)",
+    width: 1280,
+    height: 820
+  }, /*#__PURE__*/React.createElement(VariantB, null)), /*#__PURE__*/React.createElement(DCArtboard, {
+    id: "vc",
+    label: "\u6848C \xB7 \u30C0\u30C3\u30B7\u30E5\u30DC\u30FC\u30C9\u578B\u30B5\u30DE\u30EA\u30FC",
+    width: 1280,
+    height: 820
+  }, /*#__PURE__*/React.createElement(VariantC, null))), /*#__PURE__*/React.createElement(DCSection, {
+    id: "impact",
+    title: "\u5F71\u97FF\u7BC4\u56F2\u306E\u53EF\u8996\u5316",
+    subtitle: "diff\u306E\u4F1D\u64AD \u2014 \u4F55\u304C\u58CA\u308C\u308B\u53EF\u80FD\u6027\u304C\u3042\u308B\u304B"
+  }, /*#__PURE__*/React.createElement(DCArtboard, {
+    id: "vd",
+    label: "\u6848D \xB7 \u5F71\u97FF\u7BC4\u56F2\u30D2\u30FC\u30C8\u30DE\u30C3\u30D7 (hop\u5225\u306E\u6CE2\u7D0B)",
+    width: 1280,
+    height: 820
+  }, /*#__PURE__*/React.createElement(VariantD, null))), /*#__PURE__*/React.createElement(DCPostIt, {
+    top: 20,
+    left: 40,
+    rotate: -3,
+    width: 200
+  }, "\uFF13\u6848\u3068\u3082diff\u5B9A\u756A\u30AB\u30E9\u30FC\uFF08\u7DD1/\u8D64/\u6A59/\u7D2B\uFF09\u3067\u7D71\u4E00\u3002", /*#__PURE__*/React.createElement("br", null), "\u7528\u9014\u3067\u4F7F\u3044\u5206\u3051\u308B\u306E\u304C\u304A\u3059\u3059\u3081\u3002")), /*#__PURE__*/React.createElement(TweaksPanel, {
+    title: "Tweaks"
+  }, /*#__PURE__*/React.createElement(TweakSection, {
+    title: "\u8868\u793A"
+  }, /*#__PURE__*/React.createElement(TweakToggle, {
+    label: "\u30AF\u30E9\u30B9\u30BF\u8272\u3092\u8868\u793A",
+    value: tweaks.showClusters,
+    onChange: v => setTweak('showClusters', v)
+  }), /*#__PURE__*/React.createElement(TweakToggle, {
+    label: "\u30EC\u30A4\u30E4\u30E9\u30D9\u30EB",
+    value: tweaks.showLayerLabels,
+    onChange: v => setTweak('showLayerLabels', v)
+  })), /*#__PURE__*/React.createElement(TweakSection, {
+    title: "\u30B0\u30E9\u30D5"
+  }, /*#__PURE__*/React.createElement(TweakRadio, {
+    label: "\u30CE\u30FC\u30C9\u5BC6\u5EA6",
+    value: tweaks.nodeDensity,
+    options: [{
+      value: 'compact',
+      label: '密'
+    }, {
+      value: 'comfortable',
+      label: '標準'
+    }, {
+      value: 'spacious',
+      label: '疎'
+    }],
+    onChange: v => setTweak('nodeDensity', v)
+  })), /*#__PURE__*/React.createElement(TweakSection, {
+    title: "\u30B5\u30A4\u30C9\u30D1\u30CD\u30EB"
+  }, /*#__PURE__*/React.createElement(TweakRadio, {
+    label: "\u4F4D\u7F6E",
+    value: tweaks.panelPosition,
+    options: [{
+      value: 'right',
+      label: '右'
+    }, {
+      value: 'bottom',
+      label: '下'
+    }, {
+      value: 'overlay',
+      label: 'オーバーレイ'
+    }],
+    onChange: v => setTweak('panelPosition', v)
+  }))));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));</script>
+</body>
+</html>
