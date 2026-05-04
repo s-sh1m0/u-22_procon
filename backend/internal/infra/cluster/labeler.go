@@ -110,12 +110,6 @@ func commonString(a, b string) string {
 	return a[:n]
 }
 
-// mostCommon は値が最も多い文字列を返す。同数ならアルファベット順で最小。空スライスなら ""。
-func mostCommon(vals []string) string {
-	v, _ := mostCommonWithFreq(vals)
-	return v
-}
-
 // mostCommonWithFreq は最頻出文字列とその出現回数を返す。空スライスなら ("", 0)。
 func mostCommonWithFreq(vals []string) (string, int) {
 	if len(vals) == 0 {
