@@ -1,8 +1,8 @@
 package api
 
-// TODO: リクエスト・レスポンスの JSON 構造体定義
+import "github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 
-// AnalyzeRequest は POST /api/analyses のリクエスト
+// AnalyzeRequest は POST /api/analyze のリクエスト
 type AnalyzeRequest struct {
 	PRURL string `json:"pr_url"`
 }
@@ -18,4 +18,73 @@ type JobResponse struct {
 // MeResponse は GET /auth/me のレスポンス
 type MeResponse struct {
 	Login string `json:"login"`
+}
+
+// GraphResponse は GET /api/graph/:jobId のレスポンス
+type GraphResponse struct {
+	Clusters []ClusterDTO `json:"clusters"`
+	Graph    GraphDTO     `json:"graph"`
+}
+
+// ClusterDTO はクラスタの JSON 表現
+type ClusterDTO struct {
+	ID    int      `json:"id"`
+	Label string   `json:"label"`
+	Nodes []string `json:"nodes"`
+}
+
+// GraphDTO はグラフの JSON 表現
+type GraphDTO struct {
+	Nodes []NodeDTO `json:"nodes"`
+	Edges []EdgeDTO `json:"edges"`
+}
+
+// NodeDTO はノードの JSON 表現
+type NodeDTO struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Package string `json:"package"`
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Changed bool   `json:"changed"`
+}
+
+// EdgeDTO はエッジの JSON 表現
+type EdgeDTO struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// toGraphResponse は domain.ClusterResult を GraphResponse に変換する。
+func toGraphResponse(r *domain.ClusterResult) GraphResponse {
+	clusters := make([]ClusterDTO, len(r.Clusters))
+	for i, c := range r.Clusters {
+		nodes := make([]string, len(c.Nodes))
+		for j, n := range c.Nodes {
+			nodes[j] = string(n)
+		}
+		clusters[i] = ClusterDTO{ID: c.ID, Label: c.Label, Nodes: nodes}
+	}
+
+	nodes := make([]NodeDTO, len(r.Graph.Nodes))
+	for i, n := range r.Graph.Nodes {
+		nodes[i] = NodeDTO{
+			ID:      string(n.ID),
+			Name:    n.Name,
+			Package: n.Package,
+			File:    n.File,
+			Line:    n.Line,
+			Changed: n.Changed,
+		}
+	}
+
+	edges := make([]EdgeDTO, len(r.Graph.Edges))
+	for i, e := range r.Graph.Edges {
+		edges[i] = EdgeDTO{From: string(e.From), To: string(e.To)}
+	}
+
+	return GraphResponse{
+		Clusters: clusters,
+		Graph:    GraphDTO{Nodes: nodes, Edges: edges},
+	}
 }
