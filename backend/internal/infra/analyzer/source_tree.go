@@ -49,10 +49,13 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 		return nil, fmt.Errorf("analyzer: clone %s/%s@%s: %w", pr.Owner, pr.Repo, pr.HeadSHA, err)
 	}
 
-	loadDir, err := findGoModRoot(cloned.RootDir)
+	// go.mod を持つサブディレクトリを特定し、そこを基点にパッケージをロードする。
+	// clonedRoot はリポジトリルート（GitHub API の相対パス基点）、loadDir は go.mod の親。
+	clonedRoot := cloned.RootDir
+	loadDir, err := findGoModRoot(clonedRoot)
 	if err != nil {
 		_ = cloned.Cleanup()
-		return nil, fmt.Errorf("analyzer: find go.mod in %s: %w", cloned.RootDir, err)
+		return nil, fmt.Errorf("analyzer: find go.mod in %s: %w", clonedRoot, err)
 	}
 
 	result, err := s.Loader.Load(ctx, loadDir)
@@ -61,7 +64,8 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 		return nil, fmt.Errorf("analyzer: load packages at %s: %w", loadDir, err)
 	}
 
-	changedPkgs := IdentifyChangedPackages(loadDir, result.Packages, changed)
+	// GitHub API の changed ファイルパスはリポジトリルート相対なので clonedRoot を基点にする。
+	changedPkgs := IdentifyChangedPackages(clonedRoot, result.Packages, changed)
 
 	return &PreparedSource{
 		RootDir:         loadDir,
