@@ -11,11 +11,18 @@ CREATE TABLE IF NOT EXISTS analyses (
 -- jobs テーブル
 CREATE TABLE IF NOT EXISTS jobs (
     id          TEXT PRIMARY KEY,
-    analysis_id TEXT NOT NULL,
+    analysis_id TEXT,
     status      TEXT NOT NULL,
     error       TEXT,
     created_at  DATETIME NOT NULL,
-    updated_at  DATETIME NOT NULL
+    updated_at  DATETIME NOT NULL,
+    pr_owner    TEXT NOT NULL DEFAULT '',
+    pr_repo     TEXT NOT NULL DEFAULT '',
+    pr_number   INTEGER NOT NULL DEFAULT 0,
+    pr_title    TEXT NOT NULL DEFAULT '',
+    pr_base_ref TEXT NOT NULL DEFAULT '',
+    pr_head_ref TEXT NOT NULL DEFAULT '',
+    pr_head_sha TEXT NOT NULL DEFAULT ''
 );
 
 -- sessions テーブル（OAuth セッション・アクセストークン）
