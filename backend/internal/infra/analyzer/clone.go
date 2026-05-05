@@ -113,6 +113,8 @@ func (c *GitCloner) Clone(ctx context.Context, req CloneRequest) (*ClonedRepo, e
 func (c *GitCloner) runGit(ctx context.Context, gitBin, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, gitBin, args...)
 	cmd.Dir = dir
+	// GIT_TERMINAL_PROMPT=0 で認証プロンプトを抑止する（コンテナ環境で tty がない場合に必要）
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
