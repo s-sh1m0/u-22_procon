@@ -8,13 +8,24 @@ export class ApiError extends Error {
   }
 }
 
+async function extractErrorMessage(res: Response): Promise<string> {
+  try {
+    const json = (await res.json()) as { message?: string }
+    if (json.message) return json.message
+  } catch {
+    // fall through
+  }
+  return `${res.status} ${res.statusText}`
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
     headers: { Accept: 'application/json', ...init?.headers },
   })
   if (!res.ok) {
-    throw new ApiError(res.status, `${res.status} ${res.statusText}`)
+    const msg = await extractErrorMessage(res)
+    throw new ApiError(res.status, msg)
   }
   return res.json() as Promise<T>
 }
@@ -25,6 +36,7 @@ export async function apiFetchVoid(path: string, init?: RequestInit): Promise<vo
     headers: { Accept: 'application/json', ...init?.headers },
   })
   if (!res.ok) {
-    throw new ApiError(res.status, `${res.status} ${res.statusText}`)
+    const msg = await extractErrorMessage(res)
+    throw new ApiError(res.status, msg)
   }
 }
