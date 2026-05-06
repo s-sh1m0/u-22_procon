@@ -122,6 +122,8 @@ func (c *fakeClusterer) Cluster(_ context.Context, _ *domain.Graph) (*domain.Clu
 
 // --- helpers ---
 
+const fixedID = "fixed-id"
+
 func newWorkerWithFakes(
 	jobs *fakeJobStore,
 	analyses *fakeAnalysisRepo,
@@ -133,7 +135,7 @@ func newWorkerWithFakes(
 	q := NewQueue(1)
 	w := NewWorker(q, jobs, analyses, prRepo, sourceTree, cgBuilder, clusterer)
 	w.now = func() time.Time { return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) }
-	w.newID = func() string { return "fixed-id" }
+	w.newID = func() string { return fixedID }
 	return w
 }
 
@@ -177,14 +179,14 @@ func TestWorker_HappyPath(t *testing.T) {
 	if j.Status != domain.JobStatusDone {
 		t.Errorf("expected done, got %s", j.Status)
 	}
-	if j.AnalysisID != "fixed-id" {
+	if j.AnalysisID != fixedID {
 		t.Errorf("expected fixed-id, got %s", j.AnalysisID)
 	}
 	// analysis should be saved
 	if len(analyses.saved) != 1 {
 		t.Fatalf("expected 1 analysis saved, got %d", len(analyses.saved))
 	}
-	if analyses.saved[0].ID != "fixed-id" {
+	if analyses.saved[0].ID != fixedID {
 		t.Errorf("unexpected analysis ID: %s", analyses.saved[0].ID)
 	}
 }

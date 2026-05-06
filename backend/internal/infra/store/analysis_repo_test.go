@@ -13,7 +13,7 @@ func TestAnalysisRepo_SaveAndFindByID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewAnalysisRepo(db)
 	ctx := context.Background()
@@ -67,7 +67,7 @@ func TestAnalysisRepo_FindByID_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewAnalysisRepo(db)
 	got, err := repo.FindByID(context.Background(), "nonexistent")
@@ -84,7 +84,7 @@ func TestAnalysisRepo_FindByPR_ReturnsLatest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewAnalysisRepo(db)
 	ctx := context.Background()
@@ -118,7 +118,7 @@ func TestAnalysisRepo_FindByPR_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewAnalysisRepo(db)
 	got, err := repo.FindByPR(context.Background(), domain.PRInfo{Owner: "o", Repo: "r", Number: 1})

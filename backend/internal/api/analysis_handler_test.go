@@ -43,17 +43,6 @@ func (f *fakeReadUC) GetGraph(_ context.Context, _ domain.JobID) (*domain.Analys
 
 // --- helpers ---
 
-func newEchoWithSession(sess *domain.Session) (*echo.Echo, echo.Context, *httptest.ResponseRecorder) {
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/api/analyze", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	if sess != nil {
-		c.Set(contextKeySession, sess)
-	}
-	return e, c, rec
-}
-
 func validSession() *domain.Session {
 	return &domain.Session{ID: "sid", GitHubToken: "ghtok", UserLogin: "user", CreatedAt: time.Now()}
 }

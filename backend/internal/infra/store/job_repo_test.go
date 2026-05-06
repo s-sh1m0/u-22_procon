@@ -32,7 +32,7 @@ func TestJobRepo_SaveAndFindByID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewJobRepo(db)
 	ctx := context.Background()
@@ -71,7 +71,7 @@ func TestJobRepo_FindByID_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewJobRepo(db)
 	got, err := repo.FindByID(context.Background(), "nonexistent")
@@ -88,7 +88,7 @@ func TestJobRepo_UpdateStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewJobRepo(db)
 	ctx := context.Background()
@@ -122,7 +122,7 @@ func TestJobRepo_UpdateStatus_WithError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewJobRepo(db)
 	ctx := context.Background()
@@ -153,7 +153,7 @@ func TestJobRepo_UpdateAnalysisID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewJobRepo(db)
 	ctx := context.Background()
@@ -182,7 +182,7 @@ func TestJobRepo_SaveWithAnalysisID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewJobRepo(db)
 	ctx := context.Background()
