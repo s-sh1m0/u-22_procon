@@ -75,18 +75,21 @@ func (c *GitCloner) Clone(ctx context.Context, req CloneRequest) (*ClonedRepo, e
 		return nil, err
 	}
 
-	remoteURL := fmt.Sprintf("https://github.com/%s/%s.git", req.Owner, req.Repo)
+	// token がある場合はURL認証を使う（一時ディレクトリ内のみで完結するため安全）
+	// トークンはリモート URL に埋め込んでコンテナ内の一時ディレクトリに git remote add する。
+	// git remote の URL はホスト外に露出せず、ClonedRepo.Cleanup() で削除される。
+	var remoteURL string
+	if req.Token != "" {
+		remoteURL = fmt.Sprintf("https://oauth2:%s@github.com/%s/%s.git", req.Token, req.Owner, req.Repo)
+	} else {
+		remoteURL = fmt.Sprintf("https://github.com/%s/%s.git", req.Owner, req.Repo)
+	}
 	if err := c.runGit(ctx, gitBin, dir, "remote", "add", "origin", remoteURL); err != nil {
 		_ = cleanup()
 		return nil, err
 	}
 
-	// tokenはhttp.extraheaderで渡す（コマンド引数経由なのでgit configに永続しない）
-	fetchArgs := []string{"fetch", "--depth=1", "--no-tags", "--filter=blob:none"}
-	if req.Token != "" {
-		fetchArgs = append([]string{"-c", "http.extraheader=Authorization: bearer " + req.Token, "-c", "credential.helper="}, fetchArgs...)
-	}
-	fetchArgs = append(fetchArgs, "origin", req.SHA)
+	fetchArgs := []string{"fetch", "--depth=1", "--no-tags", "--filter=blob:none", "origin", req.SHA}
 	if err := c.runGit(ctx, gitBin, dir, fetchArgs...); err != nil {
 		_ = cleanup()
 		return nil, err
@@ -113,6 +116,8 @@ func (c *GitCloner) Clone(ctx context.Context, req CloneRequest) (*ClonedRepo, e
 func (c *GitCloner) runGit(ctx context.Context, gitBin, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, gitBin, args...)
 	cmd.Dir = dir
+	// GIT_TERMINAL_PROMPT=0 で認証プロンプトを抑止する（コンテナ環境で tty がない場合に必要）
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

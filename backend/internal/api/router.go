@@ -11,8 +11,12 @@ import (
 
 // NewRouter は Echo インスタンスを生成し全ルートを登録して返す。
 // 認証保護が必要なエンドポイントには RequireAuth を適用する。
-// /api/* ルートは Issue #3 以降で追加予定。
-func NewRouter(authHandler *AuthHandler, sessions domain.SessionRepository) *echo.Echo {
+func NewRouter(
+	authHandler *AuthHandler,
+	analysisHandler *AnalysisHandler,
+	jobHandler *JobHandler,
+	sessions domain.SessionRepository,
+) *echo.Echo {
 	e := echo.New()
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogStatus:  true,
@@ -31,6 +35,11 @@ func NewRouter(authHandler *AuthHandler, sessions domain.SessionRepository) *ech
 	auth.GET("/github/callback", authHandler.Callback)
 	auth.POST("/logout", authHandler.Logout)
 	auth.GET("/me", authHandler.Me, RequireAuth(sessions))
+
+	apiG := e.Group("/api", RequireAuth(sessions))
+	apiG.POST("/analyze", analysisHandler.Analyze)
+	apiG.GET("/jobs/:id", jobHandler.Get)
+	apiG.GET("/graph/:jobId", analysisHandler.GetGraph)
 
 	return e
 }

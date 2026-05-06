@@ -3,6 +3,10 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"golang.org/x/tools/go/packages"
 
@@ -33,6 +37,7 @@ func NewSourceTree(c Cloner, l PackageLoader) *SourceTree {
 // Prepare は clone → load → 変更パッケージ特定 を一気に実施する。
 // Loadが失敗したときはCloneのCleanupを内部で呼んでから返す（呼び出し側に部分状態を渡さない）。
 // 成功時のみPreparedSource.Cleanupが返り、呼び出し側がdeferで呼ぶ責務を持つ。
+// モノレポ対応: cloneルートでパッケージが見つからない場合、go.mod を持つサブディレクトリを自動検出する。
 func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string, changed []domain.ChangedFile) (*PreparedSource, error) {
 	cloned, err := s.Cloner.Clone(ctx, CloneRequest{
 		Owner: pr.Owner,
@@ -44,19 +49,63 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 		return nil, fmt.Errorf("analyzer: clone %s/%s@%s: %w", pr.Owner, pr.Repo, pr.HeadSHA, err)
 	}
 
-	result, err := s.Loader.Load(ctx, cloned.RootDir)
+	// go.mod を持つサブディレクトリを特定し、そこを基点にパッケージをロードする。
+	// clonedRoot はリポジトリルート（GitHub API の相対パス基点）、loadDir は go.mod の親。
+	clonedRoot := cloned.RootDir
+	loadDir, err := findGoModRoot(clonedRoot)
 	if err != nil {
 		_ = cloned.Cleanup()
-		return nil, fmt.Errorf("analyzer: load packages at %s: %w", cloned.RootDir, err)
+		return nil, fmt.Errorf("analyzer: find go.mod in %s: %w", clonedRoot, err)
 	}
 
-	changedPkgs := IdentifyChangedPackages(cloned.RootDir, result.Packages, changed)
+	result, err := s.Loader.Load(ctx, loadDir)
+	if err != nil {
+		_ = cloned.Cleanup()
+		return nil, fmt.Errorf("analyzer: load packages at %s: %w", loadDir, err)
+	}
+
+	// GitHub API の changed ファイルパスはリポジトリルート相対なので clonedRoot を基点にする。
+	changedPkgs := IdentifyChangedPackages(clonedRoot, result.Packages, changed)
 
 	return &PreparedSource{
-		RootDir:         cloned.RootDir,
+		RootDir:         loadDir,
 		Packages:        result.Packages,
 		LoadErrors:      result.Errors,
 		ChangedPackages: changedPkgs,
 		Cleanup:         cloned.Cleanup,
 	}, nil
+}
+
+// findGoModRoot はルートから go.mod を探して最も浅い（ルートに近い）ディレクトリを返す。
+// ルート直下に go.mod があればそのまま返す。
+func findGoModRoot(root string) (string, error) {
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+		return root, nil
+	}
+
+	var found []string
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && d.Name() == "go.mod" {
+			found = append(found, filepath.Dir(path))
+		}
+		return nil
+	})
+
+	if len(found) == 0 {
+		return "", fmt.Errorf("%w: no go.mod found under %s", ErrNoPackages, root)
+	}
+	// 最も浅い（パス区切りが最小の）ディレクトリを優先
+	shallowest := found[0]
+	for _, d := range found[1:] {
+		if strings.Count(d, string(filepath.Separator)) < strings.Count(shallowest, string(filepath.Separator)) {
+			shallowest = d
+		}
+	}
+	return shallowest, nil
 }
