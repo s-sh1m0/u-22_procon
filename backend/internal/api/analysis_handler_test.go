@@ -175,7 +175,11 @@ func TestGetGraph_Success(t *testing.T) {
 			Edges: []domain.Edge{},
 		},
 	}
-	analysis := &domain.Analysis{ID: "a1", Result: result}
+	analysis := &domain.Analysis{
+		ID:     "a1",
+		PR:     domain.PRInfo{Owner: "owner", Repo: "repo", Number: 42, Title: "test PR"},
+		Result: result,
+	}
 	h := NewAnalysisHandler(&fakeAnalyzeUC{}, &fakeReadUC{analysis: analysis})
 
 	e := echo.New()
@@ -200,6 +204,9 @@ func TestGetGraph_Success(t *testing.T) {
 	}
 	if len(resp.Graph.Nodes) != 1 {
 		t.Errorf("expected 1 node, got %d", len(resp.Graph.Nodes))
+	}
+	if resp.PR.Owner != "owner" {
+		t.Errorf("expected PR.Owner=owner, got %s", resp.PR.Owner)
 	}
 }
 

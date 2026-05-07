@@ -20,8 +20,19 @@ type MeResponse struct {
 	Login string `json:"login"`
 }
 
+// PRInfoDTO は PR 基本情報の JSON 表現
+type PRInfoDTO struct {
+	Owner   string `json:"owner"`
+	Repo    string `json:"repo"`
+	Number  int    `json:"number"`
+	Title   string `json:"title"`
+	BaseRef string `json:"base_ref"`
+	HeadRef string `json:"head_ref"`
+}
+
 // GraphResponse は GET /api/graph/:jobId のレスポンス
 type GraphResponse struct {
+	PR       PRInfoDTO    `json:"pr"`
 	Clusters []ClusterDTO `json:"clusters"`
 	Graph    GraphDTO     `json:"graph"`
 }
@@ -55,8 +66,9 @@ type EdgeDTO struct {
 	To   string `json:"to"`
 }
 
-// toGraphResponse は domain.ClusterResult を GraphResponse に変換する。
-func toGraphResponse(r *domain.ClusterResult) GraphResponse {
+// toGraphResponse は domain.Analysis を GraphResponse に変換する。
+func toGraphResponse(a *domain.Analysis) GraphResponse {
+	r := a.Result
 	clusters := make([]ClusterDTO, len(r.Clusters))
 	for i, c := range r.Clusters {
 		nodes := make([]string, len(c.Nodes))
@@ -84,6 +96,14 @@ func toGraphResponse(r *domain.ClusterResult) GraphResponse {
 	}
 
 	return GraphResponse{
+		PR: PRInfoDTO{
+			Owner:   a.PR.Owner,
+			Repo:    a.PR.Repo,
+			Number:  a.PR.Number,
+			Title:   a.PR.Title,
+			BaseRef: a.PR.BaseRef,
+			HeadRef: a.PR.HeadRef,
+		},
 		Clusters: clusters,
 		Graph:    GraphDTO{Nodes: nodes, Edges: edges},
 	}
