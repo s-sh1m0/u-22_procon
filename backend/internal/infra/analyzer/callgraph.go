@@ -61,11 +61,12 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 	}
 
 	// 4. ロード済みパッケージ ID セット（stdlib・外部ライブラリ除外用）
-	loadedSet := make(map[string]struct{})
-	packages.Visit(pkgs, func(pkg *packages.Package) bool {
+	// packages.Visit は推移的依存も辿るため、packages.Load("./...") が直接返した
+	// プロジェクト内パッケージのみを対象にする。
+	loadedSet := make(map[string]struct{}, len(pkgs))
+	for _, pkg := range pkgs {
 		loadedSet[pkg.ID] = struct{}{}
-		return true
-	}, nil)
+	}
 
 	// 5. 変更パッケージの関数を起点に BFS（双方向、maxDepth ホップ）
 	type entry struct {
