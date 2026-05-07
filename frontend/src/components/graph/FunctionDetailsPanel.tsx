@@ -1,6 +1,7 @@
 import type { AnyFlowNode, LayerKind } from '@/types/graph'
-import type { Cluster } from '@/types/api'
+import type { Cluster, DiffFile } from '@/types/api'
 import { getClusterColor } from '@/lib/clusterColors'
+import DiffViewer from '@/components/diff/DiffViewer'
 
 const LAYER_LABELS: Record<LayerKind, string> = {
   ui: 'UI',
@@ -14,17 +15,20 @@ type Props = {
   node: AnyFlowNode | null
   cluster: Cluster | null
   layer: LayerKind
+  diff: DiffFile | undefined
   onClose: () => void
 }
 
-export default function FunctionDetailsPanel({ node, cluster, layer, onClose }: Props) {
+export default function FunctionDetailsPanel({ node, cluster, layer, diff, onClose }: Props) {
   if (!node || (node.type !== 'function' && node.type !== 'file')) return null
 
   const color = cluster ? getClusterColor(cluster.id) : null
   const changed = node.data.changed as boolean
 
   return (
-    <div className="flex w-80 flex-shrink-0 flex-col border-l border-stone-200 bg-white overflow-auto">
+    <div
+      className={`flex flex-shrink-0 flex-col border-l border-stone-200 bg-white overflow-hidden ${diff ? 'w-[700px]' : 'w-80'}`}
+    >
       <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
         <span className="text-sm font-semibold text-stone-800">詳細</span>
         <button
@@ -45,7 +49,7 @@ export default function FunctionDetailsPanel({ node, cluster, layer, onClose }: 
         </button>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-4 space-y-4 border-b border-stone-100">
         <div className="flex flex-wrap gap-1.5">
           {cluster && color && (
             <span
@@ -96,6 +100,14 @@ export default function FunctionDetailsPanel({ node, cluster, layer, onClose }: 
           </>
         )}
       </div>
+
+      {diff ? (
+        <div className="flex min-h-0 flex-1">
+          <DiffViewer file={diff} />
+        </div>
+      ) : (
+        <div className="px-4 py-3 text-xs text-stone-400">このファイルに変更はありません</div>
+      )}
     </div>
   )
 }
