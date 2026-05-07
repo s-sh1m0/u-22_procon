@@ -20,7 +20,6 @@ func CollectDiffFiles(ctx context.Context, repo diffCollector, token string, pr 
 	type result struct {
 		idx  int
 		file domain.DiffFile
-		err  error
 	}
 
 	results := make([]result, len(changed))

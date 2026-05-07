@@ -46,7 +46,7 @@ func addColumnIfNotExists(db *sql.DB, table, column, definition string) error {
 	if err != nil {
 		return fmt.Errorf("pragma table_info %s: %w", table, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var cid int
 		var name, colType string
