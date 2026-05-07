@@ -22,8 +22,9 @@
 - `main` / `develop` への直接コミット禁止
 - 作業ブランチは **`develop` から** 切る（`main` からではない）
 - タスクを一つ終わらせるごとにコミットする。
-- **コミット前にリンター・フォーマッターを必ず通す**
-  - バックエンド: `docker run --rm -v $(pwd)/backend:/app -w /app golang:1.25 sh -c 'gofmt -w . && go vet ./...'`
+- **コミット前にリンター・フォーマッター・テストを必ず通す**
+  - バックエンド（フォーマット + lint）: `docker run --rm -v $(pwd)/backend:/app -w /app golang:1.25 sh -c 'gofmt -w . && go vet ./...'`
+  - バックエンド（テスト）: `docker compose run --rm backend go test ./...`
   - フロントエンド: `docker compose run --rm frontend sh -c 'npm run lint && npx tsc -b && npx prettier --write .'`
 - ブランチ名: `{種類}_{issue番号}_{概要}`
   - 種類: `feature` / `fix` / `chore` / `docs`
@@ -67,7 +68,17 @@
 
 ---
 
-## 6. 困ったとき
+## 6. 環境変数
+
+ローカル起動時は `.env.example` をコピーして `.env` を作成する。必須変数は以下の通り（詳細は [`.env.example`](./.env.example) を参照）:
+
+- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_CALLBACK_URL` — GitHub OAuth 必須
+- `SESSION_SECRET` — セッション署名キー（必須・ランダム文字列を設定する）
+- `DB_PATH` / `PORT` — 省略可（デフォルトあり）
+
+---
+
+## 7. 困ったとき
 
 - 仕様が曖昧 → ユーザーに質問する（推測で実装しない）
 - ルールが矛盾 → README > CLAUDE.md > `.claude/rules/` の優先順
