@@ -24,6 +24,8 @@ backend/internal/
 
 `cmd/server/main.go` が DI コンテナの役割を担う（infra 実装を usecase に注入する）。
 
+> **注意**: `internal/` 直下に `analyzer/`, `cluster/`, `github/`, `job/`, `handler/` という空ディレクトリが存在するが、これらは Go ファイルを含まない残骸。コードは必ず `infra/<パッケージ>/` 配下に置くこと。
+
 ---
 
 ## 2. 依存方向（厳守）
@@ -114,7 +116,31 @@ type AnalyzePRUseCase struct {
 
 ---
 
-## 7. 例外
+## 7. 非同期ジョブキューフロー
+
+API リクエストから結果取得までの流れ:
+
+```
+POST /api/analyze
+  → AnalysisHandler.Analyze
+  → AnalyzePRUseCase（Job を DB 保存 → job.Queue.Enqueue）
+  → 202 Accepted + jobID 返却
+
+job.Worker.Run（goroutine）
+  → Queue から取り出し → 解析実行 → Job/Analysis を DB 更新
+
+GET /api/jobs/:id   ← クライアントがポーリング
+  → JobHandler.Get → pending / running / done / error を返す
+
+GET /api/graph/:jobId
+  → 解析結果の GraphResponse を返す（done になってから呼ぶ）
+```
+
+**重要な制約**: GitHub の OAuth Token はメモリ上の `job.Queue` にのみ存在し DB には保存しない。サーバー再起動時に pending/running だったジョブは `error` に遷移する（起動時に `MarkStaleJobsError` で更新）。ユーザーに再送信を促すこと。
+
+---
+
+## 8. 例外
 
 - ロギング、メトリクス、`context.Context` の操作などの「インフラ横断的関心事」は
   ヘルパーパッケージ（例: `internal/pkg/logger`）として切り出してよい。
