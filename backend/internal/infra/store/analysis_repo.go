@@ -11,6 +11,13 @@ import (
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
 
+// analysisResultJSON は analyses.result カラムに保存する JSON 構造。
+// 旧形式（ClusterResult ベタ）との後方互換のため changed_files は omitempty にする。
+type analysisResultJSON struct {
+	ClusterResult domain.ClusterResult `json:"cluster_result"`
+	ChangedFiles  []domain.DiffFile    `json:"changed_files,omitempty"`
+}
+
 // AnalysisRepo は domain.AnalysisRepository の SQLite 実装
 type AnalysisRepo struct {
 	db *sql.DB
@@ -23,7 +30,11 @@ func NewAnalysisRepo(db *sql.DB) *AnalysisRepo {
 
 // Save は解析結果を analyses テーブルに保存する。result は JSON でシリアライズする。
 func (r *AnalysisRepo) Save(ctx context.Context, a *domain.Analysis) error {
-	resultJSON, err := json.Marshal(a.Result)
+	payload := analysisResultJSON{
+		ClusterResult: *a.Result,
+		ChangedFiles:  a.ChangedFiles,
+	}
+	resultJSON, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal analysis result: %w", err)
 	}
@@ -57,15 +68,16 @@ func (r *AnalysisRepo) FindByID(ctx context.Context, id domain.AnalysisID) (*dom
 		return nil, fmt.Errorf("query analysis: %w", err)
 	}
 
-	var result domain.ClusterResult
-	if err := json.Unmarshal([]byte(resultJSON), &result); err != nil {
+	result, changedFiles, err := unmarshalAnalysisResult(resultJSON)
+	if err != nil {
 		return nil, fmt.Errorf("unmarshal analysis result: %w", err)
 	}
 	return &domain.Analysis{
-		ID:        id,
-		PR:        domain.PRInfo{Owner: owner, Repo: repo, Number: prNumber},
-		Result:    &result,
-		CreatedAt: createdAt,
+		ID:           id,
+		PR:           domain.PRInfo{Owner: owner, Repo: repo, Number: prNumber},
+		Result:       result,
+		ChangedFiles: changedFiles,
+		CreatedAt:    createdAt,
 	}, nil
 }
 
@@ -87,14 +99,31 @@ func (r *AnalysisRepo) FindByPR(ctx context.Context, pr domain.PRInfo) (*domain.
 		return nil, fmt.Errorf("query analysis by PR: %w", err)
 	}
 
-	var result domain.ClusterResult
-	if err := json.Unmarshal([]byte(resultJSON), &result); err != nil {
+	result, changedFiles, err := unmarshalAnalysisResult(resultJSON)
+	if err != nil {
 		return nil, fmt.Errorf("unmarshal analysis result: %w", err)
 	}
 	return &domain.Analysis{
-		ID:        domain.AnalysisID(id),
-		PR:        pr,
-		Result:    &result,
-		CreatedAt: createdAt,
+		ID:           domain.AnalysisID(id),
+		PR:           pr,
+		Result:       result,
+		ChangedFiles: changedFiles,
+		CreatedAt:    createdAt,
 	}, nil
+}
+
+// unmarshalAnalysisResult は新形式（{cluster_result, changed_files}）と
+// 旧形式（ClusterResult ベタ）の両方を読めるようにする。
+func unmarshalAnalysisResult(raw string) (*domain.ClusterResult, []domain.DiffFile, error) {
+	// 新形式を試みる
+	var payload analysisResultJSON
+	if err := json.Unmarshal([]byte(raw), &payload); err == nil && payload.ClusterResult.Graph.Nodes != nil {
+		return &payload.ClusterResult, payload.ChangedFiles, nil
+	}
+	// 旧形式（ClusterResult ベタ）にフォールバック
+	var legacy domain.ClusterResult
+	if err := json.Unmarshal([]byte(raw), &legacy); err != nil {
+		return nil, nil, err
+	}
+	return &legacy, nil, nil
 }

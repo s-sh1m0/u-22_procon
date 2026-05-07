@@ -67,7 +67,8 @@ func main() {
 	authHandler := api.NewAuthHandler(oauth, sessions)
 	analysisHandler := api.NewAnalysisHandler(analyzeUC, getUC)
 	jobHandler := api.NewJobHandler(getUC)
-	router := api.NewRouter(authHandler, analysisHandler, jobHandler, sessions)
+	diffHandler := api.NewDiffHandler(getUC)
+	router := api.NewRouter(authHandler, analysisHandler, jobHandler, diffHandler, sessions)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
