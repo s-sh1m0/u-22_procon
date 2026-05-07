@@ -93,6 +93,10 @@ func (r *fakePRRepo) ListChangedGoFiles(_ context.Context, _, _, _ string, _ int
 	return r.changed, r.err
 }
 
+func (r *fakePRRepo) GetFileContent(_ context.Context, _, _, _, _, _ string) ([]byte, error) {
+	return nil, r.err
+}
+
 type fakeSourceTree struct {
 	prepared *analyzer.PreparedSource
 	err      error

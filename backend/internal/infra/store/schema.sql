@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     pr_title    TEXT NOT NULL DEFAULT '',
     pr_base_ref TEXT NOT NULL DEFAULT '',
     pr_head_ref TEXT NOT NULL DEFAULT '',
-    pr_head_sha TEXT NOT NULL DEFAULT ''
+    pr_head_sha TEXT NOT NULL DEFAULT '',
+    pr_base_sha TEXT NOT NULL DEFAULT ''
 );
 
 -- sessions テーブル（OAuth セッション・アクセストークン）

@@ -28,12 +28,12 @@ func (r *JobRepo) Save(ctx context.Context, j *domain.Job) error {
 	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO jobs (id, analysis_id, status, error, created_at, updated_at,
-		 pr_owner, pr_repo, pr_number, pr_title, pr_base_ref, pr_head_ref, pr_head_sha)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 pr_owner, pr_repo, pr_number, pr_title, pr_base_ref, pr_head_ref, pr_head_sha, pr_base_sha)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(j.ID), analysisID, string(j.Status), j.Error,
 		j.CreatedAt.UTC(), j.UpdatedAt.UTC(),
 		j.PR.Owner, j.PR.Repo, j.PR.Number,
-		j.PR.Title, j.PR.BaseRef, j.PR.HeadRef, j.PR.HeadSHA,
+		j.PR.Title, j.PR.BaseRef, j.PR.HeadRef, j.PR.HeadSHA, j.PR.BaseSHA,
 	)
 	if err != nil {
 		return fmt.Errorf("insert job: %w", err)
@@ -96,15 +96,16 @@ func (r *JobRepo) FindByID(ctx context.Context, id domain.JobID) (*domain.Job, e
 		prBaseRef  string
 		prHeadRef  string
 		prHeadSHA  string
+		prBaseSHA  string
 	)
 	err := r.db.QueryRowContext(ctx,
 		`SELECT analysis_id, status, error, created_at, updated_at,
-		 pr_owner, pr_repo, pr_number, pr_title, pr_base_ref, pr_head_ref, pr_head_sha
+		 pr_owner, pr_repo, pr_number, pr_title, pr_base_ref, pr_head_ref, pr_head_sha, pr_base_sha
 		 FROM jobs WHERE id = ?`,
 		string(id),
 	).Scan(
 		&analysisID, &status, &errMsg, &createdAt, &updatedAt,
-		&prOwner, &prRepo, &prNumber, &prTitle, &prBaseRef, &prHeadRef, &prHeadSHA,
+		&prOwner, &prRepo, &prNumber, &prTitle, &prBaseRef, &prHeadRef, &prHeadSHA, &prBaseSHA,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -126,6 +127,7 @@ func (r *JobRepo) FindByID(ctx context.Context, id domain.JobID) (*domain.Job, e
 			BaseRef: prBaseRef,
 			HeadRef: prHeadRef,
 			HeadSHA: prHeadSHA,
+			BaseSHA: prBaseSHA,
 		},
 	}
 	if analysisID.Valid {
