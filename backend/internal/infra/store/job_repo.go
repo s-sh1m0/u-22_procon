@@ -66,6 +66,21 @@ func (r *JobRepo) UpdateAnalysisID(ctx context.Context, id domain.JobID, analysi
 	return nil
 }
 
+// MarkStaleJobsError はサーバ起動時に pending/running のままになっているジョブを
+// error 状態にする。再起動でインメモリキューが消えて処理されないジョブを残さないため。
+func (r *JobRepo) MarkStaleJobsError(ctx context.Context) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE jobs SET status='error', error='server restarted', updated_at=?
+		 WHERE status IN ('pending', 'running')`,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("mark stale jobs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // FindByID は ID でジョブを返す。存在しない場合は (nil, nil) を返す。
 func (r *JobRepo) FindByID(ctx context.Context, id domain.JobID) (*domain.Job, error) {
 	var (
