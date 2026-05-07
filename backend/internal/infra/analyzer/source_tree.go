@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/tools/go/packages"
 
@@ -34,7 +36,11 @@ func NewSourceTree(c Cloner, l PackageLoader) *SourceTree {
 	return &SourceTree{Cloner: c, Loader: l}
 }
 
-// Prepare は clone → load → 変更パッケージ特定 を一気に実施する。
+// Prepare は clone → fast load → 変更パッケージ特定 → 近傍フルロード を一気に実施する。
+//
+// 2フェーズロードにより、プロジェクト内の変更パッケージとその近傍のみを
+// 型情報付きでロードし、外部ライブラリを含む全パッケージのロードを回避する。
+//
 // Loadが失敗したときはCloneのCleanupを内部で呼んでから返す（呼び出し側に部分状態を渡さない）。
 // 成功時のみPreparedSource.Cleanupが返り、呼び出し側がdeferで呼ぶ責務を持つ。
 // モノレポ対応: cloneルートでパッケージが見つからない場合、go.mod を持つサブディレクトリを自動検出する。
@@ -58,14 +64,42 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 		return nil, fmt.Errorf("analyzer: find go.mod in %s: %w", clonedRoot, err)
 	}
 
-	result, err := s.Loader.Load(ctx, loadDir)
+	// Phase 1: 型チェックなしで全プロジェクトパッケージの構造を高速ロード。
+	// import グラフのみ取得し、変更パッケージとその近傍を特定する。
+	t0 := time.Now()
+	fastPkgs, err := s.Loader.FastLoad(ctx, loadDir)
+	if err != nil {
+		_ = cloned.Cleanup()
+		return nil, fmt.Errorf("analyzer: fast-load packages at %s: %w", loadDir, err)
+	}
+	log.Printf("analyzer: phase1 FastLoad(%d pkgs) took %s", len(fastPkgs), time.Since(t0))
+
+	// GitHub API の changed ファイルパスはリポジトリルート相対なので clonedRoot を基点にする。
+	changedPkgs := IdentifyChangedPackages(clonedRoot, fastPkgs, changed)
+	log.Printf("analyzer: changed packages: %v", changedPkgs)
+
+	if len(changedPkgs) == 0 {
+		// 変更されたGoパッケージがない（非Goファイルのみの変更など）
+		return &PreparedSource{
+			RootDir:         loadDir,
+			ChangedPackages: nil,
+			Cleanup:         cloned.Cleanup,
+		}, nil
+	}
+
+	// Phase 2: 変更パッケージとその近傍（defaultMaxDepth ホップ以内）のみを
+	// 型情報付きでロードする。外部ライブラリは型チェックの依存として読まれるが
+	// 返却パッケージには含まれない。
+	neighborhood := FindNeighborhood(changedPkgs, fastPkgs, defaultMaxDepth)
+	log.Printf("analyzer: neighborhood(%d pkgs): %v", len(neighborhood), neighborhood)
+
+	t1 := time.Now()
+	result, err := s.Loader.Load(ctx, loadDir, neighborhood)
 	if err != nil {
 		_ = cloned.Cleanup()
 		return nil, fmt.Errorf("analyzer: load packages at %s: %w", loadDir, err)
 	}
-
-	// GitHub API の changed ファイルパスはリポジトリルート相対なので clonedRoot を基点にする。
-	changedPkgs := IdentifyChangedPackages(clonedRoot, result.Packages, changed)
+	log.Printf("analyzer: phase2 Load(%d pkgs) took %s", len(result.Packages), time.Since(t1))
 
 	return &PreparedSource{
 		RootDir:         loadDir,

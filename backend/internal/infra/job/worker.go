@@ -97,36 +97,47 @@ func (w *Worker) process(ctx context.Context, item Item) {
 		return
 	}
 
+	tStart := time.Now()
+
 	prInfo, err := w.prRepo.GetPR(ctx, item.Token, j.PR.Owner, j.PR.Repo, j.PR.Number)
 	if err != nil {
 		fail(fmt.Errorf("get PR: %w", err))
 		return
 	}
 
+	t0 := time.Now()
 	changed, err := w.prRepo.ListChangedGoFiles(ctx, item.Token, j.PR.Owner, j.PR.Repo, j.PR.Number)
 	if err != nil {
 		fail(fmt.Errorf("list changed files: %w", err))
 		return
 	}
+	log.Printf("worker: ListChangedGoFiles took %s (%d files)", time.Since(t0), len(changed))
 
+	t1 := time.Now()
 	prepared, err := w.sourceTree.Prepare(ctx, *prInfo, item.Token, changed)
 	if err != nil {
 		fail(fmt.Errorf("prepare source: %w", err))
 		return
 	}
 	defer func() { _ = prepared.Cleanup() }()
+	log.Printf("worker: Prepare (clone+load) took %s", time.Since(t1))
 
+	t2 := time.Now()
 	graph, err := w.cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages)
 	if err != nil {
 		fail(fmt.Errorf("build callgraph: %w", err))
 		return
 	}
+	log.Printf("worker: Build callgraph took %s (nodes=%d edges=%d)", time.Since(t2), len(graph.Nodes), len(graph.Edges))
 
+	t3 := time.Now()
 	result, err := w.clusterer.Cluster(ctx, graph)
 	if err != nil {
 		fail(fmt.Errorf("cluster: %w", err))
 		return
 	}
+	log.Printf("worker: Cluster took %s", time.Since(t3))
+	log.Printf("worker: total job %s took %s", jobID, time.Since(tStart))
 
 	analysisID := domain.AnalysisID(w.newID())
 	a := &domain.Analysis{
