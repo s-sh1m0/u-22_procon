@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useJobStatus } from '@/hooks/useJobStatus'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import AnalysisGraphView from '@/pages/AnalysisGraphView'
 
 const STEPS = [
   'リポジトリのクローン',
@@ -80,19 +81,7 @@ export default function Analysis() {
   }
 
   if (job.status === 'done') {
-    return (
-      <div className="flex min-h-svh items-center justify-center bg-[#fafaf9]">
-        <Card className="w-full max-w-md border-teal-200">
-          <CardContent className="pt-6 space-y-3">
-            <div className="flex items-center gap-2 text-teal-600 font-semibold">
-              <CheckCircleIcon />
-              <span>解析が完了しました</span>
-            </div>
-            <p className="text-sm text-stone-500">グラフビューは次のリリースで実装予定です。</p>
-          </CardContent>
-        </Card>
-      </div>
-    )
+    return <AnalysisGraphView jobId={jobId ?? ''} />
   }
 
   return (
@@ -194,22 +183,6 @@ function SpinnerIcon() {
       className="animate-spin"
     >
       <circle cx="10" cy="10" r="7" strokeDasharray="32" strokeDashoffset="8" />
-    </svg>
-  )
-}
-
-function CheckCircleIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 18 18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <circle cx="9" cy="9" r="7" />
-      <path d="M5.5 9l2.5 2.5 4.5-4.5" />
     </svg>
   )
 }
