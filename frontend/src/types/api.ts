@@ -1,43 +1,37 @@
-// TODO: バックエンド API レスポンスの TypeScript 型定義
-
-export interface JobResponse {
+export type JobResponse = {
   job_id: string
   status: 'pending' | 'running' | 'done' | 'error'
   analysis_id?: string
   error?: string
 }
 
-export interface AnalysisResponse {
-  id: string
-  pr: PRInfo
-  result: ClusterResult
-  created_at: string
-}
-
-export interface PRInfo {
+export type PRInfo = {
   owner: string
   repo: string
   number: number
   title: string
+  base_ref: string
+  head_ref: string
 }
 
-export interface ClusterResult {
+export type GraphResponse = {
+  pr: PRInfo
   clusters: Cluster[]
   graph: Graph
 }
 
-export interface Cluster {
+export type Cluster = {
   id: number
   label: string
-  node_ids: string[]
+  nodes: string[]
 }
 
-export interface Graph {
+export type Graph = {
   nodes: GraphNode[]
   edges: GraphEdge[]
 }
 
-export interface GraphNode {
+export type GraphNode = {
   id: string
   name: string
   package: string
@@ -46,7 +40,7 @@ export interface GraphNode {
   changed: boolean
 }
 
-export interface GraphEdge {
+export type GraphEdge = {
   from: string
   to: string
 }

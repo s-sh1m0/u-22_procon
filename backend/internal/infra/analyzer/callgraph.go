@@ -46,26 +46,36 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		maxDepth = defaultMaxDepth
 	}
 
-	// 1. SSA プログラムを構築
-	prog, _ := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics)
+	// 1. プロジェクト内パッケージのみを抽出する。
+	// NeedDeps によって pkgs には外部ライブラリも含まれるが、SSA 構築と
+	// loadedSet はプロジェクト内パッケージのみを対象にする。
+	// pkg.Module.Main が true のパッケージが自リポジトリのパッケージ。
+	projectPkgs := make([]*packages.Package, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		if pkg.Module != nil && pkg.Module.Main {
+			projectPkgs = append(projectPkgs, pkg)
+		}
+	}
+
+	// 2. SSA プログラムを構築（プロジェクト内パッケージのみ）
+	prog, _ := ssautil.AllPackages(projectPkgs, ssa.InstantiateGenerics)
 	prog.Build()
 
-	// 2. CHA でコールグラフ構築（エントリポイント不要 → ライブラリにも適用可）
+	// 3. CHA でコールグラフ構築（エントリポイント不要 → ライブラリにも適用可）
 	cg := cha.CallGraph(prog)
 	cg.DeleteSyntheticNodes()
 
-	// 3. 変更パッケージ ID セット
+	// 4. 変更パッケージ ID セット
 	changedSet := make(map[string]struct{}, len(changedPkgIDs))
 	for _, id := range changedPkgIDs {
 		changedSet[id] = struct{}{}
 	}
 
-	// 4. ロード済みパッケージ ID セット（stdlib・外部ライブラリ除外用）
-	loadedSet := make(map[string]struct{})
-	packages.Visit(pkgs, func(pkg *packages.Package) bool {
+	// 5. プロジェクト内パッケージ ID セット（外部ライブラリ除外用）
+	loadedSet := make(map[string]struct{}, len(projectPkgs))
+	for _, pkg := range projectPkgs {
 		loadedSet[pkg.ID] = struct{}{}
-		return true
-	}, nil)
+	}
 
 	// 5. 変更パッケージの関数を起点に BFS（双方向、maxDepth ホップ）
 	type entry struct {

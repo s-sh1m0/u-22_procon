@@ -29,17 +29,29 @@ const loadMode = packages.NeedName |
 	packages.NeedTypesSizes |
 	packages.NeedModule
 
+// fastLoadMode は型チェックなしでパッケージ構造だけを取得する高速フラグ。
+// NeedImports まで含めることで import グラフから近傍パッケージを特定できる。
+const fastLoadMode = packages.NeedName |
+	packages.NeedFiles |
+	packages.NeedImports |
+	packages.NeedModule
+
 // LoadResult はパッケージロードの結果。
 type LoadResult struct {
-	// Packages はtransitivelyロードされた全パッケージ。
+	// Packages はロードされたパッケージ。
 	Packages []*packages.Package
 	// Errors はパッケージ個別の型エラー等（致命エラーではない）。
 	Errors []packages.Error
 }
 
-// PackageLoader はgo/packagesでディレクトリ配下のパッケージ群をロードする抽象。
+// PackageLoader はgo/packagesでパッケージ群をロードする抽象。
 type PackageLoader interface {
-	Load(ctx context.Context, rootDir string) (*LoadResult, error)
+	// FastLoad は型チェックなしでパッケージ構造だけを高速ロードする。
+	// 変更パッケージ特定と近傍計算に使う。
+	FastLoad(ctx context.Context, rootDir string) ([]*packages.Package, error)
+	// Load は指定パターンのパッケージを型情報付きでロードする。
+	// patterns はパッケージインポートパスのリスト。
+	Load(ctx context.Context, rootDir string, patterns []string) (*LoadResult, error)
 }
 
 // GoPackageLoader はgo/packagesを使う本番実装。
@@ -50,19 +62,50 @@ func NewGoPackageLoader() *GoPackageLoader {
 	return &GoPackageLoader{}
 }
 
-// Load はrootDir配下の全Goパッケージを型情報付きでロードする。
+// FastLoad はrootDir配下の全Goパッケージを型チェックなしで高速ロードする。
+// 変更パッケージの特定と近傍パッケージの計算にのみ使う。
+func (l *GoPackageLoader) FastLoad(ctx context.Context, rootDir string) ([]*packages.Package, error) {
+	cfg := &packages.Config{
+		Mode:    fastLoadMode,
+		Dir:     rootDir,
+		Context: ctx,
+		Tests:   false,
+		Env:     append(os.Environ(), "GOWORK=off"),
+	}
+
+	pkgs, err := packages.Load(cfg, "./...")
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrNoPackages, err)
+	}
+
+	var usable int
+	for _, pkg := range pkgs {
+		if len(pkg.GoFiles) > 0 {
+			usable++
+		}
+	}
+	if usable == 0 {
+		return nil, ErrNoPackages
+	}
+	return pkgs, nil
+}
+
+// Load はpatterns で指定したパッケージを型情報付きでロードする。
 // GOWORK=offを強制してホスト環境のgo.workの影響を受けないようにする。
-func (l *GoPackageLoader) Load(ctx context.Context, rootDir string) (*LoadResult, error) {
+func (l *GoPackageLoader) Load(ctx context.Context, rootDir string, patterns []string) (*LoadResult, error) {
+	if len(patterns) == 0 {
+		return &LoadResult{}, nil
+	}
+
 	cfg := &packages.Config{
 		Mode:    loadMode,
 		Dir:     rootDir,
 		Context: ctx,
 		Tests:   false,
-		// GOWORK=off: 開発機の外側go.workがcloneされたモジュールの解析に干渉しないよう強制
-		Env: append(os.Environ(), "GOWORK=off"),
+		Env:     append(os.Environ(), "GOWORK=off"),
 	}
 
-	pkgs, err := packages.Load(cfg, "./...")
+	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrNoPackages, err)
 	}
@@ -73,8 +116,6 @@ func (l *GoPackageLoader) Load(ctx context.Context, rootDir string) (*LoadResult
 		errs = append(errs, pkg.Errors...)
 	})
 
-	// GoFilesが1件もないならGoパッケージが存在しないと判断する。
-	// packages.Loadはgo.modが無い空ディレクトリでも0件ではなくエラー付きエントリを返すことがあるため。
 	var usable int
 	for _, pkg := range pkgs {
 		if len(pkg.GoFiles) > 0 || len(pkg.CompiledGoFiles) > 0 {
@@ -127,6 +168,75 @@ func IdentifyChangedPackages(rootDir string, pkgs []*packages.Package, changed [
 
 	result := make([]string, 0, len(seen))
 	for id := range seen {
+		result = append(result, id)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// FindNeighborhood は変更パッケージを起点に import グラフを maxDepth ホップ辿った
+// プロジェクト内パッケージのIDスライスを返す（重複なし・ソート済み）。
+// allPkgs は FastLoad で得たプロジェクト内パッケージのみを想定する。
+// 外部ライブラリは含まない。
+func FindNeighborhood(changedPkgs []string, allPkgs []*packages.Package, maxDepth int) []string {
+	// プロジェクトパッケージIDセット
+	projectIDs := make(map[string]struct{}, len(allPkgs))
+	for _, pkg := range allPkgs {
+		projectIDs[pkg.ID] = struct{}{}
+	}
+
+	// 前方 import グラフ（callee方向: pkg → import先プロジェクトパッケージ）
+	forward := make(map[string][]string, len(allPkgs))
+	for _, pkg := range allPkgs {
+		for impPath := range pkg.Imports {
+			if _, ok := projectIDs[impPath]; ok {
+				forward[pkg.ID] = append(forward[pkg.ID], impPath)
+			}
+		}
+	}
+
+	// 逆 import グラフ（caller方向: pkg → import元プロジェクトパッケージ）
+	reverse := make(map[string][]string, len(allPkgs))
+	for callerID, callees := range forward {
+		for _, calleeID := range callees {
+			reverse[calleeID] = append(reverse[calleeID], callerID)
+		}
+	}
+
+	// BFS（双方向、maxDepth ホップ）
+	type entry struct {
+		id    string
+		depth int
+	}
+	visited := make(map[string]struct{})
+	queue := make([]entry, 0, len(changedPkgs))
+	for _, id := range changedPkgs {
+		if _, ok := projectIDs[id]; !ok {
+			continue
+		}
+		if _, ok := visited[id]; !ok {
+			visited[id] = struct{}{}
+			queue = append(queue, entry{id, 0})
+		}
+	}
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur.depth >= maxDepth {
+			continue
+		}
+		neighbors := append(forward[cur.id], reverse[cur.id]...)
+		for _, nid := range neighbors {
+			if _, ok := visited[nid]; !ok {
+				visited[nid] = struct{}{}
+				queue = append(queue, entry{nid, cur.depth + 1})
+			}
+		}
+	}
+
+	result := make([]string, 0, len(visited))
+	for id := range visited {
 		result = append(result, id)
 	}
 	sort.Strings(result)

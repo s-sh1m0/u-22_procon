@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/tools/go/packages"
+
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
 
@@ -37,7 +39,11 @@ func (e *errorCloner) Clone(_ context.Context, _ CloneRequest) (*ClonedRepo, err
 // errorLoader は常にエラーを返すPackageLoader。
 type errorLoader struct{}
 
-func (e *errorLoader) Load(_ context.Context, _ string) (*LoadResult, error) {
+func (e *errorLoader) FastLoad(_ context.Context, _ string) ([]*packages.Package, error) {
+	return nil, ErrNoPackages
+}
+
+func (e *errorLoader) Load(_ context.Context, _ string, _ []string) (*LoadResult, error) {
 	return nil, ErrNoPackages
 }
 

@@ -93,7 +93,7 @@ func (h *AnalysisHandler) GetGraph(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("get graph: %v", err))
 	}
 
-	return c.JSON(http.StatusOK, toGraphResponse(analysis.Result))
+	return c.JSON(http.StatusOK, toGraphResponse(analysis))
 }
 
 // parsePRURL は GitHub PR の URL をパースして PRInfo を返す。

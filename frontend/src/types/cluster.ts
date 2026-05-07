@@ -1,1 +1,6 @@
-// TODO: クラスタ関連の型定義
+export type ClusterMeta = {
+  id: number
+  label: string
+  nodeCount: number
+  colorIndex: number
+}

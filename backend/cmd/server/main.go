@@ -43,6 +43,14 @@ func main() {
 	analysisRepo := store.NewAnalysisRepo(db)
 	jobRepo := store.NewJobRepo(db)
 
+	// 再起動で処理されなくなった pending/running ジョブをエラーに更新する。
+	// トークンは DB に保存していないため再キューイングは不可。ユーザーに再送信を促す。
+	if n, err := jobRepo.MarkStaleJobsError(context.Background()); err != nil {
+		log.Printf("warn: mark stale jobs: %v", err)
+	} else if n > 0 {
+		log.Printf("startup: marked %d stale job(s) as error (server restarted)", n)
+	}
+
 	prRepo := githubinfra.NewPRRepo()
 	sourceTree := analyzer.NewSourceTree(analyzer.NewGitCloner(), analyzer.NewGoPackageLoader())
 	cgBuilder := analyzer.NewGoCallGraphBuilder()

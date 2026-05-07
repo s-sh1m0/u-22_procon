@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -29,6 +30,52 @@ func writeFixture(t *testing.T, files map[string]string) string {
 	return dir
 }
 
+func TestGoPackageLoader_FastLoad_Fixture(t *testing.T) {
+	dir := writeFixture(t, map[string]string{
+		"go.mod": "module example.com/fixture\n\ngo 1.21\n",
+		"pkg/a/a.go": `package a
+
+import "example.com/fixture/pkg/b"
+
+func F() int { return b.G() }
+`,
+		"pkg/b/b.go": `package b
+
+func G() int { return 42 }
+`,
+	})
+
+	loader := NewGoPackageLoader()
+	pkgs, err := loader.FastLoad(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("FastLoad: %v", err)
+	}
+
+	pkgIDs := make(map[string]struct{})
+	for _, pkg := range pkgs {
+		pkgIDs[pkg.ID] = struct{}{}
+	}
+
+	for _, want := range []string{"example.com/fixture/pkg/a", "example.com/fixture/pkg/b"} {
+		if _, ok := pkgIDs[want]; !ok {
+			t.Errorf("package %q not found; got: %v", want, pkgIDs)
+		}
+	}
+}
+
+func TestGoPackageLoader_FastLoad_NoModule(t *testing.T) {
+	dir := t.TempDir()
+
+	loader := NewGoPackageLoader()
+	_, err := loader.FastLoad(context.Background(), dir)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrNoPackages) {
+		t.Errorf("expected ErrNoPackages, got: %v", err)
+	}
+}
+
 func TestGoPackageLoader_Load_Fixture(t *testing.T) {
 	dir := writeFixture(t, map[string]string{
 		"go.mod": "module example.com/fixture\n\ngo 1.21\n",
@@ -45,7 +92,7 @@ func G() int { return 42 }
 	})
 
 	loader := NewGoPackageLoader()
-	result, err := loader.Load(context.Background(), dir)
+	result, err := loader.Load(context.Background(), dir, []string{"./..."})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -80,10 +127,10 @@ func G() int { return 42 }
 }
 
 func TestGoPackageLoader_Load_NoModule(t *testing.T) {
-	dir := t.TempDir() // 空ディレクトリ（go.modなし）
+	dir := t.TempDir()
 
 	loader := NewGoPackageLoader()
-	_, err := loader.Load(context.Background(), dir)
+	_, err := loader.Load(context.Background(), dir, []string{"./..."})
 	if err == nil {
 		t.Fatal("expected error for empty directory, got nil")
 	}
@@ -102,13 +149,32 @@ func F() int { return "not an int" } // 型エラー
 	})
 
 	loader := NewGoPackageLoader()
-	result, err := loader.Load(context.Background(), dir)
+	result, err := loader.Load(context.Background(), dir, []string{"./..."})
 	// 型エラーがあっても Load 自体は成功して Errors に詰めて返す
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
 	if len(result.Errors) == 0 {
 		t.Error("expected at least one type error in result.Errors, got none")
+	}
+}
+
+func TestGoPackageLoader_Load_EmptyPatterns(t *testing.T) {
+	dir := writeFixture(t, map[string]string{
+		"go.mod": "module example.com/fixture\n\ngo 1.21\n",
+		"pkg/a/a.go": `package a
+
+func F() {}
+`,
+	})
+
+	loader := NewGoPackageLoader()
+	result, err := loader.Load(context.Background(), dir, []string{})
+	if err != nil {
+		t.Fatalf("Load with empty patterns: %v", err)
+	}
+	if len(result.Packages) != 0 {
+		t.Errorf("expected empty packages, got %d", len(result.Packages))
 	}
 }
 
@@ -128,9 +194,10 @@ func G() int { return 42 }
 	})
 
 	loader := NewGoPackageLoader()
-	result, err := loader.Load(context.Background(), dir)
+	// IdentifyChangedPackages は GoFiles 情報だけあれば動作するので FastLoad で足りる
+	pkgs, err := loader.FastLoad(context.Background(), dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("FastLoad: %v", err)
 	}
 
 	tests := []struct {
@@ -170,7 +237,7 @@ func G() int { return 42 }
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := IdentifyChangedPackages(dir, result.Packages, tc.changed)
+			got := IdentifyChangedPackages(dir, pkgs, tc.changed)
 			if len(got) != len(tc.want) {
 				t.Errorf("got %v, want %v", got, tc.want)
 				return
@@ -179,6 +246,100 @@ func G() int { return 42 }
 				if id != tc.want[i] {
 					t.Errorf("[%d] got %q, want %q", i, id, tc.want[i])
 				}
+			}
+		})
+	}
+}
+
+func TestFindNeighborhood(t *testing.T) {
+	// fixture: a → b → c という import チェーン、d は孤立
+	dir := writeFixture(t, map[string]string{
+		"go.mod": "module example.com/fixture\n\ngo 1.21\n",
+		"pkg/a/a.go": `package a
+
+import "example.com/fixture/pkg/b"
+
+func FA() { b.FB() }
+`,
+		"pkg/b/b.go": `package b
+
+import "example.com/fixture/pkg/c"
+
+func FB() { c.FC() }
+`,
+		"pkg/c/c.go": `package c
+
+func FC() {}
+`,
+		"pkg/d/d.go": `package d
+
+func FD() {}
+`,
+	})
+
+	loader := NewGoPackageLoader()
+	fastPkgs, err := loader.FastLoad(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("FastLoad: %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		changedPkgs  []string
+		maxDepth     int
+		wantIncludes []string
+		wantExcludes []string
+	}{
+		{
+			name:         "pkg/b変更・depth=1: aとcが近傍に入る",
+			changedPkgs:  []string{"example.com/fixture/pkg/b"},
+			maxDepth:     1,
+			wantIncludes: []string{"example.com/fixture/pkg/a", "example.com/fixture/pkg/b", "example.com/fixture/pkg/c"},
+			wantExcludes: []string{"example.com/fixture/pkg/d"},
+		},
+		{
+			name:         "pkg/c変更・depth=1: bが近傍に入るがaは入らない",
+			changedPkgs:  []string{"example.com/fixture/pkg/c"},
+			maxDepth:     1,
+			wantIncludes: []string{"example.com/fixture/pkg/b", "example.com/fixture/pkg/c"},
+			wantExcludes: []string{"example.com/fixture/pkg/a", "example.com/fixture/pkg/d"},
+		},
+		{
+			name:         "pkg/c変更・depth=2: aまで到達",
+			changedPkgs:  []string{"example.com/fixture/pkg/c"},
+			maxDepth:     2,
+			wantIncludes: []string{"example.com/fixture/pkg/a", "example.com/fixture/pkg/b", "example.com/fixture/pkg/c"},
+			wantExcludes: []string{"example.com/fixture/pkg/d"},
+		},
+		{
+			name:         "孤立パッケージ変更: 自分のみ",
+			changedPkgs:  []string{"example.com/fixture/pkg/d"},
+			maxDepth:     3,
+			wantIncludes: []string{"example.com/fixture/pkg/d"},
+			wantExcludes: []string{"example.com/fixture/pkg/a", "example.com/fixture/pkg/b", "example.com/fixture/pkg/c"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FindNeighborhood(tc.changedPkgs, fastPkgs, tc.maxDepth)
+			gotSet := make(map[string]struct{}, len(got))
+			for _, id := range got {
+				gotSet[id] = struct{}{}
+			}
+			for _, want := range tc.wantIncludes {
+				if _, ok := gotSet[want]; !ok {
+					t.Errorf("expected %q in neighborhood, got: %v", want, got)
+				}
+			}
+			for _, notWant := range tc.wantExcludes {
+				if _, ok := gotSet[notWant]; ok {
+					t.Errorf("unexpected %q in neighborhood, got: %v", notWant, got)
+				}
+			}
+			// ソート済みであることを確認
+			if !sort.StringsAreSorted(got) {
+				t.Errorf("result is not sorted: %v", got)
 			}
 		})
 	}
