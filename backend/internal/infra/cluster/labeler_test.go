@@ -1,72 +1,145 @@
 package cluster
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
 
-func TestLabelCluster_CommonPathPrefix(t *testing.T) {
-	nodes := []domain.Node{
-		{ID: "a", File: "pkg/foo/a.go"},
-		{ID: "b", File: "pkg/foo/b.go"},
-		{ID: "c", File: "pkg/foo/sub/c.go"},
-	}
-	label := labelCluster(0, nodes, nil)
-	if !strings.Contains(label, "pkg/foo") {
-		t.Errorf("want label to contain 'pkg/foo', got %q", label)
+func TestLabelCluster_Empty(t *testing.T) {
+	got := labelCluster(7, nil, nil)
+	if got != "cluster 7" {
+		t.Errorf("empty cluster: got %q, want %q", got, "cluster 7")
 	}
 }
 
-func TestLabelCluster_PackageFallback(t *testing.T) {
+func TestLabelCluster_BasicFormat(t *testing.T) {
 	nodes := []domain.Node{
-		{ID: "a", File: "/x/a.go", Package: "github.com/example/foo"},
-		{ID: "b", File: "/y/b.go", Package: "github.com/example/foo"},
-		{ID: "c", File: "/z/c.go", Package: "github.com/example/bar"},
+		{ID: "a", Name: "AnalyzePR", Package: "example.com/internal/usecase"},
 	}
-	label := labelCluster(0, nodes, nil)
-	if !strings.Contains(label, "github.com/example/foo") {
-		t.Errorf("want most-common package in label, got %q", label)
+	got := labelCluster(0, nodes, nil)
+	want := "usecase.AnalyzePR"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestLabelCluster_BaseFallback(t *testing.T) {
+func TestLabelCluster_PrefersChangedOverHigherInDegree(t *testing.T) {
+	// b は in-degree が高いが Changed=false。a が Changed=true。
+	// → 「Changed 優先」により a が代表になる。
 	nodes := []domain.Node{
-		{ID: "a", File: "/a/handler.go", Package: "pkga"},
-		{ID: "b", File: "/b/handler.go", Package: "pkgb"},
-		{ID: "c", File: "/c/handler.go", Package: "pkgc"},
+		{ID: "a", Name: "Important", Package: "pkg", Changed: true},
+		{ID: "b", Name: "Hub", Package: "pkg", Changed: false},
 	}
-	label := labelCluster(0, nodes, nil)
-	if !strings.Contains(label, "handler.go") {
-		t.Errorf("want basename fallback 'handler.go', got %q", label)
-	}
-}
-
-func TestLabelCluster_NoChangedNoSuffix(t *testing.T) {
-	nodes := []domain.Node{
-		{ID: "a", Name: "Foo", File: "pkg/a/a.go", Changed: false},
-	}
-	label := labelCluster(0, nodes, nil)
-	if strings.Contains(label, "#") {
-		t.Errorf("want no '#Func' suffix when Changed=false, got %q", label)
-	}
-}
-
-func TestLabelCluster_RepresentativeChanged(t *testing.T) {
-	// 3 ノード: a(Changed, 高次数), b(Changed, 低次数), c(Changed=false)
-	nodes := []domain.Node{
-		{ID: "a", Name: "High", File: "pkg/foo/a.go", Changed: true},
-		{ID: "b", Name: "Low", File: "pkg/foo/b.go", Changed: true},
-		{ID: "c", Name: "Unc", File: "pkg/foo/c.go", Changed: false},
-	}
-	// a はクラスタ内エッジ 2 本、b は 1 本
 	edges := []domain.Edge{
 		{From: "a", To: "b"},
-		{From: "a", To: "c"},
+		{From: "ext", To: "b"},
 	}
-	label := labelCluster(0, nodes, edges)
-	if !strings.Contains(label, "#High") {
-		t.Errorf("want '#High' (highest degree Changed node), got %q", label)
+	got := labelCluster(0, nodes, edges)
+	want := "pkg.Important"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLabelCluster_PrefersExportedAmongChanged(t *testing.T) {
+	// 両方 Changed だが a だけが exported。
+	nodes := []domain.Node{
+		{ID: "a", Name: "Public", Package: "pkg", Changed: true},
+		{ID: "b", Name: "private", Package: "pkg", Changed: true},
+	}
+	edges := []domain.Edge{
+		{From: "x", To: "b"}, // private の方が in-degree 高いが exported 優先
+	}
+	got := labelCluster(0, nodes, edges)
+	want := "pkg.Public"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLabelCluster_PicksHighestInDegree(t *testing.T) {
+	// 全員 Changed かつ exported。in-degree 最大の c が代表になる。
+	nodes := []domain.Node{
+		{ID: "a", Name: "AAA", Package: "pkg", Changed: true},
+		{ID: "b", Name: "BBB", Package: "pkg", Changed: true},
+		{ID: "c", Name: "CCC", Package: "pkg", Changed: true},
+	}
+	edges := []domain.Edge{
+		{From: "a", To: "c"},
+		{From: "b", To: "c"},
+		{From: "a", To: "b"},
+	}
+	got := labelCluster(0, nodes, edges)
+	want := "pkg.CCC"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLabelCluster_TieBreakAlphabetical(t *testing.T) {
+	// 全員 in-degree 0、同条件。アルファベット昇順で Alpha が選ばれる。
+	nodes := []domain.Node{
+		{ID: "a", Name: "Beta", Package: "pkg"},
+		{ID: "b", Name: "Alpha", Package: "pkg"},
+		{ID: "c", Name: "Gamma", Package: "pkg"},
+	}
+	got := labelCluster(0, nodes, nil)
+	want := "pkg.Alpha"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLabelCluster_AllUnchangedFallsThrough(t *testing.T) {
+	// Changed=false しかない。フィルタを通り抜けて全ノードから選ぶ。
+	nodes := []domain.Node{
+		{ID: "a", Name: "Foo", Package: "pkg", Changed: false},
+		{ID: "b", Name: "Bar", Package: "pkg", Changed: false},
+	}
+	edges := []domain.Edge{
+		{From: "x", To: "a"}, // a の in-degree が高い
+	}
+	got := labelCluster(0, nodes, edges)
+	want := "pkg.Foo"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLabelCluster_AllAnonymousFallsBackToPackage(t *testing.T) {
+	// 名前が全部空 → 短縮パッケージ名のみ
+	nodes := []domain.Node{
+		{ID: "a", Name: "", Package: "github.com/example/pkg/foo"},
+		{ID: "b", Name: "", Package: "github.com/example/pkg/foo"},
+	}
+	got := labelCluster(0, nodes, nil)
+	want := "foo"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLabelCluster_NoPackageJustName(t *testing.T) {
+	// パッケージ情報なし → 関数名のみ
+	nodes := []domain.Node{
+		{ID: "a", Name: "Solo", Package: ""},
+	}
+	got := labelCluster(0, nodes, nil)
+	want := "Solo"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLabelCluster_NoPackageNoName(t *testing.T) {
+	// パッケージも関数名も空 → fallback
+	nodes := []domain.Node{
+		{ID: "a", Name: "", Package: ""},
+	}
+	got := labelCluster(3, nodes, nil)
+	want := "cluster 3"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

@@ -2,175 +2,107 @@ package cluster
 
 import (
 	"fmt"
-	"path/filepath"
-	"sort"
-	"strings"
+	"path"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
 
 // labelCluster はクラスタを構成するノード群から人間に読めるラベルを生成する。
 //
-// 決定順:
-//  1. ノードの File パスの最長共通プレフィックス（/ 境界に丸める）
-//  2. 最頻出 Package（同数ならアルファベット順）
-//  3. 最頻出 filepath.Base(File)
-//  4. fallback: "cluster N"
+// 形式: "<短縮パッケージ名>.<代表関数名>" （例: "usecase.AnalyzePR"）
 //
-// Changed=true ノードのうちクラスタ内エッジ次数最大の関数名を " (#Name)" で付加する。
+// 代表関数は以下の優先度で絞り込み、各段階で空集合になったらフィルタを適用しない:
+//  1. Changed=true のノードを優先する
+//  2. 公開関数（先頭大文字）を優先する
+//  3. グラフ全体での入次数が最大のノードを選ぶ
+//  4. tie-break は名前の昇順
+//
+// パッケージ名・関数名のいずれも欠けている場合は "cluster N" にフォールバックする。
 func labelCluster(idx int, nodes []domain.Node, edges []domain.Edge) string {
 	if len(nodes) == 0 {
 		return fmt.Sprintf("cluster %d", idx)
 	}
 
-	base := baseLabel(idx, nodes)
+	rep := pickRepresentative(nodes, edges)
+	short := shortPackage(rep.Package)
 
-	rep := pickRepresentativeChangedNode(nodes, edges)
-	if rep != "" {
-		return base + " (#" + rep + ")"
+	switch {
+	case short != "" && rep.Name != "":
+		return short + "." + rep.Name
+	case short != "":
+		return short
+	case rep.Name != "":
+		return rep.Name
+	default:
+		return fmt.Sprintf("cluster %d", idx)
 	}
-	return base
 }
 
-func baseLabel(idx int, nodes []domain.Node) string {
-	// 1. 共通ファイルパスプレフィックス
-	files := make([]string, 0, len(nodes))
+// pickRepresentative はクラスタから代表ノードを選ぶ。len(nodes) > 0 を前提とする。
+func pickRepresentative(nodes []domain.Node, edges []domain.Edge) domain.Node {
+	inDeg := computeInDegree(nodes, edges)
+
+	candidates := filterNodes(nodes, func(n domain.Node) bool { return n.Changed })
+	if len(candidates) == 0 {
+		candidates = nodes
+	}
+
+	if exported := filterNodes(candidates, func(n domain.Node) bool { return isExported(n.Name) }); len(exported) > 0 {
+		candidates = exported
+	}
+
+	best := candidates[0]
+	for _, n := range candidates[1:] {
+		bd, nd := inDeg[best.ID], inDeg[n.ID]
+		if nd > bd || (nd == bd && n.Name < best.Name) {
+			best = n
+		}
+	}
+	return best
+}
+
+// computeInDegree はクラスタ内ノードに対するグラフ全体での入次数を返す。
+// edges は cluster を跨ぐ呼び出しも含むグラフ全体のエッジを想定する。
+func computeInDegree(nodes []domain.Node, edges []domain.Edge) map[domain.NodeID]int {
+	set := make(map[domain.NodeID]struct{}, len(nodes))
 	for _, n := range nodes {
-		if n.File != "" {
-			files = append(files, n.File)
-		}
+		set[n.ID] = struct{}{}
 	}
-	if len(files) > 0 {
-		prefix := commonPathPrefix(files)
-		if prefix != "" {
-			return prefix
-		}
-	}
-
-	// 2/3. 最頻出パッケージ vs 最頻出 basename を比較し、多い方を採用。
-	// 同頻度ならパッケージを優先する。
-	pkgSlice := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		if n.Package != "" {
-			pkgSlice = append(pkgSlice, n.Package)
-		}
-	}
-	baseSlice := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		if n.File != "" {
-			baseSlice = append(baseSlice, filepath.Base(n.File))
-		}
-	}
-	pkg, pkgFreq := mostCommonWithFreq(pkgSlice)
-	base, baseFreq := mostCommonWithFreq(baseSlice)
-	if baseFreq > pkgFreq && base != "" {
-		return base
-	}
-	if pkg != "" {
-		return pkg
-	}
-	if base != "" {
-		return base
-	}
-
-	return fmt.Sprintf("cluster %d", idx)
-}
-
-// commonPathPrefix はファイルパスのスラッシュ区切り境界に丸めた共通プレフィックスを返す。
-func commonPathPrefix(paths []string) string {
-	if len(paths) == 0 {
-		return ""
-	}
-	prefix := paths[0]
-	for _, p := range paths[1:] {
-		prefix = commonString(prefix, p)
-		if prefix == "" {
-			return ""
-		}
-	}
-	// / 境界に丸める
-	if idx := strings.LastIndex(prefix, "/"); idx > 0 {
-		prefix = prefix[:idx]
-	} else {
-		return ""
-	}
-	return prefix
-}
-
-func commonString(a, b string) string {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return a[:i]
-		}
-	}
-	return a[:n]
-}
-
-// mostCommonWithFreq は最頻出文字列とその出現回数を返す。空スライスなら ("", 0)。
-func mostCommonWithFreq(vals []string) (string, int) {
-	if len(vals) == 0 {
-		return "", 0
-	}
-	freq := make(map[string]int, len(vals))
-	for _, v := range vals {
-		freq[v]++
-	}
-	keys := make([]string, 0, len(freq))
-	for k := range freq {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	best := keys[0]
-	for _, k := range keys[1:] {
-		if freq[k] > freq[best] {
-			best = k
-		}
-	}
-	return best, freq[best]
-}
-
-// pickRepresentativeChangedNode はクラスタ内の Changed ノードのうち、
-// クラスタ内エッジ次数が最大のものの Name を返す。候補なしなら ""。
-func pickRepresentativeChangedNode(nodes []domain.Node, edges []domain.Edge) string {
-	nodeSet := make(map[domain.NodeID]struct{}, len(nodes))
-	for _, n := range nodes {
-		nodeSet[n.ID] = struct{}{}
-	}
-
-	degree := make(map[domain.NodeID]int)
+	deg := make(map[domain.NodeID]int, len(nodes))
 	for _, e := range edges {
-		_, fromIn := nodeSet[e.From]
-		_, toIn := nodeSet[e.To]
-		if fromIn && toIn {
-			degree[e.From]++
-			degree[e.To]++
+		if _, ok := set[e.To]; ok {
+			deg[e.To]++
 		}
 	}
+	return deg
+}
 
-	var bestID domain.NodeID
-	bestDeg := -1
+func filterNodes(nodes []domain.Node, pred func(domain.Node) bool) []domain.Node {
+	out := make([]domain.Node, 0, len(nodes))
 	for _, n := range nodes {
-		if !n.Changed {
-			continue
-		}
-		d := degree[n.ID]
-		if d > bestDeg || (d == bestDeg && (bestDeg == -1 || n.Name < string(bestID))) {
-			bestDeg = d
-			bestID = n.ID
+		if pred(n) {
+			out = append(out, n)
 		}
 	}
+	return out
+}
 
-	if bestDeg == -1 {
+// shortPackage はパッケージパスの末尾セグメントを返す。
+// 例: "github.com/foo/bar/usecase" -> "usecase"
+func shortPackage(pkg string) string {
+	if pkg == "" {
 		return ""
 	}
-	for _, n := range nodes {
-		if n.ID == bestID {
-			return n.Name
-		}
+	return path.Base(pkg)
+}
+
+// isExported は Go のエクスポート規則（先頭大文字）に従って公開関数か判定する。
+func isExported(name string) bool {
+	if name == "" {
+		return false
 	}
-	return ""
+	r, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(r)
 }
