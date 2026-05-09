@@ -78,9 +78,16 @@ func TestGoCallGraphBuilder_Build_ChangedNodes(t *testing.T) {
 	changedFileAbsPaths := []string{filepath.Join(root, "pkg/a/a.go")}
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, changedFileAbsPaths)
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, changedFileAbsPaths, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
+	}
+
+	// File フィールドが相対パスになっている（絶対パスでない）
+	for _, n := range graph.Nodes {
+		if filepath.IsAbs(n.File) {
+			t.Errorf("node %q: File should be relative, got %q", n.Name, n.File)
+		}
 	}
 
 	// 変更ファイル内の関数（A, C）は Changed=true
@@ -115,7 +122,7 @@ func TestGoCallGraphBuilder_Build_Edges(t *testing.T) {
 	pkgs := loadCGFixture(t, root)
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")})
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")}, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -152,7 +159,7 @@ func TestGoCallGraphBuilder_Build_StdlibExcluded(t *testing.T) {
 	pkgs := loadCGFixture(t, root)
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")})
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")}, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -170,7 +177,7 @@ func TestGoCallGraphBuilder_Build_EmptyChanged(t *testing.T) {
 	pkgs := loadCGFixture(t, root)
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{}, []string{})
+	graph, err := b.Build(context.Background(), pkgs, []string{}, []string{}, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
