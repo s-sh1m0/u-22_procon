@@ -2,7 +2,7 @@ package analyzer
 
 import (
 	"context"
-	"strings"
+	"path/filepath"
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/callgraph/cha"
@@ -37,7 +37,7 @@ func NewGoCallGraphBuilder() *GoCallGraphBuilder {
 // changedPkgIDs が空の場合は空の Graph を返す。
 // changedFileAbsPaths は changed フラグをファイル単位で設定するために使う（パッケージ単位ではない）。
 // stdlib・外部ライブラリはフィルタリングして含めない。
-// リポジトリからの相対パスを生成するために、clone先のdirectoryを引数に設定した。
+// rootDir はリポジトリのルートディレクトリの絶対パスで、ノードのファイルパスを相対パスに変換するために使用される。
 func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedFileAbsPaths []string, rootDir string) (*domain.Graph, error) {
 	if len(changedPkgIDs) == 0 {
 		return &domain.Graph{}, nil
@@ -149,7 +149,10 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 
 		pos := prog.Fset.Position(fn.Pos())
 		_, fileChanged := changedFileSet[pos.Filename]
-		relPath := strings.TrimPrefix(pos.Filename, rootDir+"/") // リポジトリからの相対パスにする
+		relPath, err := filepath.Rel(rootDir, pos.Filename) // リポジトリからの相対パスにする
+		if err != nil {
+			relPath = pos.Filename
+		}
 		nodes = append(nodes, domain.Node{
 			ID:      nid,
 			Name:    fn.Name(),
