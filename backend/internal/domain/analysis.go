@@ -26,14 +26,6 @@ type Analysis struct {
 	CreatedAt    time.Time
 }
 
-// ファイルステータス定数（GitHub API の status 値）
-const (
-	FileStatusAdded    = "added"
-	FileStatusModified = "modified"
-	FileStatusRemoved  = "removed"
-	FileStatusRenamed  = "renamed"
-)
-
 // ChangedFile はPRで変更されたファイル1件の情報。
 // Patch は GitHub API が返す unified diff テキスト（バイナリや巨大ファイルでは空になり得る）。
 type ChangedFile struct {
