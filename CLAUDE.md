@@ -52,7 +52,8 @@
 
 - Go コード（コーディング規約）: [`.claude/rules/go-style.md`](./.claude/rules/go-style.md)
 - バックエンド アーキテクチャ（オニオン + リポジトリ DIP）: [`.claude/rules/backend-architecture.md`](./.claude/rules/backend-architecture.md)
-- TypeScript / React: [`.claude/rules/frontend-style.md`](./.claude/rules/frontend-style.md)
+- TypeScript / React コード規約: [`.claude/rules/frontend-style.md`](./.claude/rules/frontend-style.md)
+- **UI / UX デザイン指針**: コンポーネント追加・スタイル変更・新画面作成の **作業前に必ず** [`DESIGN.md`](./DESIGN.md) を参照する（実装と食い違ったら DESIGN.md を更新）
 
 ---
 
