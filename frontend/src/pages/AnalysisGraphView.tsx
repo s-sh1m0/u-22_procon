@@ -78,7 +78,9 @@ export default function AnalysisGraphView({ jobId }: Props) {
           layer,
         },
       }
-      const fileDiff = diffData?.files.find((f) => filePath === f.filename || filePath.endsWith('/' + f.filename))
+      const fileDiff = diffData?.files.find(
+        (f) => filePath === f.filename || filePath.endsWith('/' + f.filename),
+      )
       return {
         panelNode: node,
         selectedCluster: cluster,
@@ -111,7 +113,9 @@ export default function AnalysisGraphView({ jobId }: Props) {
         layer,
       },
     }
-    const funcDiff = diffData?.files.find((f) => gn.file === f.filename || gn.file.endsWith('/' + f.filename))
+    const funcDiff = diffData?.files.find(
+      (f) => gn.file === f.filename || gn.file.endsWith('/' + f.filename),
+    )
     return { panelNode: node, selectedCluster: cluster, selectedLayer: layer, panelDiff: funcDiff }
   }, [data, diffData, selectedNodeId])
 

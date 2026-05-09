@@ -41,7 +41,7 @@ func CollectDiffFiles(ctx context.Context, repo diffCollector, token string, pr 
 			}
 
 			// before コンテンツを取得（added は不要）
-			if cf.Status != "added" {
+			if cf.Status != domain.FileStatusAdded {
 				basePath := cf.Filename
 				if cf.PreviousFilename != "" {
 					basePath = cf.PreviousFilename
@@ -56,7 +56,7 @@ func CollectDiffFiles(ctx context.Context, repo diffCollector, token string, pr 
 			}
 
 			// after コンテンツを取得（removed は不要）
-			if cf.Status != "removed" {
+			if cf.Status != domain.FileStatusRemoved {
 				after, err := repo.GetFileContent(egCtx, token, pr.Owner, pr.Repo, cf.Filename, pr.HeadSHA)
 				if err != nil {
 					return fmt.Errorf("get after content %s: %w", cf.Filename, err)

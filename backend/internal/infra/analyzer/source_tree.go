@@ -82,7 +82,7 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 	// HEAD に存在するファイルの絶対パスを収集する（removed は HEAD に存在しないため除外）。
 	changedFileAbsPaths := make([]string, 0, len(changed))
 	for _, f := range changed {
-		if f.Status == "removed" {
+		if f.Status == domain.FileStatusRemoved {
 			continue
 		}
 		changedFileAbsPaths = append(changedFileAbsPaths, filepath.Clean(filepath.Join(clonedRoot, f.Filename)))
