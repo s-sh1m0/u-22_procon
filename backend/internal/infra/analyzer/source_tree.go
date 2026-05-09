@@ -17,7 +17,8 @@ import (
 
 // PreparedSource はclone・ロード・変更パッケージ特定の結果をまとめたもの。
 type PreparedSource struct {
-	RootDir             string
+	RepoRoot            string // リポジトリルート（GitHub API パスの基点）
+	RootDir             string // go.mod のあるディレクトリ（パッケージロードの基点）
 	Packages            []*packages.Package
 	LoadErrors          []packages.Error
 	ChangedPackages     []string // パッケージID（重複なし・ソート済み）
@@ -91,6 +92,7 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 	if len(changedPkgs) == 0 {
 		// 変更されたGoパッケージがない（非Goファイルのみの変更など）
 		return &PreparedSource{
+			RepoRoot:            clonedRoot,
 			RootDir:             loadDir,
 			ChangedPackages:     nil,
 			ChangedFileAbsPaths: changedFileAbsPaths,
@@ -113,6 +115,7 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 	log.Printf("analyzer: phase2 Load(%d pkgs) took %s", len(result.Packages), time.Since(t1))
 
 	return &PreparedSource{
+		RepoRoot:            clonedRoot,
 		RootDir:             loadDir,
 		Packages:            result.Packages,
 		LoadErrors:          result.Errors,

@@ -83,6 +83,9 @@ func G() int { return 42 }
 		t.Fatalf("Prepare: %v", err)
 	}
 
+	if ps.RepoRoot != resolvedDir {
+		t.Errorf("RepoRoot: got %q, want %q", ps.RepoRoot, resolvedDir)
+	}
 	if ps.RootDir != resolvedDir {
 		t.Errorf("RootDir: got %q, want %q", ps.RootDir, resolvedDir)
 	}
@@ -99,6 +102,46 @@ func G() int { return 42 }
 	}
 	if !fc.cleanupCalled {
 		t.Error("expected fakeCloner.Cleanup to be called")
+	}
+}
+
+func TestSourceTree_Prepare_MonorepoRepoRoot(t *testing.T) {
+	// fixture: go.mod がサブディレクトリ backend/ にあるモノレポ構成
+	dir := writeFixture(t, map[string]string{
+		"backend/go.mod": "module example.com/fixture\n\ngo 1.21\n",
+		"backend/pkg/a/a.go": `package a
+
+func F() int { return 42 }
+`,
+	})
+
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fc := &fakeCloner{fixtureDir: resolvedDir}
+	st := NewSourceTree(fc, NewGoPackageLoader())
+
+	pr := domain.PRInfo{Owner: "owner", Repo: "repo", HeadSHA: "abc123"}
+	changed := []domain.ChangedFile{
+		{Filename: "backend/pkg/a/a.go", Status: "modified"},
+	}
+
+	ps, err := st.Prepare(context.Background(), pr, "", changed)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	defer func() { _ = ps.Cleanup() }()
+
+	wantRepoRoot := resolvedDir
+	wantRootDir := filepath.Join(resolvedDir, "backend")
+
+	if ps.RepoRoot != wantRepoRoot {
+		t.Errorf("RepoRoot: got %q, want %q", ps.RepoRoot, wantRepoRoot)
+	}
+	if ps.RootDir != wantRootDir {
+		t.Errorf("RootDir: got %q, want %q", ps.RootDir, wantRootDir)
 	}
 }
 
