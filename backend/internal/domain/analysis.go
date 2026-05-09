@@ -14,22 +14,36 @@ type PRInfo struct {
 	BaseRef string
 	HeadRef string
 	HeadSHA string
+	BaseSHA string
 }
 
 // Analysis はPR解析の結果エンティティ
 type Analysis struct {
-	ID        AnalysisID
-	PR        PRInfo
-	Result    *ClusterResult
-	CreatedAt time.Time
+	ID           AnalysisID
+	PR           PRInfo
+	Result       *ClusterResult
+	ChangedFiles []DiffFile
+	CreatedAt    time.Time
 }
 
 // ChangedFile はPRで変更されたファイル1件の情報。
 // Patch は GitHub API が返す unified diff テキスト（バイナリや巨大ファイルでは空になり得る）。
 type ChangedFile struct {
-	Filename  string // リポジトリルートからの相対パス
-	Status    string // "added" | "modified" | "removed" | "renamed"
-	Additions int
-	Deletions int
-	Patch     string
+	Filename         string // リポジトリルートからの相対パス
+	PreviousFilename string // renamed のとき base 側のパス
+	Status           string // "added" | "modified" | "removed" | "renamed"
+	Additions        int
+	Deletions        int
+	Patch            string
+}
+
+// DiffFile はPRで変更されたファイルの before/after 全文を保持する。
+type DiffFile struct {
+	Filename      string // head 側のパス（removed は base 側のパス）
+	PreviousName  string // renamed のとき base 側のパス
+	Status        string // "added" | "modified" | "removed" | "renamed"
+	Additions     int
+	Deletions     int
+	BeforeContent string // base SHA でのファイル全文（added のとき ""）
+	AfterContent  string // head SHA でのファイル全文（removed のとき ""）
 }

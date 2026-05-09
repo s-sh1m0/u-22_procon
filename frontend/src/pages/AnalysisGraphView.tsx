@@ -1,8 +1,9 @@
 import { useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import type { NodeKind, LayerKind, AnyFlowNode } from '@/types/graph'
-import type { Cluster } from '@/types/api'
+import type { Cluster, DiffFile } from '@/types/api'
 import { useGraph } from '@/hooks/useGraph'
+import { useDiff } from '@/hooks/useDiff'
 import { inferLayer } from '@/lib/layerInference'
 import { getClusterColor } from '@/lib/clusterColors'
 import AppShell from '@/components/layout/AppShell'
@@ -16,6 +17,7 @@ type Props = { jobId: string }
 
 export default function AnalysisGraphView({ jobId }: Props) {
   const { data, isLoading, error } = useGraph(jobId, true)
+  const { data: diffData } = useDiff(jobId, !isLoading && !error && !!data)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [nodeKind, setNodeKind] = useState<NodeKind>('function')
 
@@ -24,9 +26,14 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setSelectedNodeId(null)
   }, [])
 
-  const { panelNode, selectedCluster, selectedLayer } = useMemo(() => {
+  const { panelNode, selectedCluster, selectedLayer, panelDiff } = useMemo(() => {
     if (!data || !selectedNodeId) {
-      return { panelNode: null, selectedCluster: null, selectedLayer: 'other' as LayerKind }
+      return {
+        panelNode: null,
+        selectedCluster: null,
+        selectedLayer: 'other' as LayerKind,
+        panelDiff: undefined as DiffFile | undefined,
+      }
     }
 
     // File node selected (file mode)
@@ -71,7 +78,15 @@ export default function AnalysisGraphView({ jobId }: Props) {
           layer,
         },
       }
-      return { panelNode: node, selectedCluster: cluster, selectedLayer: layer }
+      const fileDiff = diffData?.files.find(
+        (f) => filePath === f.filename || filePath.endsWith('/' + f.filename),
+      )
+      return {
+        panelNode: node,
+        selectedCluster: cluster,
+        selectedLayer: layer,
+        panelDiff: fileDiff,
+      }
     }
 
     // Function node selected
@@ -98,8 +113,11 @@ export default function AnalysisGraphView({ jobId }: Props) {
         layer,
       },
     }
-    return { panelNode: node, selectedCluster: cluster, selectedLayer: layer }
-  }, [data, selectedNodeId])
+    const funcDiff = diffData?.files.find(
+      (f) => gn.file === f.filename || gn.file.endsWith('/' + f.filename),
+    )
+    return { panelNode: node, selectedCluster: cluster, selectedLayer: layer, panelDiff: funcDiff }
+  }, [data, diffData, selectedNodeId])
 
   if (isLoading) {
     return (
@@ -136,6 +154,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
             node={panelNode}
             cluster={selectedCluster}
             layer={selectedLayer}
+            diff={panelDiff}
             onClose={() => setSelectedNodeId(null)}
           />
         ) : undefined

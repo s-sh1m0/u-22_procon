@@ -44,3 +44,17 @@ export type GraphEdge = {
   from: string
   to: string
 }
+
+export type DiffFile = {
+  filename: string
+  previous_name?: string
+  status: 'added' | 'modified' | 'removed' | 'renamed'
+  additions: number
+  deletions: number
+  before_content: string
+  after_content: string
+}
+
+export type DiffResponse = {
+  files: DiffFile[]
+}

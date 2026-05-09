@@ -93,6 +93,10 @@ func (r *fakePRRepo) ListChangedGoFiles(_ context.Context, _, _, _ string, _ int
 	return r.changed, r.err
 }
 
+func (r *fakePRRepo) GetFileContent(_ context.Context, _, _, _, _, _ string) ([]byte, error) {
+	return nil, r.err
+}
+
 type fakeSourceTree struct {
 	prepared *analyzer.PreparedSource
 	err      error
@@ -107,7 +111,7 @@ type fakeCGBuilder struct {
 	err   error
 }
 
-func (b *fakeCGBuilder) Build(_ context.Context, _ []*packages.Package, _ []string) (*domain.Graph, error) {
+func (b *fakeCGBuilder) Build(_ context.Context, _ []*packages.Package, _ []string, _ []string) (*domain.Graph, error) {
 	return b.graph, b.err
 }
 

@@ -46,7 +46,7 @@ func (uc *AnalyzePRUseCase) Execute(ctx context.Context, token string, pr domain
 	now := uc.now().UTC()
 	jobID := domain.JobID(uc.newID())
 
-	if cached != nil {
+	if cached != nil && cached.ChangedFiles != nil {
 		j := &domain.Job{
 			ID:         jobID,
 			AnalysisID: cached.ID,

@@ -66,6 +66,39 @@ type EdgeDTO struct {
 	To   string `json:"to"`
 }
 
+// DiffResponse は GET /api/diff/:jobId のレスポンス
+type DiffResponse struct {
+	Files []DiffFileDTO `json:"files"`
+}
+
+// DiffFileDTO はファイル単位の diff 情報の JSON 表現
+type DiffFileDTO struct {
+	Filename      string `json:"filename"`
+	PreviousName  string `json:"previous_name,omitempty"`
+	Status        string `json:"status"`
+	Additions     int    `json:"additions"`
+	Deletions     int    `json:"deletions"`
+	BeforeContent string `json:"before_content"`
+	AfterContent  string `json:"after_content"`
+}
+
+// toDiffResponse は domain.Analysis を DiffResponse に変換する。
+func toDiffResponse(a *domain.Analysis) DiffResponse {
+	files := make([]DiffFileDTO, len(a.ChangedFiles))
+	for i, f := range a.ChangedFiles {
+		files[i] = DiffFileDTO{
+			Filename:      f.Filename,
+			PreviousName:  f.PreviousName,
+			Status:        f.Status,
+			Additions:     f.Additions,
+			Deletions:     f.Deletions,
+			BeforeContent: f.BeforeContent,
+			AfterContent:  f.AfterContent,
+		}
+	}
+	return DiffResponse{Files: files}
+}
+
 // toGraphResponse は domain.Analysis を GraphResponse に変換する。
 func toGraphResponse(a *domain.Analysis) GraphResponse {
 	r := a.Result

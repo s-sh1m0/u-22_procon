@@ -139,7 +139,7 @@ func IdentifyChangedPackages(rootDir string, pkgs []*packages.Package, changed [
 	// 変更ファイルの絶対パスをsetに入れる（added/modifiedのみ）
 	wantAbs := make(map[string]struct{}, len(changed))
 	for _, f := range changed {
-		if f.Status == "removed" || f.Status == "renamed" {
+		if f.Status == domain.FileStatusRemoved || f.Status == domain.FileStatusRenamed {
 			continue
 		}
 		abs := filepath.Clean(filepath.Join(rootDir, f.Filename))

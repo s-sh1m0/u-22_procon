@@ -28,4 +28,7 @@ type SessionRepository interface {
 type PRRepository interface {
 	GetPR(ctx context.Context, token, owner, repo string, number int) (*PRInfo, error)
 	ListChangedGoFiles(ctx context.Context, token, owner, repo string, number int) ([]ChangedFile, error)
+	// GetFileContent は指定 ref（branch/tag/SHA）のファイル全文を返す。
+	// ファイルが存在しない場合は (nil, nil) を返す。
+	GetFileContent(ctx context.Context, token, owner, repo, path, ref string) ([]byte, error)
 }

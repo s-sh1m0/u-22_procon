@@ -66,7 +66,7 @@ func main() {
 	// 4. コールグラフ構築
 	t3 := time.Now()
 	cgBuilder := analyzer.NewGoCallGraphBuilder()
-	graph, err := cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages)
+	graph, err := cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths)
 	if err != nil {
 		log.Fatalf("Build: %v", err)
 	}

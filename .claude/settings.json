@@ -2,6 +2,7 @@
   "permissions": {
     "defaultMode": "acceptEdits",
     "allow": [
+      "Edit",
       "Bash(mkdir *)",
       "Bash(touch *)",
       "Bash(ls *)",

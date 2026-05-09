@@ -15,6 +15,7 @@ func NewRouter(
 	authHandler *AuthHandler,
 	analysisHandler *AnalysisHandler,
 	jobHandler *JobHandler,
+	diffHandler *DiffHandler,
 	sessions domain.SessionRepository,
 ) *echo.Echo {
 	e := echo.New()
@@ -40,6 +41,7 @@ func NewRouter(
 	apiG.POST("/analyze", analysisHandler.Analyze)
 	apiG.GET("/jobs/:id", jobHandler.Get)
 	apiG.GET("/graph/:jobId", analysisHandler.GetGraph)
+	apiG.GET("/diff/:jobId", diffHandler.Get)
 
 	return e
 }

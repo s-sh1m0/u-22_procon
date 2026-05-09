@@ -109,8 +109,9 @@ func TestAnalyzePR_CacheMiss_Enqueue(t *testing.T) {
 
 func TestAnalyzePR_CacheHit_NoEnqueue(t *testing.T) {
 	cachedAnalysis := &domain.Analysis{
-		ID: "cached-analysis",
-		PR: domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+		ID:           "cached-analysis",
+		PR:           domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+		ChangedFiles: []domain.DiffFile{},
 	}
 	analyses := &fakeAnalysisRepo{byPR: cachedAnalysis}
 	jobs := &fakeJobRepo{}

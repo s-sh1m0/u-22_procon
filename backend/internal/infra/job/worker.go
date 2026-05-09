@@ -123,7 +123,7 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	log.Printf("worker: Prepare (clone+load) took %s", time.Since(t1))
 
 	t2 := time.Now()
-	graph, err := w.cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages)
+	graph, err := w.cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths)
 	if err != nil {
 		fail(fmt.Errorf("build callgraph: %w", err))
 		return
@@ -137,14 +137,23 @@ func (w *Worker) process(ctx context.Context, item Item) {
 		return
 	}
 	log.Printf("worker: Cluster took %s", time.Since(t3))
+
+	t4 := time.Now()
+	diffFiles, err := analyzer.CollectDiffFiles(ctx, w.prRepo, item.Token, *prInfo, changed)
+	if err != nil {
+		log.Printf("worker: CollectDiffFiles error (non-fatal): %v", err)
+		diffFiles = nil
+	}
+	log.Printf("worker: CollectDiffFiles took %s (%d files)", time.Since(t4), len(diffFiles))
 	log.Printf("worker: total job %s took %s", jobID, time.Since(tStart))
 
 	analysisID := domain.AnalysisID(w.newID())
 	a := &domain.Analysis{
-		ID:        analysisID,
-		PR:        *prInfo,
-		Result:    result,
-		CreatedAt: w.now().UTC(),
+		ID:           analysisID,
+		PR:           *prInfo,
+		Result:       result,
+		ChangedFiles: diffFiles,
+		CreatedAt:    w.now().UTC(),
 	}
 	if err := w.analyses.Save(ctx, a); err != nil {
 		fail(fmt.Errorf("save analysis: %w", err))
