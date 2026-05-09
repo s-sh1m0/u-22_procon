@@ -74,13 +74,16 @@ func TestGoCallGraphBuilder_Build_ChangedNodes(t *testing.T) {
 	root := setupCGFixture(t)
 	pkgs := loadCGFixture(t, root)
 
+	// pkg/a/a.go だけを変更ファイルとして渡す（ファイル単位の changed フラグを検証）
+	changedFileAbsPaths := []string{filepath.Join(root, "pkg/a/a.go")}
+
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"})
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, changedFileAbsPaths)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
-	// 変更パッケージ内の関数（A, C）は Changed=true
+	// 変更ファイル内の関数（A, C）は Changed=true
 	// 呼び出し先（B）は Changed=false だがグラフに含まれる
 	nodeMap := make(map[string]bool) // Name -> Changed
 	for _, n := range graph.Nodes {
@@ -112,7 +115,7 @@ func TestGoCallGraphBuilder_Build_Edges(t *testing.T) {
 	pkgs := loadCGFixture(t, root)
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"})
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -149,7 +152,7 @@ func TestGoCallGraphBuilder_Build_StdlibExcluded(t *testing.T) {
 	pkgs := loadCGFixture(t, root)
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"})
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -167,7 +170,7 @@ func TestGoCallGraphBuilder_Build_EmptyChanged(t *testing.T) {
 	pkgs := loadCGFixture(t, root)
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{})
+	graph, err := b.Build(context.Background(), pkgs, []string{}, []string{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

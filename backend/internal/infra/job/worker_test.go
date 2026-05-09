@@ -111,7 +111,7 @@ type fakeCGBuilder struct {
 	err   error
 }
 
-func (b *fakeCGBuilder) Build(_ context.Context, _ []*packages.Package, _ []string) (*domain.Graph, error) {
+func (b *fakeCGBuilder) Build(_ context.Context, _ []*packages.Package, _ []string, _ []string) (*domain.Graph, error) {
 	return b.graph, b.err
 }
 

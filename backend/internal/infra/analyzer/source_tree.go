@@ -17,11 +17,12 @@ import (
 
 // PreparedSource はclone・ロード・変更パッケージ特定の結果をまとめたもの。
 type PreparedSource struct {
-	RootDir         string
-	Packages        []*packages.Package
-	LoadErrors      []packages.Error
-	ChangedPackages []string // パッケージID（重複なし・ソート済み）
-	Cleanup         func() error
+	RootDir             string
+	Packages            []*packages.Package
+	LoadErrors          []packages.Error
+	ChangedPackages     []string // パッケージID（重複なし・ソート済み）
+	ChangedFileAbsPaths []string // PR で変更された .go ファイルの絶対パス（HEAD 側）
+	Cleanup             func() error
 }
 
 // SourceTree はCloneとPackageLoadを組み合わせたファサード。
@@ -78,12 +79,22 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 	changedPkgs := IdentifyChangedPackages(clonedRoot, fastPkgs, changed)
 	log.Printf("analyzer: changed packages: %v", changedPkgs)
 
+	// HEAD に存在するファイルの絶対パスを収集する（removed は HEAD に存在しないため除外）。
+	changedFileAbsPaths := make([]string, 0, len(changed))
+	for _, f := range changed {
+		if f.Status == "removed" {
+			continue
+		}
+		changedFileAbsPaths = append(changedFileAbsPaths, filepath.Clean(filepath.Join(clonedRoot, f.Filename)))
+	}
+
 	if len(changedPkgs) == 0 {
 		// 変更されたGoパッケージがない（非Goファイルのみの変更など）
 		return &PreparedSource{
-			RootDir:         loadDir,
-			ChangedPackages: nil,
-			Cleanup:         cloned.Cleanup,
+			RootDir:             loadDir,
+			ChangedPackages:     nil,
+			ChangedFileAbsPaths: changedFileAbsPaths,
+			Cleanup:             cloned.Cleanup,
 		}, nil
 	}
 
@@ -102,11 +113,12 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 	log.Printf("analyzer: phase2 Load(%d pkgs) took %s", len(result.Packages), time.Since(t1))
 
 	return &PreparedSource{
-		RootDir:         loadDir,
-		Packages:        result.Packages,
-		LoadErrors:      result.Errors,
-		ChangedPackages: changedPkgs,
-		Cleanup:         cloned.Cleanup,
+		RootDir:             loadDir,
+		Packages:            result.Packages,
+		LoadErrors:          result.Errors,
+		ChangedPackages:     changedPkgs,
+		ChangedFileAbsPaths: changedFileAbsPaths,
+		Cleanup:             cloned.Cleanup,
 	}, nil
 }
 

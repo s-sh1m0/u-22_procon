@@ -123,7 +123,7 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	log.Printf("worker: Prepare (clone+load) took %s", time.Since(t1))
 
 	t2 := time.Now()
-	graph, err := w.cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages)
+	graph, err := w.cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths)
 	if err != nil {
 		fail(fmt.Errorf("build callgraph: %w", err))
 		return

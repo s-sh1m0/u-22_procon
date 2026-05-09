@@ -16,10 +16,9 @@ import (
 const defaultMaxDepth = 3
 
 // CallGraphBuilder はロード済みパッケージから呼び出しグラフを構築する抽象。
-// source_tree.go（issue #4）が返す PreparedSource.Packages と
-// PreparedSource.ChangedPackages をそのまま渡せる設計にする。
+// source_tree.go が返す PreparedSource.Packages / ChangedPackages / ChangedFileAbsPaths をそのまま渡せる設計にする。
 type CallGraphBuilder interface {
-	Build(ctx context.Context, pkgs []*packages.Package, changedPkgIDs []string) (*domain.Graph, error)
+	Build(ctx context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedFileAbsPaths []string) (*domain.Graph, error)
 }
 
 // GoCallGraphBuilder は golang.org/x/tools/go/callgraph を使う本番実装。
@@ -35,10 +34,16 @@ func NewGoCallGraphBuilder() *GoCallGraphBuilder {
 
 // Build は pkgs から SSA を構築し、changedPkgIDs を起点に caller/callee グラフを返す。
 // changedPkgIDs が空の場合は空の Graph を返す。
+// changedFileAbsPaths は changed フラグをファイル単位で設定するために使う（パッケージ単位ではない）。
 // stdlib・外部ライブラリはフィルタリングして含めない。
-func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, changedPkgIDs []string) (*domain.Graph, error) {
+func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedFileAbsPaths []string) (*domain.Graph, error) {
 	if len(changedPkgIDs) == 0 {
 		return &domain.Graph{}, nil
+	}
+
+	changedFileSet := make(map[string]struct{}, len(changedFileAbsPaths))
+	for _, f := range changedFileAbsPaths {
+		changedFileSet[f] = struct{}{}
 	}
 
 	maxDepth := b.MaxDepth
@@ -140,19 +145,15 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		nid := toNodeID(fn)
 		nodeIDMap[cgNode] = nid
 
-		changed := false
-		if fn.Package() != nil {
-			_, changed = changedSet[fn.Package().Pkg.Path()]
-		}
-
 		pos := prog.Fset.Position(fn.Pos())
+		_, fileChanged := changedFileSet[pos.Filename]
 		nodes = append(nodes, domain.Node{
 			ID:      nid,
 			Name:    fn.Name(),
 			Package: pkgPath(fn),
 			File:    pos.Filename,
 			Line:    pos.Line,
-			Changed: changed,
+			Changed: fileChanged,
 		})
 	}
 
