@@ -6,9 +6,17 @@ type Props = {
   nodeKind: NodeKind
   onChangeNodeKind: (kind: NodeKind) => void
   onFitChanged: () => void
+  onExpandAll: () => void
+  onCollapseAll: () => void
 }
 
-export default function GraphControls({ nodeKind, onChangeNodeKind, onFitChanged }: Props) {
+export default function GraphControls({
+  nodeKind,
+  onChangeNodeKind,
+  onFitChanged,
+  onExpandAll,
+  onCollapseAll,
+}: Props) {
   return (
     <Card className="shadow-md border-stone-200 bg-white">
       <CardContent className="p-2 flex flex-col gap-2">
@@ -35,6 +43,19 @@ export default function GraphControls({ nodeKind, onChangeNodeKind, onFitChanged
           >
             ファイル
           </button>
+        </div>
+        <div className="flex gap-1">
+          <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={onExpandAll}>
+            すべて展開
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 flex-1 text-xs"
+            onClick={onCollapseAll}
+          >
+            折りたたむ
+          </Button>
         </div>
         <Button variant="outline" size="sm" className="h-7 w-full text-xs" onClick={onFitChanged}>
           変更ノードに寄せる

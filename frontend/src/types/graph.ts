@@ -30,13 +30,27 @@ export type FileNodeData = {
 export type ClusterGroupData = {
   label: string
   clusterId: number
+  clusterKey: string
   clusterColorHex: string
   clusterColorSoft: string
+  [key: string]: unknown
+}
+
+export type SuperClusterNodeData = {
+  label: string
+  clusterId: number
+  clusterKey: string
+  clusterColorHex: string
+  clusterColorSoft: string
+  functionCount: number
+  changedCount: number
+  hasChanged: boolean
   [key: string]: unknown
 }
 
 export type FunctionFlowNode = Node<FunctionNodeData, 'function'>
 export type FileFlowNode = Node<FileNodeData, 'file'>
 export type ClusterFlowNode = Node<ClusterGroupData, 'cluster'>
+export type SuperClusterFlowNode = Node<SuperClusterNodeData, 'supercluster'>
 
-export type AnyFlowNode = FunctionFlowNode | FileFlowNode | ClusterFlowNode
+export type AnyFlowNode = FunctionFlowNode | FileFlowNode | ClusterFlowNode | SuperClusterFlowNode

@@ -15,6 +15,7 @@ import type { NodeKind } from '@/types/graph'
 import FunctionNode from './FunctionNode'
 import FileNode from './FileNode'
 import ClusterGroup from './ClusterGroup'
+import SuperClusterNode from './SuperClusterNode'
 import GraphControls from './GraphControls'
 import { layoutGraph } from '@/lib/graphLayout'
 
@@ -22,6 +23,7 @@ const nodeTypes = {
   function: FunctionNode,
   file: FileNode,
   cluster: ClusterGroup,
+  supercluster: SuperClusterNode,
 }
 
 type Props = {
@@ -30,12 +32,29 @@ type Props = {
   onChangeNodeKind: (kind: NodeKind) => void
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
+  expandedClusters: Set<string>
+  onToggleCluster: (key: string) => void
+  onExpandAll: () => void
+  onCollapseAll: () => void
 }
 
-function GraphInner({ data, nodeKind, onChangeNodeKind, selectedNodeId, onSelectNode }: Props) {
+function GraphInner({
+  data,
+  nodeKind,
+  onChangeNodeKind,
+  selectedNodeId,
+  onSelectNode,
+  expandedClusters,
+  onToggleCluster,
+  onExpandAll,
+  onCollapseAll,
+}: Props) {
   const { fitView } = useReactFlow()
 
-  const { nodes: layoutNodes, edges } = useMemo(() => layoutGraph(data, nodeKind), [data, nodeKind])
+  const { nodes: layoutNodes, edges } = useMemo(
+    () => layoutGraph(data, nodeKind, expandedClusters),
+    [data, nodeKind, expandedClusters],
+  )
 
   const nodes = useMemo(
     () => layoutNodes.map((n) => ({ ...n, selected: n.id === selectedNodeId })),
@@ -44,11 +63,13 @@ function GraphInner({ data, nodeKind, onChangeNodeKind, selectedNodeId, onSelect
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_, node) => {
-      if (node.type === 'function' || node.type === 'file') {
+      if (node.type === 'supercluster') {
+        onToggleCluster(node.data.clusterKey as string)
+      } else if (node.type === 'function' || node.type === 'file') {
         onSelectNode(node.id)
       }
     },
-    [onSelectNode],
+    [onSelectNode, onToggleCluster],
   )
 
   const handleFitChanged = useCallback(() => {
@@ -77,7 +98,9 @@ function GraphInner({ data, nodeKind, onChangeNodeKind, selectedNodeId, onSelect
       <Background variant={BackgroundVariant.Dots} gap={20} color="#e7e5e4" />
       <Controls position="bottom-left" />
       <MiniMap
-        nodeColor={(n) => (n.type === 'cluster' ? '#e7e5e4' : '#0d9488')}
+        nodeColor={(n) =>
+          n.type === 'cluster' || n.type === 'supercluster' ? '#e7e5e4' : '#0d9488'
+        }
         maskColor="rgba(250,250,249,0.6)"
       />
       <Panel position="bottom-right">
@@ -85,6 +108,8 @@ function GraphInner({ data, nodeKind, onChangeNodeKind, selectedNodeId, onSelect
           nodeKind={nodeKind}
           onChangeNodeKind={onChangeNodeKind}
           onFitChanged={handleFitChanged}
+          onExpandAll={onExpandAll}
+          onCollapseAll={onCollapseAll}
         />
       </Panel>
     </ReactFlow>

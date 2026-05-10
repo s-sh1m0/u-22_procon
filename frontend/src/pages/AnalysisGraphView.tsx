@@ -6,6 +6,7 @@ import { useGraph } from '@/hooks/useGraph'
 import { useDiff } from '@/hooks/useDiff'
 import { inferLayer } from '@/lib/layerInference'
 import { getClusterColor } from '@/lib/clusterColors'
+import { makeClusterKey } from '@/lib/graphLayout'
 import AppShell from '@/components/layout/AppShell'
 import PRMetaBar from '@/components/layout/PRMetaBar'
 import DependencyGraph from '@/components/graph/DependencyGraph'
@@ -20,9 +21,65 @@ export default function AnalysisGraphView({ jobId }: Props) {
   const { data: diffData } = useDiff(jobId, !isLoading && !error && !!data)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [nodeKind, setNodeKind] = useState<NodeKind>('function')
+  // null = 未操作（自動展開ロジックを使う）、Set = ユーザー操作後の明示的な展開セット
+  const [expandedClustersOverride, setExpandedClustersOverride] = useState<Set<string> | null>(null)
 
   const handleChangeNodeKind = useCallback((kind: NodeKind) => {
     setNodeKind(kind)
+    setSelectedNodeId(null)
+  }, [])
+
+  // 変更関数を含むクラスタをデフォルト展開する（useEffect不要・レンダー時に計算）
+  const defaultExpandedClusters = useMemo(() => {
+    if (!data) return new Set<string>()
+    const expanded = new Set<string>()
+    for (const cluster of data.clusters) {
+      const hasChanged = cluster.nodes.some(
+        (nid) => data.graph.nodes.find((n) => n.id === nid)?.changed,
+      )
+      if (hasChanged) {
+        for (const nid of cluster.nodes) {
+          const n = data.graph.nodes.find((gn) => gn.id === nid)
+          if (n) expanded.add(makeClusterKey(n.package, cluster.id))
+        }
+      }
+    }
+    return expanded
+  }, [data])
+
+  const expandedClusters = expandedClustersOverride ?? defaultExpandedClusters
+
+  const allClusterKeys = useMemo(() => {
+    if (!data) return new Set<string>()
+    const keys = new Set<string>()
+    for (const cluster of data.clusters) {
+      for (const nid of cluster.nodes) {
+        const n = data.graph.nodes.find((gn) => gn.id === nid)
+        if (n) keys.add(makeClusterKey(n.package, cluster.id))
+      }
+    }
+    return keys
+  }, [data])
+
+  const handleToggleCluster = useCallback(
+    (key: string) => {
+      setExpandedClustersOverride((prev) => {
+        const base = prev !== null ? prev : defaultExpandedClusters
+        const next = new Set(base)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      })
+    },
+    [defaultExpandedClusters],
+  )
+
+  const handleExpandAll = useCallback(() => {
+    setExpandedClustersOverride(new Set(allClusterKeys))
+  }, [allClusterKeys])
+
+  const handleCollapseAll = useCallback(() => {
+    setExpandedClustersOverride(new Set())
     setSelectedNodeId(null)
   }, [])
 
@@ -166,6 +223,10 @@ export default function AnalysisGraphView({ jobId }: Props) {
         onChangeNodeKind={handleChangeNodeKind}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
+        expandedClusters={expandedClusters}
+        onToggleCluster={handleToggleCluster}
+        onExpandAll={handleExpandAll}
+        onCollapseAll={handleCollapseAll}
       />
     </AppShell>
   )
