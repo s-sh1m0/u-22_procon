@@ -10,9 +10,16 @@ export default function ClusterGroup({ data }: NodeProps<ClusterFlowNode>) {
         border: `1.5px solid color-mix(in srgb, ${data.clusterColorHex} 35%, transparent)`,
       }}
     >
-      <div className="px-3 pt-2">
+      <div className="flex items-center justify-between px-3 pt-2">
         <span className="text-xs font-semibold" style={{ color: data.clusterColorHex }}>
           {data.label}
+        </span>
+        <span
+          className="cursor-pointer rounded px-1 text-[10px] text-stone-400 hover:text-stone-600"
+          title="折りたたむ"
+          aria-label="クラスタを折りたたむ"
+        >
+          −
         </span>
       </div>
     </div>

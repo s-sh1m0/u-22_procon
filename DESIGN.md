@@ -146,6 +146,8 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 | `PRMetaBar` | 上部固定バー。PR タイトル・ブランチ情報・ユーザー情報 |
 | `DependencyGraph` | `@xyflow/react` ベースの呼び出しグラフ |
 | `FunctionNode` / `FileNode` | グラフ上のノード。`changed=true` で `ring-amber-400` |
+| `ClusterGroup` | 展開中クラスタの背景コンテナ。子ノードを `parentId` で内包 |
+| `SuperClusterNode` | 折りたたみ中クラスタのスーパーノード。クリックで展開 |
 | `FunctionDetailsPanel` | 右パネル。クラスタラベル・レイヤー・diff |
 | `DiffViewer` | `@monaco-editor/react` で before/after 表示 |
 | `ClusterSidebar` | クラスタ一覧（実装位置: `layout/`） |
