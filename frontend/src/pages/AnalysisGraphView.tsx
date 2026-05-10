@@ -29,37 +29,33 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setSelectedNodeId(null)
   }, [])
 
-  // 変更関数を含むクラスタをデフォルト展開する（useEffect不要・レンダー時に計算）
-  const defaultExpandedClusters = useMemo(() => {
-    if (!data) return new Set<string>()
-    const expanded = new Set<string>()
+  const { defaultExpandedClusters, allClusterKeys } = useMemo(() => {
+    const defaultExpanded = new Set<string>()
+    const allKeys = new Set<string>()
+    if (!data) return { defaultExpandedClusters: defaultExpanded, allClusterKeys: allKeys }
+
+    const nodeMap = new Map(data.graph.nodes.map((n) => [n.id, n]))
+
     for (const cluster of data.clusters) {
-      const hasChanged = cluster.nodes.some(
-        (nid) => data.graph.nodes.find((n) => n.id === nid)?.changed,
-      )
-      if (hasChanged) {
-        for (const nid of cluster.nodes) {
-          const n = data.graph.nodes.find((gn) => gn.id === nid)
-          if (n) expanded.add(makeClusterKey(n.package, cluster.id))
+      const clusterKeys = new Set<string>()
+      let hasChanged = false
+      for (const nid of cluster.nodes) {
+        const n = nodeMap.get(nid)
+        if (n) {
+          const key = makeClusterKey(n.package, cluster.id)
+          clusterKeys.add(key)
+          allKeys.add(key)
+          if (n.changed) hasChanged = true
         }
       }
+      if (hasChanged) {
+        clusterKeys.forEach((k) => defaultExpanded.add(k))
+      }
     }
-    return expanded
+    return { defaultExpandedClusters: defaultExpanded, allClusterKeys: allKeys }
   }, [data])
 
   const expandedClusters = expandedClustersOverride ?? defaultExpandedClusters
-
-  const allClusterKeys = useMemo(() => {
-    if (!data) return new Set<string>()
-    const keys = new Set<string>()
-    for (const cluster of data.clusters) {
-      for (const nid of cluster.nodes) {
-        const n = data.graph.nodes.find((gn) => gn.id === nid)
-        if (n) keys.add(makeClusterKey(n.package, cluster.id))
-      }
-    }
-    return keys
-  }, [data])
 
   const handleToggleCluster = useCallback(
     (key: string) => {
