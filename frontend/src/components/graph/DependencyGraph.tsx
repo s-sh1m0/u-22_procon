@@ -63,7 +63,7 @@ function GraphInner({
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_, node) => {
-      if (node.type === 'supercluster') {
+      if (node.type === 'supercluster' || node.type === 'cluster') {
         onToggleCluster(node.data.clusterKey as string)
       } else if (node.type === 'function' || node.type === 'file') {
         onSelectNode(node.id)

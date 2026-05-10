@@ -192,7 +192,7 @@ export function layoutGraph(
           } as ClusterGroupData,
           style: { width: clusterW, height: clusterH },
           draggable: false,
-          selectable: false,
+          selectable: true,
           zIndex: 0,
         })
 
