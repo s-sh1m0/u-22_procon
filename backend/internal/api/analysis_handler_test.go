@@ -223,7 +223,7 @@ func TestGetGraph_Success(t *testing.T) {
 	if resp.Graph.Nodes[1].DiffStatus != "removed" {
 		t.Errorf("node[1].DiffStatus=%q want removed", resp.Graph.Nodes[1].DiffStatus)
 	}
-	if resp.Graph.Edges[0].Status != "existing" {
+	if resp.Graph.Edges[0].Status != string(domain.DiffStatusExisting) {
 		t.Errorf("edge[0].Status=%q want existing", resp.Graph.Edges[0].Status)
 	}
 	if len(resp.Cycles) != 1 {
@@ -259,10 +259,10 @@ func TestGetGraph_DefaultsToExisting(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.Graph.Nodes[0].DiffStatus != "existing" {
+	if resp.Graph.Nodes[0].DiffStatus != string(domain.DiffStatusExisting) {
 		t.Errorf("default DiffStatus=%q want existing", resp.Graph.Nodes[0].DiffStatus)
 	}
-	if resp.Graph.Edges[0].Status != "existing" {
+	if resp.Graph.Edges[0].Status != string(domain.DiffStatusExisting) {
 		t.Errorf("default Status=%q want existing", resp.Graph.Edges[0].Status)
 	}
 }
