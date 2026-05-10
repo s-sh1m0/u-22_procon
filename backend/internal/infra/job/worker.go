@@ -8,6 +8,8 @@ import (
 	"log"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 	"github.com/s-sh1m0/u-22_procon/backend/internal/infra/analyzer"
 	"github.com/s-sh1m0/u-22_procon/backend/internal/infra/cluster"
@@ -23,6 +25,7 @@ type jobStore interface {
 // sourceTreePreparer はワーカーが使うソースツリー準備インターフェース。
 type sourceTreePreparer interface {
 	Prepare(ctx context.Context, pr domain.PRInfo, token string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error)
+	PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, sha string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error)
 }
 
 // Worker はキューからジョブを受け取り解析パイプラインを実行する。
@@ -114,29 +117,37 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	log.Printf("worker: ListChangedGoFiles took %s (%d files)", time.Since(t0), len(changed))
 
 	t1 := time.Now()
-	prepared, err := w.sourceTree.Prepare(ctx, *prInfo, item.Token, changed)
+	headGraph, baseGraph, cleanups, err := w.buildBothGraphs(ctx, *prInfo, item.Token, changed)
+	defer func() {
+		for _, c := range cleanups {
+			if c != nil {
+				_ = c()
+			}
+		}
+	}()
 	if err != nil {
-		fail(fmt.Errorf("prepare source: %w", err))
+		fail(fmt.Errorf("build base/head graphs: %w", err))
 		return
 	}
-	defer func() { _ = prepared.Cleanup() }()
-	log.Printf("worker: Prepare (clone+load) took %s", time.Since(t1))
+	log.Printf("worker: parallel base+head build took %s (head: nodes=%d edges=%d, base: nodes=%d edges=%d)",
+		time.Since(t1),
+		len(headGraph.Nodes), len(headGraph.Edges),
+		len(baseGraph.Nodes), len(baseGraph.Edges))
 
-	t2 := time.Now()
-	graph, err := w.cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
-	if err != nil {
-		fail(fmt.Errorf("build callgraph: %w", err))
-		return
-	}
-	log.Printf("worker: Build callgraph took %s (nodes=%d edges=%d)", time.Since(t2), len(graph.Nodes), len(graph.Edges))
+	// base/head のグラフを合成して DiffStatus を付与する
+	diffGraph := analyzer.MergeWithDiffStatus(baseGraph, headGraph)
+
+	// 循環参照を検出（base にあった cycle と比較して IsNew を決定）
+	cycles := analyzer.DetectNewCycles(baseGraph, headGraph)
 
 	t3 := time.Now()
-	result, err := w.clusterer.Cluster(ctx, graph)
+	result, err := w.clusterer.Cluster(ctx, diffGraph)
 	if err != nil {
 		fail(fmt.Errorf("cluster: %w", err))
 		return
 	}
-	log.Printf("worker: Cluster took %s", time.Since(t3))
+	result.Cycles = cycles
+	log.Printf("worker: Cluster took %s (cycles=%d)", time.Since(t3), len(cycles))
 
 	t4 := time.Now()
 	diffFiles, err := analyzer.CollectDiffFiles(ctx, w.prRepo, item.Token, *prInfo, changed)
@@ -167,6 +178,77 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	if err := w.jobs.UpdateStatus(ctx, jobID, domain.JobStatusDone, ""); err != nil {
 		log.Printf("worker: failed to mark job %s done: %v", jobID, err)
 	}
+}
+
+// buildBothGraphs は head/base 両方の callgraph を errgroup で並列に構築する。
+// 戻り値の cleanups スライスには各 PreparedSource.Cleanup が入る（呼び出し元が defer で全部呼ぶこと）。
+// 一方が失敗した時点で他方の ctx もキャンセルされ、エラーが返る。
+func (w *Worker) buildBothGraphs(
+	ctx context.Context,
+	pr domain.PRInfo,
+	token string,
+	changed []domain.ChangedFile,
+) (head, base *domain.Graph, cleanups []func() error, err error) {
+	cleanups = make([]func() error, 2)
+
+	eg, egCtx := errgroup.WithContext(ctx)
+
+	eg.Go(func() error {
+		prepared, err := w.sourceTree.Prepare(egCtx, pr, token, changed)
+		if err != nil {
+			return fmt.Errorf("head prepare: %w", err)
+		}
+		cleanups[0] = prepared.Cleanup
+		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+		if err != nil {
+			return fmt.Errorf("head build: %w", err)
+		}
+		head = g
+		return nil
+	})
+
+	eg.Go(func() error {
+		baseChanged := normalizeChangedForBase(changed)
+		prepared, err := w.sourceTree.PrepareAtSHA(egCtx, pr, token, pr.BaseSHA, baseChanged)
+		if err != nil {
+			return fmt.Errorf("base prepare: %w", err)
+		}
+		cleanups[1] = prepared.Cleanup
+		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+		if err != nil {
+			return fmt.Errorf("base build: %w", err)
+		}
+		base = g
+		return nil
+	})
+
+	if err = eg.Wait(); err != nil {
+		return nil, nil, cleanups, err
+	}
+	return head, base, cleanups, nil
+}
+
+// normalizeChangedForBase は head 基準の changed リストを base 側のリポジトリで使える形に正規化する。
+//   - Status=added は base 側に存在しないため除外
+//   - Status=renamed は Filename を PreviousFilename に置き換える
+//   - その他（modified, removed）はそのまま
+func normalizeChangedForBase(changed []domain.ChangedFile) []domain.ChangedFile {
+	out := make([]domain.ChangedFile, 0, len(changed))
+	for _, f := range changed {
+		switch f.Status {
+		case domain.FileStatusAdded:
+			continue
+		case domain.FileStatusRenamed:
+			cp := f
+			if cp.PreviousFilename != "" {
+				cp.Filename = cp.PreviousFilename
+			}
+			out = append(out, cp)
+		default:
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func workerRandomID() string {

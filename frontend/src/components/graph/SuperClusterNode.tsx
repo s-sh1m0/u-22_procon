@@ -21,8 +21,14 @@ export default function SuperClusterNode({ data }: NodeProps<SuperClusterFlowNod
         <p className="truncate text-sm font-semibold" style={{ color: data.clusterColorHex }}>
           {data.label}
         </p>
-        <div className="mt-1 flex items-center gap-2 text-xs text-stone-400">
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-400">
           <span>{data.functionCount} 関数</span>
+          {data.addedCount > 0 && (
+            <span className="font-medium text-emerald-500">+{data.addedCount}</span>
+          )}
+          {data.removedCount > 0 && (
+            <span className="font-medium text-stone-400">−{data.removedCount}</span>
+          )}
           {data.changedCount > 0 && (
             <span className="font-medium text-amber-500">{data.changedCount} 変更</span>
           )}

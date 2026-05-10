@@ -2,13 +2,17 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { FileFlowNode } from '@/types/graph'
 
 export default function FileNode({ data, selected }: NodeProps<FileFlowNode>) {
+  const isAdded = data.diffStatus === 'added'
+  const isRemoved = data.diffStatus === 'removed'
   return (
     <div
       className={[
-        'relative overflow-hidden rounded-[6px] border border-stone-200 bg-white text-left shadow-sm',
+        'relative overflow-hidden rounded-[6px] border bg-white text-left shadow-sm',
         'w-[220px]',
+        isRemoved ? 'border-dashed border-stone-300 opacity-60 grayscale' : 'border-stone-200',
         selected ? 'ring-2 ring-stone-900' : '',
-        !selected && data.changed ? 'ring-2 ring-amber-400' : '',
+        !selected && isAdded ? 'ring-2 ring-emerald-500' : '',
+        !selected && !isAdded && data.changed ? 'ring-2 ring-amber-400' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -17,14 +21,39 @@ export default function FileNode({ data, selected }: NodeProps<FileFlowNode>) {
         className="absolute left-0 top-0 h-full w-[3px]"
         style={{ background: data.clusterColorHex }}
       />
-      {data.changed && (
+      {isAdded && (
+        <div
+          className="absolute right-1.5 top-1.5 flex size-3.5 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold leading-none text-white"
+          title="新規追加"
+        >
+          +
+        </div>
+      )}
+      {isRemoved && (
+        <div
+          className="absolute right-1.5 top-1.5 flex size-3.5 items-center justify-center rounded-full bg-stone-400 text-[9px] font-bold leading-none text-white"
+          title="削除"
+        >
+          −
+        </div>
+      )}
+      {!isAdded && !isRemoved && data.changed && (
         <div className="absolute right-1.5 top-1.5 size-2 rounded-full bg-amber-400" />
       )}
       <div className="pl-3 pr-4 py-2 space-y-0.5">
-        <p className="truncate text-xs font-semibold text-stone-900">{data.fileName}</p>
+        <p
+          className={[
+            'truncate text-xs font-semibold',
+            isRemoved ? 'text-stone-400 line-through' : 'text-stone-900',
+          ].join(' ')}
+        >
+          {data.fileName}
+        </p>
         <p className="truncate font-mono text-[10px] text-stone-400">{data.packagePath}</p>
-        <div className="flex gap-2 font-mono text-[10px] text-stone-400">
+        <div className="flex flex-wrap gap-2 font-mono text-[10px] text-stone-400">
           <span>{data.functionCount} fns</span>
+          {data.addedCount > 0 && <span className="text-emerald-500">+{data.addedCount}</span>}
+          {data.removedCount > 0 && <span className="text-stone-400">−{data.removedCount}</span>}
           {data.changedCount > 0 && (
             <span className="text-amber-500">{data.changedCount} changed</span>
           )}

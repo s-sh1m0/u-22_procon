@@ -62,6 +62,56 @@ func TestAnalysisRepo_SaveAndFindByID(t *testing.T) {
 	}
 }
 
+func TestAnalysisRepo_SaveAndFindByID_WithCycles(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	repo := NewAnalysisRepo(db)
+	ctx := context.Background()
+
+	result := &domain.ClusterResult{
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "fn:A", DiffStatus: domain.DiffStatusAdded},
+				{ID: "fn:B", DiffStatus: domain.DiffStatusRemoved},
+			},
+			Edges: []domain.Edge{{From: "fn:A", To: "fn:B", Status: domain.DiffStatusExisting}},
+		},
+		Cycles: []domain.Cycle{
+			{ID: 0, Nodes: []domain.NodeID{"fn:A", "fn:B"}, IsNew: true},
+		},
+	}
+	a := &domain.Analysis{
+		ID:        "with-cycles",
+		PR:        domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+		Result:    result,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+	}
+
+	if err := repo.Save(ctx, a); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := repo.FindByID(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil")
+	}
+	if len(got.Result.Cycles) != 1 || !got.Result.Cycles[0].IsNew {
+		t.Errorf("cycles mismatch: %+v", got.Result.Cycles)
+	}
+	if got.Result.Graph.Nodes[0].DiffStatus != domain.DiffStatusAdded {
+		t.Errorf("DiffStatus mismatch: %s", got.Result.Graph.Nodes[0].DiffStatus)
+	}
+	if got.Result.Graph.Edges[0].Status != domain.DiffStatusExisting {
+		t.Errorf("Edge.Status mismatch: %s", got.Result.Graph.Edges[0].Status)
+	}
+}
+
 func TestAnalysisRepo_FindByID_NotFound(t *testing.T) {
 	db, err := Open(":memory:")
 	if err != nil {

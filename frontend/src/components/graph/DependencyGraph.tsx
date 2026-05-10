@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useEffect } from 'react'
 import {
   ReactFlow,
   Background,
@@ -36,6 +36,8 @@ type Props = {
   onToggleCluster: (key: string) => void
   onExpandAll: () => void
   onCollapseAll: () => void
+  /** 値が変わるたびに該当ノードへ fitView する。CycleAlert からのフォーカス用。 */
+  focusNodeId?: string | null
 }
 
 function GraphInner({
@@ -48,6 +50,7 @@ function GraphInner({
   onToggleCluster,
   onExpandAll,
   onCollapseAll,
+  focusNodeId,
 }: Props) {
   const { fitView } = useReactFlow()
 
@@ -73,16 +76,35 @@ function GraphInner({
   )
 
   const handleFitChanged = useCallback(() => {
-    const changedNodes = nodes.filter(
-      (n) =>
-        (n.type === 'function' || n.type === 'file') && (n.data as { changed?: boolean }).changed,
-    )
+    const changedNodes = nodes.filter((n) => {
+      if (n.type !== 'function' && n.type !== 'file') return false
+      const d = n.data as { changed?: boolean; diffStatus?: string }
+      return d.changed || (d.diffStatus && d.diffStatus !== 'existing')
+    })
     if (changedNodes.length > 0) {
       fitView({ nodes: changedNodes.map((n) => ({ id: n.id })), duration: 400, padding: 0.3 })
     } else {
       fitView({ duration: 300 })
     }
   }, [fitView, nodes])
+
+  // focusNodeId が変わったら該当ノードに fitView。
+  // 折りたたみ中のクラスタに属するときはスーパーノード（または親クラスタコンテナ）にフォーカスする。
+  useEffect(() => {
+    if (!focusNodeId) return
+    const target = nodes.find((n) => n.id === focusNodeId)
+    if (target) {
+      fitView({ nodes: [{ id: target.id }], duration: 400, padding: 0.4 })
+      return
+    }
+    // 該当ノードがレンダリングされていない場合（クラスタ折りたたみ中など）は親またはスーパーノードを探す
+    const superMatch = nodes.find(
+      (n) => n.type === 'supercluster' && data.clusters.some((c) => c.nodes.includes(focusNodeId)),
+    )
+    if (superMatch) {
+      fitView({ nodes: [{ id: superMatch.id }], duration: 400, padding: 0.4 })
+    }
+  }, [focusNodeId, nodes, fitView, data.clusters])
 
   return (
     <ReactFlow

@@ -171,8 +171,16 @@ func TestGetGraph_Success(t *testing.T) {
 	result := &domain.ClusterResult{
 		Clusters: []domain.Cluster{{ID: 0, Label: "pkg", Nodes: []domain.NodeID{"fn:A"}}},
 		Graph: domain.Graph{
-			Nodes: []domain.Node{{ID: "fn:A", Name: "A", Changed: true}},
-			Edges: []domain.Edge{},
+			Nodes: []domain.Node{
+				{ID: "fn:A", Name: "A", Changed: true, DiffStatus: domain.DiffStatusAdded},
+				{ID: "fn:B", Name: "B", DiffStatus: domain.DiffStatusRemoved},
+			},
+			Edges: []domain.Edge{
+				{From: "fn:A", To: "fn:B", Status: domain.DiffStatusExisting},
+			},
+		},
+		Cycles: []domain.Cycle{
+			{ID: 0, Nodes: []domain.NodeID{"fn:A", "fn:B"}, IsNew: true},
 		},
 	}
 	analysis := &domain.Analysis{
@@ -202,11 +210,60 @@ func TestGetGraph_Success(t *testing.T) {
 	if len(resp.Clusters) != 1 {
 		t.Errorf("expected 1 cluster, got %d", len(resp.Clusters))
 	}
-	if len(resp.Graph.Nodes) != 1 {
-		t.Errorf("expected 1 node, got %d", len(resp.Graph.Nodes))
+	if len(resp.Graph.Nodes) != 2 {
+		t.Errorf("expected 2 nodes, got %d", len(resp.Graph.Nodes))
 	}
 	if resp.PR.Owner != "owner" {
 		t.Errorf("expected PR.Owner=owner, got %s", resp.PR.Owner)
+	}
+	// 新しい diff フィールドが期待値で返ること
+	if resp.Graph.Nodes[0].DiffStatus != "added" {
+		t.Errorf("node[0].DiffStatus=%q want added", resp.Graph.Nodes[0].DiffStatus)
+	}
+	if resp.Graph.Nodes[1].DiffStatus != "removed" {
+		t.Errorf("node[1].DiffStatus=%q want removed", resp.Graph.Nodes[1].DiffStatus)
+	}
+	if resp.Graph.Edges[0].Status != "existing" {
+		t.Errorf("edge[0].Status=%q want existing", resp.Graph.Edges[0].Status)
+	}
+	if len(resp.Cycles) != 1 {
+		t.Fatalf("expected 1 cycle, got %d", len(resp.Cycles))
+	}
+	if !resp.Cycles[0].IsNew {
+		t.Error("expected cycle IsNew=true")
+	}
+}
+
+// 旧形式（DiffStatus 未設定）でも existing にフォールバックすることを確認
+func TestGetGraph_DefaultsToExisting(t *testing.T) {
+	result := &domain.ClusterResult{
+		Graph: domain.Graph{
+			Nodes: []domain.Node{{ID: "fn:A"}},               // DiffStatus 未設定
+			Edges: []domain.Edge{{From: "fn:A", To: "fn:B"}}, // Status 未設定
+		},
+	}
+	analysis := &domain.Analysis{ID: "a1", Result: result}
+	h := NewAnalysisHandler(&fakeAnalyzeUC{}, &fakeReadUC{analysis: analysis})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/api/graph/job-1", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("jobId")
+	c.SetParamValues("job-1")
+
+	if err := h.GetGraph(c); err != nil {
+		t.Fatalf("GetGraph: %v", err)
+	}
+	var resp GraphResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Graph.Nodes[0].DiffStatus != "existing" {
+		t.Errorf("default DiffStatus=%q want existing", resp.Graph.Nodes[0].DiffStatus)
+	}
+	if resp.Graph.Edges[0].Status != "existing" {
+		t.Errorf("default Status=%q want existing", resp.Graph.Edges[0].Status)
 	}
 }
 
