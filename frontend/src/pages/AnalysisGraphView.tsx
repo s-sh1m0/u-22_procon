@@ -24,8 +24,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
   const [nodeKind, setNodeKind] = useState<NodeKind>('function')
   // null = 未操作（自動展開ロジックを使う）、Set = ユーザー操作後の明示的な展開セット
   const [expandedClustersOverride, setExpandedClustersOverride] = useState<Set<string> | null>(null)
-  // CycleAlert からのフォーカス用。値が変わるたびに DependencyGraph 内で fitView される。
-  const [focusToken, setFocusToken] = useState<string | null>(null)
 
   const handleChangeNodeKind = useCallback((kind: NodeKind) => {
     setNodeKind(kind)
@@ -100,17 +98,10 @@ export default function AnalysisGraphView({ jobId }: Props) {
         })
       }
       setSelectedNodeId(nodeId)
-      // 同じノードを連続クリックしても再フォーカスできるように suffix を付ける
-      setFocusToken(`${nodeId}#${Date.now()}`)
     },
     [data, defaultExpandedClusters],
   )
 
-  const focusNodeId = useMemo(() => {
-    if (!focusToken) return null
-    const idx = focusToken.indexOf('#')
-    return idx >= 0 ? focusToken.slice(0, idx) : focusToken
-  }, [focusToken])
 
   const { panelNode, selectedCluster, selectedLayer, panelDiff } = useMemo(() => {
     if (!data || !selectedNodeId) {
@@ -273,7 +264,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
         onToggleCluster={handleToggleCluster}
         onExpandAll={handleExpandAll}
         onCollapseAll={handleCollapseAll}
-        focusNodeId={focusNodeId}
       />
     </AppShell>
   )

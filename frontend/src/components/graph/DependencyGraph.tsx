@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect } from 'react'
+import { useMemo, useCallback } from 'react'
 import {
   ReactFlow,
   Background,
@@ -36,8 +36,6 @@ type Props = {
   onToggleCluster: (key: string) => void
   onExpandAll: () => void
   onCollapseAll: () => void
-  /** 値が変わるたびに該当ノードへ fitView する。CycleAlert からのフォーカス用。 */
-  focusNodeId?: string | null
 }
 
 function GraphInner({
@@ -50,7 +48,6 @@ function GraphInner({
   onToggleCluster,
   onExpandAll,
   onCollapseAll,
-  focusNodeId,
 }: Props) {
   const { fitView } = useReactFlow()
 
@@ -88,23 +85,6 @@ function GraphInner({
     }
   }, [fitView, nodes])
 
-  // focusNodeId が変わったら該当ノードに fitView。
-  // 折りたたみ中のクラスタに属するときはスーパーノード（または親クラスタコンテナ）にフォーカスする。
-  useEffect(() => {
-    if (!focusNodeId) return
-    const target = nodes.find((n) => n.id === focusNodeId)
-    if (target) {
-      fitView({ nodes: [{ id: target.id }], duration: 400, padding: 0.4 })
-      return
-    }
-    // 該当ノードがレンダリングされていない場合（クラスタ折りたたみ中など）は親またはスーパーノードを探す
-    const superMatch = nodes.find(
-      (n) => n.type === 'supercluster' && data.clusters.some((c) => c.nodes.includes(focusNodeId)),
-    )
-    if (superMatch) {
-      fitView({ nodes: [{ id: superMatch.id }], duration: 400, padding: 0.4 })
-    }
-  }, [focusNodeId, nodes, fitView, data.clusters])
 
   return (
     <ReactFlow
