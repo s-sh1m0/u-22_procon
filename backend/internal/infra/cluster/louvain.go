@@ -33,6 +33,9 @@ func NewLouvainClusterer() *LouvainClusterer {
 
 // Cluster は domain.Graph を Louvain 法でクラスタリングし domain.ClusterResult を返す。
 // g が nil またはノードを持たない場合は空の ClusterResult を返す。
+//
+// 返却される Cluster の Label は空のままにする。表示用ラベルは usecase 層が読み出し時に付与する
+// （Package/File モードと対称にするため。`.claude/rules/backend-architecture.md` §4 参照）。
 func (c *LouvainClusterer) Cluster(ctx context.Context, g *domain.Graph) (*domain.ClusterResult, error) {
 	if g == nil || len(g.Nodes) == 0 {
 		return &domain.ClusterResult{}, nil
@@ -53,12 +56,6 @@ func (c *LouvainClusterer) Cluster(ctx context.Context, g *domain.Graph) (*domai
 	reduced := community.Modularize(adapter.g, resolution, src)
 	communities := reduced.Communities()
 
-	// ノードの集合を domain.NodeID スライスに変換し、各クラスタのノードを収集する
-	nodeByID := make(map[domain.NodeID]domain.Node, len(g.Nodes))
-	for _, n := range g.Nodes {
-		nodeByID[n.ID] = n
-	}
-
 	// サイズ降順でソートして安定した ID を付与する
 	sort.Slice(communities, func(i, j int) bool {
 		return len(communities[i]) > len(communities[j])
@@ -71,22 +68,16 @@ func (c *LouvainClusterer) Cluster(ctx context.Context, g *domain.Graph) (*domai
 		}
 
 		nodeIDs := make([]domain.NodeID, 0, len(comm))
-		clusterNodes := make([]domain.Node, 0, len(comm))
 		for _, gNode := range comm {
 			domainID, ok := adapter.idToNode[gNode.ID()]
 			if !ok {
 				continue
 			}
 			nodeIDs = append(nodeIDs, domainID)
-			if n, exists := nodeByID[domainID]; exists {
-				clusterNodes = append(clusterNodes, n)
-			}
 		}
 
-		label := labelCluster(i, clusterNodes, g.Edges)
 		clusters = append(clusters, domain.Cluster{
 			ID:    i,
-			Label: label,
 			Nodes: nodeIDs,
 		})
 	}

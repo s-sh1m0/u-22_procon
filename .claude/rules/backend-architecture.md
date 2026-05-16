@@ -100,13 +100,8 @@ domain 型のみで動き外部 I/O を行わない関数（ラベリング・�
 |---|---|---|
 | `*sql.DB` を受け取る `AnalysisRepo.Save` | `infra/store/` | DB I/O あり |
 | `domain.Graph` を groupBy する `regroupBy` | `usecase/` | pure、usecase 内で完結 |
-| `domain.Node` 群から代表ラベルを生成する `labelCluster` | `usecase/` または `domain/` | pure、usecase の責務に近い |
+| `domain.Node` 群から代表ラベルを生成する `labelCluster` | `usecase/` | pure、usecase の責務に近い（`usecase/cluster_label.go`） |
 | GitHub API を呼ぶ `prRepo.GetPR` | `infra/github/` | 外部 API |
-
-### 既存コードへの注意
-
-`infra/cluster/labeler.go` は本ルール導入前のコードで、pure logic が `infra/` に置かれている。
-別 issue で `usecase/` または `domain/` へ移動予定。新規追加では真似しないこと。
 
 ---
 

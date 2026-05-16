@@ -1,4 +1,4 @@
-package cluster
+package usecase
 
 import (
 	"testing"
@@ -141,5 +141,55 @@ func TestLabelCluster_NoPackageNoName(t *testing.T) {
 	want := "cluster 3"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLabelClusters_AppliesLabelsFromGraph(t *testing.T) {
+	// labelClusters はクラスタの NodeIDs とグラフのノード情報を組み合わせてラベルを付ける。
+	g := domain.Graph{
+		Nodes: []domain.Node{
+			{ID: "fn:A", Name: "Alpha", Package: "pkg/a", Changed: true},
+			{ID: "fn:B", Name: "Beta", Package: "pkg/b"},
+		},
+	}
+	in := []domain.Cluster{
+		{ID: 0, Nodes: []domain.NodeID{"fn:A"}},
+		{ID: 1, Nodes: []domain.NodeID{"fn:B"}},
+	}
+	got := labelClusters(in, g)
+
+	if len(got) != 2 {
+		t.Fatalf("len: got %d, want 2", len(got))
+	}
+	if got[0].Label != "a.Alpha" {
+		t.Errorf("clusters[0].Label: got %q, want %q", got[0].Label, "a.Alpha")
+	}
+	if got[1].Label != "b.Beta" {
+		t.Errorf("clusters[1].Label: got %q, want %q", got[1].Label, "b.Beta")
+	}
+	// 入力は変更されない
+	if in[0].Label != "" || in[1].Label != "" {
+		t.Errorf("input mutated: %+v", in)
+	}
+}
+
+func TestLabelClusters_EmptyInputReturnedAsIs(t *testing.T) {
+	if got := labelClusters(nil, domain.Graph{}); got != nil {
+		t.Errorf("nil input: got %+v, want nil", got)
+	}
+	empty := []domain.Cluster{}
+	got := labelClusters(empty, domain.Graph{})
+	if len(got) != 0 {
+		t.Errorf("empty input: got %d clusters, want 0", len(got))
+	}
+}
+
+func TestLabelClusters_MissingNodeIDFallsBackToClusterID(t *testing.T) {
+	// グラフに存在しない NodeID しか持たないクラスタ → "cluster N" にフォールバック
+	g := domain.Graph{Nodes: []domain.Node{{ID: "fn:X"}}}
+	in := []domain.Cluster{{ID: 5, Nodes: []domain.NodeID{"fn:missing"}}}
+	got := labelClusters(in, g)
+	if got[0].Label != "cluster 5" {
+		t.Errorf("got %q, want %q", got[0].Label, "cluster 5")
 	}
 }

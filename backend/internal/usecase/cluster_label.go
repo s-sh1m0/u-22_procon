@@ -1,4 +1,4 @@
-package cluster
+package usecase
 
 import (
 	"fmt"
@@ -8,6 +8,31 @@ import (
 
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
+
+// labelClusters は clusters の各クラスタに対し graph の情報からラベルを計算し、
+// Label を差し替えた新しいスライスを返す。入力の clusters は変更しない。
+func labelClusters(clusters []domain.Cluster, g domain.Graph) []domain.Cluster {
+	if len(clusters) == 0 {
+		return clusters
+	}
+	nodeByID := make(map[domain.NodeID]domain.Node, len(g.Nodes))
+	for _, n := range g.Nodes {
+		nodeByID[n.ID] = n
+	}
+	out := make([]domain.Cluster, len(clusters))
+	for i, c := range clusters {
+		clusterNodes := make([]domain.Node, 0, len(c.Nodes))
+		for _, id := range c.Nodes {
+			if n, ok := nodeByID[id]; ok {
+				clusterNodes = append(clusterNodes, n)
+			}
+		}
+		labeled := c
+		labeled.Label = labelCluster(c.ID, clusterNodes, g.Edges)
+		out[i] = labeled
+	}
+	return out
+}
 
 // labelCluster はクラスタを構成するノード群から人間に読めるラベルを生成する。
 //

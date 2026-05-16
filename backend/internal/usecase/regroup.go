@@ -8,16 +8,29 @@ import (
 )
 
 // applyClusterMode は ClusterMode に応じて ClusterResult のクラスタ分割を上書きして返す。
-// mode が ClusterModeLouvain または result が nil の場合はそのまま返す。
-// Package/File モードは result.Graph のノードを各キーで groupBy する。
+// result が nil の場合はそのまま返す。
+//   - Louvain: 保存済みクラスタ分割を保ち、ラベルだけ labelClusters で付け直す
+//     （Cluster() は Label 空のクラスタを返す契約）。
+//   - Package/File: result.Graph のノードを各キーで groupBy しラベルも付与する。
 func applyClusterMode(result *domain.ClusterResult, mode domain.ClusterMode) *domain.ClusterResult {
-	if result == nil || mode == domain.ClusterModeLouvain {
+	if result == nil {
 		return result
 	}
-	return &domain.ClusterResult{
-		Clusters: regroupBy(result.Graph, mode),
-		Graph:    result.Graph,
-		Cycles:   result.Cycles,
+	switch mode {
+	case domain.ClusterModeLouvain:
+		return &domain.ClusterResult{
+			Clusters: labelClusters(result.Clusters, result.Graph),
+			Graph:    result.Graph,
+			Cycles:   result.Cycles,
+		}
+	case domain.ClusterModePackage, domain.ClusterModeFile:
+		return &domain.ClusterResult{
+			Clusters: regroupBy(result.Graph, mode),
+			Graph:    result.Graph,
+			Cycles:   result.Cycles,
+		}
+	default:
+		return result
 	}
 }
 
