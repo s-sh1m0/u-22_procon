@@ -35,8 +35,9 @@ func (uc *GetAnalysisUseCase) GetJob(ctx context.Context, id domain.JobID) (*dom
 }
 
 // GetGraph はジョブに紐づく解析結果を返す。
+// mode に応じてクラスタ分割を再構成する。ClusterModeLouvain（または空）は保存済みの Louvain 結果をそのまま返す。
 // ジョブが存在しない場合は ErrJobNotFound、まだ完了していない場合は ErrJobNotReady を返す。
-func (uc *GetAnalysisUseCase) GetGraph(ctx context.Context, id domain.JobID) (*domain.Analysis, error) {
+func (uc *GetAnalysisUseCase) GetGraph(ctx context.Context, id domain.JobID, mode domain.ClusterMode) (*domain.Analysis, error) {
 	j, err := uc.jobs.FindByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("find job: %w", err)
@@ -55,5 +56,6 @@ func (uc *GetAnalysisUseCase) GetGraph(ctx context.Context, id domain.JobID) (*d
 	if a == nil {
 		return nil, fmt.Errorf("data integrity error: job %s is done but analysis %s not found", id, j.AnalysisID)
 	}
+	a.Result = applyClusterMode(a.Result, mode)
 	return a, nil
 }

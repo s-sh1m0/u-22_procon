@@ -31,13 +31,15 @@ type fakeReadUC struct {
 	analysis *domain.Analysis
 	jobErr   error
 	graphErr error
+	lastMode domain.ClusterMode
 }
 
 func (f *fakeReadUC) GetJob(_ context.Context, _ domain.JobID) (*domain.Job, error) {
 	return f.job, f.jobErr
 }
 
-func (f *fakeReadUC) GetGraph(_ context.Context, _ domain.JobID) (*domain.Analysis, error) {
+func (f *fakeReadUC) GetGraph(_ context.Context, _ domain.JobID, mode domain.ClusterMode) (*domain.Analysis, error) {
+	f.lastMode = mode
 	return f.analysis, f.graphErr
 }
 
@@ -280,6 +282,49 @@ func TestGetGraph_NotFound(t *testing.T) {
 	err := h.GetGraph(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %v", err)
+	}
+}
+
+func TestGetGraph_ClusterModeQuery(t *testing.T) {
+	tests := []struct {
+		name     string
+		query    string
+		wantMode domain.ClusterMode
+		wantErr  bool
+	}{
+		{name: "default", query: "", wantMode: domain.ClusterModeLouvain},
+		{name: "louvain", query: "?cluster=louvain", wantMode: domain.ClusterModeLouvain},
+		{name: "package", query: "?cluster=package", wantMode: domain.ClusterModePackage},
+		{name: "file", query: "?cluster=file", wantMode: domain.ClusterModeFile},
+		{name: "invalid", query: "?cluster=bogus", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			read := &fakeReadUC{analysis: &domain.Analysis{ID: "a1", Result: &domain.ClusterResult{}}}
+			h := NewAnalysisHandler(&fakeAnalyzeUC{}, read)
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/api/graph/job-1"+tt.query, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.SetParamNames("jobId")
+			c.SetParamValues("job-1")
+
+			err := h.GetGraph(c)
+			if tt.wantErr {
+				if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusBadRequest {
+					t.Errorf("expected 400, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetGraph: %v", err)
+			}
+			if read.lastMode != tt.wantMode {
+				t.Errorf("lastMode = %q; want %q", read.lastMode, tt.wantMode)
+			}
+		})
 	}
 }
 

@@ -62,7 +62,7 @@ func TestGetGraph_NotFound(t *testing.T) {
 	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	_, err := uc.GetGraph(context.Background(), "nonexistent")
+	_, err := uc.GetGraph(context.Background(), "nonexistent", domain.ClusterModeLouvain)
 	if !errors.Is(err, ErrJobNotFound) {
 		t.Errorf("expected ErrJobNotFound, got %v", err)
 	}
@@ -75,7 +75,7 @@ func TestGetGraph_NotReady_Pending(t *testing.T) {
 	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	_, err := uc.GetGraph(context.Background(), "j1")
+	_, err := uc.GetGraph(context.Background(), "j1", domain.ClusterModeLouvain)
 	if !errors.Is(err, ErrJobNotReady) {
 		t.Errorf("expected ErrJobNotReady, got %v", err)
 	}
@@ -88,7 +88,7 @@ func TestGetGraph_NotReady_DoneButNoAnalysisID(t *testing.T) {
 	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	_, err := uc.GetGraph(context.Background(), "j2")
+	_, err := uc.GetGraph(context.Background(), "j2", domain.ClusterModeLouvain)
 	if !errors.Is(err, ErrJobNotReady) {
 		t.Errorf("expected ErrJobNotReady, got %v", err)
 	}
@@ -109,7 +109,7 @@ func TestGetGraph_Success(t *testing.T) {
 	}}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	got, err := uc.GetGraph(context.Background(), "j3")
+	got, err := uc.GetGraph(context.Background(), "j3", domain.ClusterModeLouvain)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestGetGraph_IntegrityError(t *testing.T) {
 	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	_, err := uc.GetGraph(context.Background(), "j4")
+	_, err := uc.GetGraph(context.Background(), "j4", domain.ClusterModeLouvain)
 	if err == nil {
 		t.Error("expected error for missing analysis, got nil")
 	}
