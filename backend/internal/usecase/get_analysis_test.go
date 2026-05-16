@@ -62,7 +62,7 @@ func TestGetGraph_NotFound(t *testing.T) {
 	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	_, err := uc.GetGraph(context.Background(), "nonexistent")
+	_, err := uc.GetGraph(context.Background(), "nonexistent", domain.ClusterModeLouvain)
 	if !errors.Is(err, ErrJobNotFound) {
 		t.Errorf("expected ErrJobNotFound, got %v", err)
 	}
@@ -75,7 +75,7 @@ func TestGetGraph_NotReady_Pending(t *testing.T) {
 	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	_, err := uc.GetGraph(context.Background(), "j1")
+	_, err := uc.GetGraph(context.Background(), "j1", domain.ClusterModeLouvain)
 	if !errors.Is(err, ErrJobNotReady) {
 		t.Errorf("expected ErrJobNotReady, got %v", err)
 	}
@@ -88,7 +88,7 @@ func TestGetGraph_NotReady_DoneButNoAnalysisID(t *testing.T) {
 	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	_, err := uc.GetGraph(context.Background(), "j2")
+	_, err := uc.GetGraph(context.Background(), "j2", domain.ClusterModeLouvain)
 	if !errors.Is(err, ErrJobNotReady) {
 		t.Errorf("expected ErrJobNotReady, got %v", err)
 	}
@@ -109,12 +109,56 @@ func TestGetGraph_Success(t *testing.T) {
 	}}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	got, err := uc.GetGraph(context.Background(), "j3")
+	got, err := uc.GetGraph(context.Background(), "j3", domain.ClusterModeLouvain)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got == nil || got.ID != "a1" {
 		t.Errorf("unexpected analysis: %+v", got)
+	}
+}
+
+// GetGraph はリポジトリから取得した Analysis を直接書き換えてはならない。
+// （将来リポジトリがキャッシュ化された際に副作用が漏れないようにするための回帰テスト）
+func TestGetGraph_DoesNotMutateRepoAnalysis(t *testing.T) {
+	original := &domain.ClusterResult{
+		Clusters: []domain.Cluster{{ID: 0, Label: "louvain-0", Nodes: []domain.NodeID{"fn:A"}}},
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "fn:A", Package: "pkg/a", File: "a.go"},
+				{ID: "fn:B", Package: "pkg/b", File: "b.go"},
+			},
+		},
+	}
+	stored := &domain.Analysis{ID: "a1", Result: original}
+	jobs := &fakeGetJobRepo{jobs: map[domain.JobID]*domain.Job{
+		"j1": {ID: "j1", Status: domain.JobStatusDone, AnalysisID: "a1"},
+	}}
+	analyses := &fakeGetAnalysisRepo{analyses: map[domain.AnalysisID]*domain.Analysis{
+		"a1": stored,
+	}}
+	uc := NewGetAnalysisUseCase(analyses, jobs)
+
+	// package モードで取得（regroup により Result が差し替わる）
+	if _, err := uc.GetGraph(context.Background(), "j1", domain.ClusterModePackage); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// リポジトリ内の Analysis.Result が書き換わっていないこと
+	if stored.Result != original {
+		t.Fatalf("repo analysis.Result was replaced; want same pointer as original")
+	}
+	if len(stored.Result.Clusters) != 1 || stored.Result.Clusters[0].Label != "louvain-0" {
+		t.Errorf("original clusters mutated: %+v", stored.Result.Clusters)
+	}
+
+	// 続けて louvain で取得したら元の結果が返ること
+	got, err := uc.GetGraph(context.Background(), "j1", domain.ClusterModeLouvain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.Result.Clusters) != 1 || got.Result.Clusters[0].Label != "louvain-0" {
+		t.Errorf("louvain result was contaminated by previous package call: %+v", got.Result.Clusters)
 	}
 }
 
@@ -125,7 +169,7 @@ func TestGetGraph_IntegrityError(t *testing.T) {
 	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
-	_, err := uc.GetGraph(context.Background(), "j4")
+	_, err := uc.GetGraph(context.Background(), "j4", domain.ClusterModeLouvain)
 	if err == nil {
 		t.Error("expected error for missing analysis, got nil")
 	}

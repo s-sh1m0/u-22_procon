@@ -23,7 +23,7 @@ type analyzeUseCase interface {
 // readUseCase は AnalysisHandler と JobHandler が使うユースケースインターフェース。
 type readUseCase interface {
 	GetJob(ctx context.Context, id domain.JobID) (*domain.Job, error)
-	GetGraph(ctx context.Context, id domain.JobID) (*domain.Analysis, error)
+	GetGraph(ctx context.Context, id domain.JobID, mode domain.ClusterMode) (*domain.Analysis, error)
 }
 
 // AnalysisHandler は /api/analyze と /api/graph/:jobId のハンドラ。
@@ -76,13 +76,19 @@ func (h *AnalysisHandler) Analyze(c echo.Context) error {
 }
 
 // GetGraph は GET /api/graph/:jobId を処理する。
+// クエリパラメータ ?cluster=louvain|package|file でクラスタリング戦略を切り替える。
 func (h *AnalysisHandler) GetGraph(c echo.Context) error {
 	id := c.Param("jobId")
 	if id == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "jobId is required")
 	}
 
-	analysis, err := h.read.GetGraph(c.Request().Context(), domain.JobID(id))
+	mode, err := domain.ParseClusterMode(c.QueryParam("cluster"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	analysis, err := h.read.GetGraph(c.Request().Context(), domain.JobID(id), mode)
 	if err != nil {
 		if errors.Is(err, usecase.ErrJobNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "job not found")

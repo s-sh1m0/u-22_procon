@@ -1,7 +1,36 @@
 package domain
 
+import "fmt"
+
 // NodeID はグラフノードの一意識別子
 type NodeID string
+
+// ClusterMode はクラスタリング戦略を表す。
+type ClusterMode string
+
+const (
+	// ClusterModeLouvain は Louvain 法によるコミュニティ検出（デフォルト）。
+	ClusterModeLouvain ClusterMode = "louvain"
+	// ClusterModePackage はノードのパッケージパスでグルーピングする。
+	ClusterModePackage ClusterMode = "package"
+	// ClusterModeFile はノードのファイルパスでグルーピングする。
+	ClusterModeFile ClusterMode = "file"
+)
+
+// ParseClusterMode は文字列から ClusterMode を返す。
+// 空文字列は ClusterModeLouvain にフォールバックする。
+func ParseClusterMode(s string) (ClusterMode, error) {
+	switch s {
+	case "", string(ClusterModeLouvain):
+		return ClusterModeLouvain, nil
+	case string(ClusterModePackage):
+		return ClusterModePackage, nil
+	case string(ClusterModeFile):
+		return ClusterModeFile, nil
+	default:
+		return "", fmt.Errorf("invalid cluster mode %q", s)
+	}
+}
 
 // DiffStatus はPR差分におけるノード/エッジの状態を表す。
 type DiffStatus string

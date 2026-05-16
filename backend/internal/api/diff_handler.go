@@ -28,7 +28,7 @@ func (h *DiffHandler) Get(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "jobId is required")
 	}
 
-	analysis, err := h.read.GetGraph(c.Request().Context(), domain.JobID(id))
+	analysis, err := h.read.GetGraph(c.Request().Context(), domain.JobID(id), domain.ClusterModeLouvain)
 	if err != nil {
 		if errors.Is(err, usecase.ErrJobNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "job not found")
