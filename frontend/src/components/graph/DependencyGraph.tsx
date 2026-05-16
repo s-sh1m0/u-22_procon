@@ -11,9 +11,7 @@ import {
   type NodeMouseHandler,
 } from '@xyflow/react'
 import type { ClusterMode, GraphResponse } from '@/types/api'
-import type { NodeKind } from '@/types/graph'
 import FunctionNode from './FunctionNode'
-import FileNode from './FileNode'
 import ClusterGroup from './ClusterGroup'
 import SuperClusterNode from './SuperClusterNode'
 import GraphControls from './GraphControls'
@@ -21,15 +19,12 @@ import { layoutGraph } from '@/lib/graphLayout'
 
 const nodeTypes = {
   function: FunctionNode,
-  file: FileNode,
   cluster: ClusterGroup,
   supercluster: SuperClusterNode,
 }
 
 type Props = {
   data: GraphResponse
-  nodeKind: NodeKind
-  onChangeNodeKind: (kind: NodeKind) => void
   clusterMode: ClusterMode
   onChangeClusterMode: (mode: ClusterMode) => void
   selectedNodeId: string | null
@@ -42,8 +37,6 @@ type Props = {
 
 function GraphInner({
   data,
-  nodeKind,
-  onChangeNodeKind,
   clusterMode,
   onChangeClusterMode,
   selectedNodeId,
@@ -56,8 +49,8 @@ function GraphInner({
   const { fitView } = useReactFlow()
 
   const { nodes: layoutNodes, edges } = useMemo(
-    () => layoutGraph(data, nodeKind, expandedClusters),
-    [data, nodeKind, expandedClusters],
+    () => layoutGraph(data, expandedClusters),
+    [data, expandedClusters],
   )
 
   const nodes = useMemo(
@@ -69,7 +62,7 @@ function GraphInner({
     (_, node) => {
       if (node.type === 'supercluster' || node.type === 'cluster') {
         onToggleCluster(node.data.clusterKey as string)
-      } else if (node.type === 'function' || node.type === 'file') {
+      } else if (node.type === 'function') {
         onSelectNode(node.id)
       }
     },
@@ -78,7 +71,7 @@ function GraphInner({
 
   const handleFitChanged = useCallback(() => {
     const changedNodes = nodes.filter((n) => {
-      if (n.type !== 'function' && n.type !== 'file') return false
+      if (n.type !== 'function') return false
       const d = n.data as { changed?: boolean; diffStatus?: string }
       return d.changed || (d.diffStatus && d.diffStatus !== 'existing')
     })
@@ -110,8 +103,6 @@ function GraphInner({
       />
       <Panel position="bottom-right">
         <GraphControls
-          nodeKind={nodeKind}
-          onChangeNodeKind={onChangeNodeKind}
           clusterMode={clusterMode}
           onChangeClusterMode={onChangeClusterMode}
           onFitChanged={handleFitChanged}

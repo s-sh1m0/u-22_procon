@@ -3,16 +3,13 @@ import type { Edge } from '@xyflow/react'
 import type { GraphResponse, Cluster, GraphEdge, DiffStatus } from '@/types/api'
 import type {
   AnyFlowNode,
-  NodeKind,
   LayerKind,
   FunctionNodeData,
-  FileNodeData,
   ClusterGroupData,
   SuperClusterNodeData,
 } from '@/types/graph'
 import { getClusterColor } from './clusterColors'
 import { inferLayer } from './layerInference'
-import { aggregateByFile, type AggregatedFileNode } from './fileAggregation'
 
 const LAYER_ORDER: LayerKind[] = ['ui', 'domain', 'data', 'infra', 'other']
 
@@ -69,49 +66,22 @@ function edgeStyleByStatus(status: DiffStatus): CSSProperties {
   }
 }
 
-export function layoutGraph(
-  data: GraphResponse,
-  nodeKind: NodeKind,
-  expandedClusters: Set<string>,
-): LayoutResult {
-  let inputNodes: InputNode[]
-  let inputEdges: GraphEdge[]
-  let clusters: Cluster[]
-
-  if (nodeKind === 'file') {
-    const agg = aggregateByFile(data)
-    inputNodes = agg.nodes.map((n) => ({
-      id: n.id,
-      name: n.name,
-      package: n.package,
-      file: n.file,
-      line: n.line,
-      changed: n.changed,
-      diffStatus: n.diffStatus,
-      functionCount: n.functionCount,
-      changedCount: n.changedCount,
-      addedCount: n.addedCount,
-      removedCount: n.removedCount,
-    }))
-    inputEdges = agg.edges
-    clusters = agg.clusters
-  } else {
-    inputNodes = data.graph.nodes.map((n) => ({
-      id: n.id,
-      name: n.name,
-      package: n.package,
-      file: n.file,
-      line: n.line,
-      changed: n.changed,
-      diffStatus: n.diff_status,
-      functionCount: 1,
-      changedCount: n.changed ? 1 : 0,
-      addedCount: n.diff_status === 'added' ? 1 : 0,
-      removedCount: n.diff_status === 'removed' ? 1 : 0,
-    }))
-    inputEdges = data.graph.edges
-    clusters = data.clusters
-  }
+export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>): LayoutResult {
+  const inputNodes: InputNode[] = data.graph.nodes.map((n) => ({
+    id: n.id,
+    name: n.name,
+    package: n.package,
+    file: n.file,
+    line: n.line,
+    changed: n.changed,
+    diffStatus: n.diff_status,
+    functionCount: 1,
+    changedCount: n.changed ? 1 : 0,
+    addedCount: n.diff_status === 'added' ? 1 : 0,
+    removedCount: n.diff_status === 'removed' ? 1 : 0,
+  }))
+  const inputEdges: GraphEdge[] = data.graph.edges
+  const clusters: Cluster[] = data.clusters
 
   const nodeToCluster = new Map<string, number>()
   for (const c of clusters) {
@@ -257,50 +227,25 @@ export function layoutGraph(
           const x = PADDING + col * COL_STRIDE
           const y = PADDING + CLUSTER_LABEL_H + row * ROW_STRIDE
 
-          if (nodeKind === 'file') {
-            const fn = n as unknown as AggregatedFileNode
-            flowNodes.push({
-              id: n.id,
-              type: 'file',
-              parentId: clusterId,
-              extent: 'parent',
-              position: { x, y },
-              zIndex: 1,
-              data: {
-                fileName: fn.name,
-                packagePath: fn.package,
-                functionCount: fn.functionCount,
-                changedCount: fn.changedCount,
-                addedCount: fn.addedCount,
-                removedCount: fn.removedCount,
-                changed: fn.changed,
-                diffStatus: fn.diffStatus,
-                clusterId: cid,
-                clusterColorHex: color.hex,
-                layer,
-              } as FileNodeData,
-            })
-          } else {
-            flowNodes.push({
-              id: n.id,
-              type: 'function',
-              parentId: clusterId,
-              extent: 'parent',
-              position: { x, y },
-              zIndex: 1,
-              data: {
-                label: n.name,
-                packagePath: n.package,
-                file: n.file,
-                line: n.line,
-                changed: n.changed,
-                diffStatus: n.diffStatus,
-                clusterId: cid,
-                clusterColorHex: color.hex,
-                layer,
-              } as FunctionNodeData,
-            })
-          }
+          flowNodes.push({
+            id: n.id,
+            type: 'function',
+            parentId: clusterId,
+            extent: 'parent',
+            position: { x, y },
+            zIndex: 1,
+            data: {
+              label: n.name,
+              packagePath: n.package,
+              file: n.file,
+              line: n.line,
+              changed: n.changed,
+              diffStatus: n.diffStatus,
+              clusterId: cid,
+              clusterColorHex: color.hex,
+              layer,
+            } as FunctionNodeData,
+          })
         })
 
         clusterX += clusterW + CLUSTER_GAP
