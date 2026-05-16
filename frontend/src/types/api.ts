@@ -16,6 +16,8 @@ export type PRInfo = {
 
 export type DiffStatus = 'added' | 'removed' | 'existing'
 
+export type ClusterMode = 'louvain' | 'package' | 'file'
+
 export type GraphResponse = {
   pr: PRInfo
   clusters: Cluster[]

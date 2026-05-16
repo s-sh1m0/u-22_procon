@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import type { NodeKind, LayerKind, AnyFlowNode } from '@/types/graph'
-import type { Cluster, DiffFile, DiffStatus } from '@/types/api'
+import type { Cluster, ClusterMode, DiffFile, DiffStatus } from '@/types/api'
 import { useGraph } from '@/hooks/useGraph'
 import { useDiff } from '@/hooks/useDiff'
 import { inferLayer } from '@/lib/layerInference'
@@ -18,7 +18,8 @@ import { Button } from '@/components/ui/button'
 type Props = { jobId: string }
 
 export default function AnalysisGraphView({ jobId }: Props) {
-  const { data, isLoading, error } = useGraph(jobId, true)
+  const [clusterMode, setClusterMode] = useState<ClusterMode>('louvain')
+  const { data, isLoading, error } = useGraph(jobId, true, clusterMode)
   const { data: diffData } = useDiff(jobId, !isLoading && !error && !!data)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [nodeKind, setNodeKind] = useState<NodeKind>('function')
@@ -28,6 +29,14 @@ export default function AnalysisGraphView({ jobId }: Props) {
   const handleChangeNodeKind = useCallback((kind: NodeKind) => {
     setNodeKind(kind)
     setSelectedNodeId(null)
+  }, [])
+
+  // モード切替時はクラスタが組み変わるため、選択 / 明示的な展開セットをリセットして
+  // 新しいクラスタ構造に応じた自動展開ロジックを再適用する。
+  const handleChangeClusterMode = useCallback((mode: ClusterMode) => {
+    setClusterMode(mode)
+    setSelectedNodeId(null)
+    setExpandedClustersOverride(null)
   }, [])
 
   const { defaultExpandedClusters, allClusterKeys } = useMemo(() => {
@@ -257,6 +266,8 @@ export default function AnalysisGraphView({ jobId }: Props) {
         data={data}
         nodeKind={nodeKind}
         onChangeNodeKind={handleChangeNodeKind}
+        clusterMode={clusterMode}
+        onChangeClusterMode={handleChangeClusterMode}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
         expandedClusters={expandedClusters}

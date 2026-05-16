@@ -10,7 +10,7 @@ import {
   useReactFlow,
   type NodeMouseHandler,
 } from '@xyflow/react'
-import type { GraphResponse } from '@/types/api'
+import type { ClusterMode, GraphResponse } from '@/types/api'
 import type { NodeKind } from '@/types/graph'
 import FunctionNode from './FunctionNode'
 import FileNode from './FileNode'
@@ -30,6 +30,8 @@ type Props = {
   data: GraphResponse
   nodeKind: NodeKind
   onChangeNodeKind: (kind: NodeKind) => void
+  clusterMode: ClusterMode
+  onChangeClusterMode: (mode: ClusterMode) => void
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
   expandedClusters: Set<string>
@@ -42,6 +44,8 @@ function GraphInner({
   data,
   nodeKind,
   onChangeNodeKind,
+  clusterMode,
+  onChangeClusterMode,
   selectedNodeId,
   onSelectNode,
   expandedClusters,
@@ -108,6 +112,8 @@ function GraphInner({
         <GraphControls
           nodeKind={nodeKind}
           onChangeNodeKind={onChangeNodeKind}
+          clusterMode={clusterMode}
+          onChangeClusterMode={onChangeClusterMode}
           onFitChanged={handleFitChanged}
           onExpandAll={onExpandAll}
           onCollapseAll={onCollapseAll}
