@@ -85,7 +85,6 @@ function GraphInner({
     }
   }, [fitView, nodes])
 
-
   return (
     <ReactFlow
       nodes={nodes}

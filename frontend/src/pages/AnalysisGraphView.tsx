@@ -102,7 +102,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
     [data, defaultExpandedClusters],
   )
 
-
   const { panelNode, selectedCluster, selectedLayer, panelDiff } = useMemo(() => {
     if (!data || !selectedNodeId) {
       return {
