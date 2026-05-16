@@ -40,6 +40,10 @@
 2. 関連 issue がなければ起票（`gh issue create`）
 3. `develop` から作業ブランチを切る
 4. 実装 → ローカル動作確認
+   - **UI / 画面に影響する変更を含む場合は dev server を起動し、実機ブラウザで動作確認する**
+     - 確認対象: 変更画面の golden path + 関連画面のリグレッション
+     - lint / 型チェック / テストが通っても「機能として正しく動く」ことの保証にはならないため必須
+     - AI エージェントは CLI 環境では実機確認できないので、PR の Test plan にチェック項目として明示し、ユーザー側で確認してもらう
 5. コミット（[`.claude/rules/commit-style.md`](./.claude/rules/commit-style.md) に従う）
 6. push して PR を作成（`develop` 宛）
 7. ユーザーにレビュー依頼
