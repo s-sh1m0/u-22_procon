@@ -80,7 +80,37 @@ type AnalyzePRUseCase struct {
 
 ---
 
-## 4. 命名規約
+## 4. 純粋な変換ヘルパーの配置
+
+domain 型のみで動き外部 I/O を行わない関数（ラベリング・グルーピング・整形など）は、
+**`domain/` または `usecase/` に置く**。`infra/` は外部システムへの依存を含むコードのみ。
+
+### 判定基準
+
+ある関数を `infra/` に置いてよいか迷ったら、以下の質問で振り分ける:
+
+1. その関数が DB / 外部 API / ファイルシステム / プロセス起動など、外部 I/O を行うか？ → **Yes なら infra**
+2. その関数の引数 / 戻り値はすべて domain 型（または標準ライブラリの型）か？ → **Yes なら domain か usecase**
+3. usecase からも呼ばれるなら？ → usecase 側に置く（infra を usecase が import するのは禁止）
+4. 複数の usecase から再利用される、または domain の振る舞いとして自然か？ → domain に置く
+
+### 例
+
+| 関数 | 置き場 | 理由 |
+|---|---|---|
+| `*sql.DB` を受け取る `AnalysisRepo.Save` | `infra/store/` | DB I/O あり |
+| `domain.Graph` を groupBy する `regroupBy` | `usecase/` | pure、usecase 内で完結 |
+| `domain.Node` 群から代表ラベルを生成する `labelCluster` | `usecase/` または `domain/` | pure、usecase の責務に近い |
+| GitHub API を呼ぶ `prRepo.GetPR` | `infra/github/` | 外部 API |
+
+### 既存コードへの注意
+
+`infra/cluster/labeler.go` は本ルール導入前のコードで、pure logic が `infra/` に置かれている。
+別 issue で `usecase/` または `domain/` へ移動予定。新規追加では真似しないこと。
+
+---
+
+## 5. 命名規約
 
 | レイヤー | パッケージ名 | 型名の例 |
 |---|---|---|
@@ -95,7 +125,7 @@ type AnalyzePRUseCase struct {
 
 ---
 
-## 5. 単体テスト方針
+## 6. 単体テスト方針
 
 - **usecase のテスト**: domain interface の **モック** を注入してテストする
   - `gomock` か手書きフェイク（小規模なら手書き推奨）
@@ -106,9 +136,10 @@ type AnalyzePRUseCase struct {
 
 ---
 
-## 6. 新規コード追加時のチェックリスト
+## 7. 新規コード追加時のチェックリスト
 
 - [ ] 新しい外部依存（DB テーブル、外部 API）は `infra/<新パッケージ>/` に配置したか
+- [ ] 外部 I/O を伴わない pure ヘルパーは `domain/` か `usecase/` に置いたか（`infra/` に置いていないか）
 - [ ] usecase が必要とする操作は `domain/repository.go` の interface に追加したか
 - [ ] usecase は具象型ではなく interface を受け取っているか
 - [ ] `cmd/server/main.go` の DI 配線を更新したか
@@ -116,7 +147,7 @@ type AnalyzePRUseCase struct {
 
 ---
 
-## 7. 非同期ジョブキューフロー
+## 8. 非同期ジョブキューフロー
 
 API リクエストから結果取得までの流れ:
 
@@ -140,7 +171,7 @@ GET /api/graph/:jobId
 
 ---
 
-## 8. 例外
+## 9. 例外
 
 - ロギング、メトリクス、`context.Context` の操作などの「インフラ横断的関心事」は
   ヘルパーパッケージ（例: `internal/pkg/logger`）として切り出してよい。
