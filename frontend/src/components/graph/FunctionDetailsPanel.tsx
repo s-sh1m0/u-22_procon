@@ -20,7 +20,7 @@ type Props = {
 }
 
 export default function FunctionDetailsPanel({ node, cluster, layer, diff, onClose }: Props) {
-  if (!node || (node.type !== 'function' && node.type !== 'file')) return null
+  if (!node || node.type !== 'function') return null
 
   const color = cluster ? getClusterColor(cluster.id) : null
   const changed = node.data.changed as boolean
@@ -69,36 +69,13 @@ export default function FunctionDetailsPanel({ node, cluster, layer, diff, onClo
           )}
         </div>
 
-        {node.type === 'function' && (
-          <>
-            <div>
-              <p className="break-all text-base font-bold text-stone-900">{node.data.label}</p>
-              <p className="mt-1 break-all font-mono text-xs text-stone-500">
-                {node.data.packagePath}
-              </p>
-            </div>
-            <p className="font-mono text-xs text-stone-400">
-              {node.data.file.split('/').pop()}:{node.data.line}
-            </p>
-          </>
-        )}
-
-        {node.type === 'file' && (
-          <>
-            <div>
-              <p className="break-all text-base font-bold text-stone-900">{node.data.fileName}</p>
-              <p className="mt-1 break-all font-mono text-xs text-stone-500">
-                {node.data.packagePath}
-              </p>
-            </div>
-            <div className="space-y-1 text-sm text-stone-600">
-              <p>{node.data.functionCount} 関数</p>
-              {node.data.changedCount > 0 && (
-                <p className="text-amber-600">{node.data.changedCount} 件変更あり</p>
-              )}
-            </div>
-          </>
-        )}
+        <div>
+          <p className="break-all text-base font-bold text-stone-900">{node.data.label}</p>
+          <p className="mt-1 break-all font-mono text-xs text-stone-500">{node.data.packagePath}</p>
+        </div>
+        <p className="font-mono text-xs text-stone-400">
+          {node.data.file.split('/').pop()}:{node.data.line}
+        </p>
       </div>
 
       {diff ? (

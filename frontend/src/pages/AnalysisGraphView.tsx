@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import type { NodeKind, LayerKind, AnyFlowNode } from '@/types/graph'
-import type { Cluster, DiffFile, DiffStatus } from '@/types/api'
+import type { LayerKind, AnyFlowNode } from '@/types/graph'
+import type { Cluster, DiffFile } from '@/types/api'
 import { useGraph } from '@/hooks/useGraph'
 import { useDiff } from '@/hooks/useDiff'
 import { inferLayer } from '@/lib/layerInference'
@@ -21,14 +21,8 @@ export default function AnalysisGraphView({ jobId }: Props) {
   const { data, isLoading, error } = useGraph(jobId, true)
   const { data: diffData } = useDiff(jobId, !isLoading && !error && !!data)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [nodeKind, setNodeKind] = useState<NodeKind>('function')
   // null = 未操作（自動展開ロジックを使う）、Set = ユーザー操作後の明示的な展開セット
   const [expandedClustersOverride, setExpandedClustersOverride] = useState<Set<string> | null>(null)
-
-  const handleChangeNodeKind = useCallback((kind: NodeKind) => {
-    setNodeKind(kind)
-    setSelectedNodeId(null)
-  }, [])
 
   const { defaultExpandedClusters, allClusterKeys } = useMemo(() => {
     const defaultExpanded = new Set<string>()
@@ -112,71 +106,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
       }
     }
 
-    // File node selected (file mode)
-    if (selectedNodeId.startsWith('file:')) {
-      const filePath = selectedNodeId.slice(5)
-      const fileNodes = data.graph.nodes.filter((n) => n.file === filePath)
-      if (fileNodes.length === 0) {
-        return { panelNode: null, selectedCluster: null, selectedLayer: 'other' as LayerKind }
-      }
-      const pkg = fileNodes[0].package
-      const layer = inferLayer(pkg)
-      const changedCount = fileNodes.filter((n) => n.changed).length
-      const addedCount = fileNodes.filter((n) => n.diff_status === 'added').length
-      const removedCount = fileNodes.filter((n) => n.diff_status === 'removed').length
-      const fileDiffStatus: DiffStatus =
-        addedCount === fileNodes.length
-          ? 'added'
-          : removedCount === fileNodes.length
-            ? 'removed'
-            : 'existing'
-
-      const clusterFreq = new Map<number, number>()
-      for (const n of fileNodes) {
-        const c = data.clusters.find((c) => c.nodes.includes(n.id))
-        if (c) clusterFreq.set(c.id, (clusterFreq.get(c.id) ?? 0) + 1)
-      }
-      let domCid = 0
-      let maxFreq = 0
-      for (const [cid, freq] of clusterFreq.entries()) {
-        if (freq > maxFreq) {
-          maxFreq = freq
-          domCid = cid
-        }
-      }
-      const cluster = data.clusters.find((c) => c.id === domCid) ?? null
-      const color = getClusterColor(domCid)
-
-      const node: AnyFlowNode = {
-        id: selectedNodeId,
-        type: 'file',
-        position: { x: 0, y: 0 },
-        data: {
-          fileName: filePath.split('/').pop() ?? filePath,
-          packagePath: pkg,
-          functionCount: fileNodes.length,
-          changedCount,
-          addedCount,
-          removedCount,
-          changed: changedCount > 0,
-          diffStatus: fileDiffStatus,
-          clusterId: domCid,
-          clusterColorHex: color.hex,
-          layer,
-        },
-      }
-      const fileDiff = diffData?.files.find(
-        (f) => filePath === f.filename || filePath.endsWith('/' + f.filename),
-      )
-      return {
-        panelNode: node,
-        selectedCluster: cluster,
-        selectedLayer: layer,
-        panelDiff: fileDiff,
-      }
-    }
-
-    // Function node selected
     const gn = data.graph.nodes.find((n) => n.id === selectedNodeId)
     if (!gn) return { panelNode: null, selectedCluster: null, selectedLayer: 'other' as LayerKind }
 
@@ -255,8 +184,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
     >
       <DependencyGraph
         data={data}
-        nodeKind={nodeKind}
-        onChangeNodeKind={handleChangeNodeKind}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
         expandedClusters={expandedClusters}
