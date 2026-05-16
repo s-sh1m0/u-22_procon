@@ -56,6 +56,9 @@ func (uc *GetAnalysisUseCase) GetGraph(ctx context.Context, id domain.JobID, mod
 	if a == nil {
 		return nil, fmt.Errorf("data integrity error: job %s is done but analysis %s not found", id, j.AnalysisID)
 	}
-	a.Result = applyClusterMode(a.Result, mode)
-	return a, nil
+	// リポジトリが返す *Analysis を直接書き換えないようコピーしてから Result を差し替える。
+	// 将来リポジトリがキャッシュ実装になっても呼び出し間で副作用が漏れないようにする防御策。
+	out := *a
+	out.Result = applyClusterMode(a.Result, mode)
+	return &out, nil
 }
