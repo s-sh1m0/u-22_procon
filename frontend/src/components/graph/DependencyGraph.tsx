@@ -73,10 +73,11 @@ function GraphInner({
   )
 
   const handleFitChanged = useCallback(() => {
-    const changedNodes = nodes.filter(
-      (n) =>
-        (n.type === 'function' || n.type === 'file') && (n.data as { changed?: boolean }).changed,
-    )
+    const changedNodes = nodes.filter((n) => {
+      if (n.type !== 'function' && n.type !== 'file') return false
+      const d = n.data as { changed?: boolean; diffStatus?: string }
+      return d.changed || (d.diffStatus && d.diffStatus !== 'existing')
+    })
     if (changedNodes.length > 0) {
       fitView({ nodes: changedNodes.map((n) => ({ id: n.id })), duration: 400, padding: 0.3 })
     } else {

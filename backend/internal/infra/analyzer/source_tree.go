@@ -38,7 +38,12 @@ func NewSourceTree(c Cloner, l PackageLoader) *SourceTree {
 	return &SourceTree{Cloner: c, Loader: l}
 }
 
-// Prepare は clone → fast load → 変更パッケージ特定 → 近傍フルロード を一気に実施する。
+// Prepare は HEAD SHA を対象に PrepareAtSHA を呼ぶ薄いラッパー。
+func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string, changed []domain.ChangedFile) (*PreparedSource, error) {
+	return s.PrepareAtSHA(ctx, pr, token, pr.HeadSHA, changed)
+}
+
+// PrepareAtSHA は指定 SHA を clone → fast load → 変更パッケージ特定 → 近傍フルロード する。
 //
 // 2フェーズロードにより、プロジェクト内の変更パッケージとその近傍のみを
 // 型情報付きでロードし、外部ライブラリを含む全パッケージのロードを回避する。
@@ -46,15 +51,18 @@ func NewSourceTree(c Cloner, l PackageLoader) *SourceTree {
 // Loadが失敗したときはCloneのCleanupを内部で呼んでから返す（呼び出し側に部分状態を渡さない）。
 // 成功時のみPreparedSource.Cleanupが返り、呼び出し側がdeferで呼ぶ責務を持つ。
 // モノレポ対応: cloneルートでパッケージが見つからない場合、go.mod を持つサブディレクトリを自動検出する。
-func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string, changed []domain.ChangedFile) (*PreparedSource, error) {
+//
+// changed の Filename は sha 側のリポジトリに存在するパスを指している前提（base 側を呼び出す
+// ときに renamed/removed のパス補正が必要なら呼び出し側で行うこと）。
+func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, sha string, changed []domain.ChangedFile) (*PreparedSource, error) {
 	cloned, err := s.Cloner.Clone(ctx, CloneRequest{
 		Owner: pr.Owner,
 		Repo:  pr.Repo,
-		SHA:   pr.HeadSHA,
+		SHA:   sha,
 		Token: token,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("analyzer: clone %s/%s@%s: %w", pr.Owner, pr.Repo, pr.HeadSHA, err)
+		return nil, fmt.Errorf("analyzer: clone %s/%s@%s: %w", pr.Owner, pr.Repo, sha, err)
 	}
 
 	// go.mod を持つサブディレクトリを特定し、そこを基点にパッケージをロードする。
@@ -80,13 +88,15 @@ func (s *SourceTree) Prepare(ctx context.Context, pr domain.PRInfo, token string
 	changedPkgs := IdentifyChangedPackages(clonedRoot, fastPkgs, changed)
 	log.Printf("analyzer: changed packages: %v", changedPkgs)
 
-	// HEAD に存在するファイルの絶対パスを収集する（removed は HEAD に存在しないため除外）。
+	// sha 側に実在するファイルの絶対パスを収集する。
+	// HEAD 側では removed が、BASE 側では added が、それぞれ実在しないため自動的に除外される。
 	changedFileAbsPaths := make([]string, 0, len(changed))
 	for _, f := range changed {
-		if f.Status == domain.FileStatusRemoved {
+		absPath := filepath.Clean(filepath.Join(clonedRoot, f.Filename))
+		if _, statErr := os.Stat(absPath); statErr != nil {
 			continue
 		}
-		changedFileAbsPaths = append(changedFileAbsPaths, filepath.Clean(filepath.Join(clonedRoot, f.Filename)))
+		changedFileAbsPaths = append(changedFileAbsPaths, absPath)
 	}
 
 	if len(changedPkgs) == 0 {

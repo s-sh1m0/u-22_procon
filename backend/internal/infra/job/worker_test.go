@@ -100,9 +100,23 @@ func (r *fakePRRepo) GetFileContent(_ context.Context, _, _, _, _, _ string) ([]
 type fakeSourceTree struct {
 	prepared *analyzer.PreparedSource
 	err      error
+
+	// 観測用: 何回呼ばれたか / どの SHA で呼ばれたか
+	prepareCalls      int
+	prepareAtSHACalls int
+	prepareAtSHAs     []string
+	baseChanged       []domain.ChangedFile
 }
 
 func (s *fakeSourceTree) Prepare(_ context.Context, _ domain.PRInfo, _ string, _ []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+	s.prepareCalls++
+	return s.prepared, s.err
+}
+
+func (s *fakeSourceTree) PrepareAtSHA(_ context.Context, _ domain.PRInfo, _, sha string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+	s.prepareAtSHACalls++
+	s.prepareAtSHAs = append(s.prepareAtSHAs, sha)
+	s.baseChanged = changed
 	return s.prepared, s.err
 }
 
@@ -146,7 +160,7 @@ func newWorkerWithFakes(
 // --- tests ---
 
 func TestWorker_HappyPath(t *testing.T) {
-	prInfo := &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "sha"}
+	prInfo := &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "head-sha", BaseSHA: "base-sha"}
 	graph := &domain.Graph{
 		Nodes: []domain.Node{{ID: "fn:A", Name: "A"}},
 	}
@@ -163,15 +177,17 @@ func TestWorker_HappyPath(t *testing.T) {
 	}
 	analyses := &fakeAnalysisRepo{}
 
+	st := &fakeSourceTree{prepared: &analyzer.PreparedSource{
+		Packages:        nil,
+		ChangedPackages: nil,
+		Cleanup:         func() error { return nil },
+	}}
+
 	w := newWorkerWithFakes(
 		jobs,
 		analyses,
 		&fakePRRepo{prInfo: prInfo, changed: []domain.ChangedFile{}},
-		&fakeSourceTree{prepared: &analyzer.PreparedSource{
-			Packages:        nil,
-			ChangedPackages: nil,
-			Cleanup:         func() error { return nil },
-		}},
+		st,
 		&fakeCGBuilder{graph: graph},
 		&fakeClusterer{result: result},
 	)
@@ -192,6 +208,65 @@ func TestWorker_HappyPath(t *testing.T) {
 	}
 	if analyses.saved[0].ID != fixedID {
 		t.Errorf("unexpected analysis ID: %s", analyses.saved[0].ID)
+	}
+	// base/head が両方呼ばれたことを確認
+	if st.prepareCalls != 1 {
+		t.Errorf("Prepare (head) calls: got %d want 1", st.prepareCalls)
+	}
+	if st.prepareAtSHACalls != 1 {
+		t.Errorf("PrepareAtSHA (base) calls: got %d want 1", st.prepareAtSHACalls)
+	}
+	if len(st.prepareAtSHAs) != 1 || st.prepareAtSHAs[0] != "base-sha" {
+		t.Errorf("PrepareAtSHA SHA: got %v want [base-sha]", st.prepareAtSHAs)
+	}
+}
+
+func TestWorker_BaseSHA_RenameNormalized(t *testing.T) {
+	prInfo := &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "head", BaseSHA: "base"}
+	graph := &domain.Graph{}
+	result := &domain.ClusterResult{Graph: *graph}
+
+	jobs := newFakeJobStore()
+	jobs.jobs["job-r"] = &domain.Job{
+		ID:     "job-r",
+		Status: domain.JobStatusPending,
+		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+	}
+	analyses := &fakeAnalysisRepo{}
+
+	changed := []domain.ChangedFile{
+		{Filename: "pkg/a/new.go", PreviousFilename: "pkg/a/old.go", Status: domain.FileStatusRenamed},
+		{Filename: "pkg/b/added.go", Status: domain.FileStatusAdded},
+		{Filename: "pkg/c/removed.go", Status: domain.FileStatusRemoved},
+	}
+
+	st := &fakeSourceTree{prepared: &analyzer.PreparedSource{Cleanup: func() error { return nil }}}
+
+	w := newWorkerWithFakes(
+		jobs, analyses,
+		&fakePRRepo{prInfo: prInfo, changed: changed},
+		st,
+		&fakeCGBuilder{graph: graph},
+		&fakeClusterer{result: result},
+	)
+
+	w.process(context.Background(), Item{JobID: "job-r", Token: "tok"})
+
+	if len(st.baseChanged) != 2 {
+		t.Fatalf("base changed len=%d want 2 (added 除外)", len(st.baseChanged))
+	}
+	// renamed が PreviousFilename に置換されているか
+	var found bool
+	for _, f := range st.baseChanged {
+		if f.Status == domain.FileStatusRenamed && f.Filename == "pkg/a/old.go" {
+			found = true
+		}
+		if f.Status == domain.FileStatusAdded {
+			t.Error("added should be excluded for base")
+		}
+	}
+	if !found {
+		t.Error("renamed file should use PreviousFilename for base")
 	}
 }
 

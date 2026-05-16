@@ -154,12 +154,13 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 			relPath = pos.Filename
 		}
 		nodes = append(nodes, domain.Node{
-			ID:      nid,
-			Name:    fn.Name(),
-			Package: pkgPath(fn),
-			File:    relPath,
-			Line:    pos.Line,
-			Changed: fileChanged,
+			ID:         nid,
+			Name:       fn.Name(),
+			Package:    pkgPath(fn),
+			File:       relPath,
+			Line:       pos.Line,
+			Changed:    fileChanged,
+			DiffStatus: domain.DiffStatusExisting,
 		})
 	}
 
@@ -180,7 +181,7 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 				continue
 			}
 			seen[key] = struct{}{}
-			edges = append(edges, domain.Edge{From: callerID, To: calleeID})
+			edges = append(edges, domain.Edge{From: callerID, To: calleeID, Status: domain.DiffStatusExisting})
 		}
 	}
 

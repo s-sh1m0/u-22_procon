@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import type { NodeKind, LayerKind, AnyFlowNode } from '@/types/graph'
-import type { Cluster, DiffFile } from '@/types/api'
+import type { Cluster, DiffFile, DiffStatus } from '@/types/api'
 import { useGraph } from '@/hooks/useGraph'
 import { useDiff } from '@/hooks/useDiff'
 import { inferLayer } from '@/lib/layerInference'
@@ -11,6 +11,7 @@ import AppShell from '@/components/layout/AppShell'
 import PRMetaBar from '@/components/layout/PRMetaBar'
 import DependencyGraph from '@/components/graph/DependencyGraph'
 import FunctionDetailsPanel from '@/components/graph/FunctionDetailsPanel'
+import CycleAlert from '@/components/graph/CycleAlert'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -45,7 +46,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
           const key = makeClusterKey(n.package, cluster.id)
           clusterKeys.add(key)
           allKeys.add(key)
-          if (n.changed) hasChanged = true
+          if (n.changed || n.diff_status !== 'existing') hasChanged = true
         }
       }
       if (hasChanged) {
@@ -79,6 +80,28 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setSelectedNodeId(null)
   }, [])
 
+  // CycleAlert からノードを選択された場合: 当該ノードのクラスタを展開し、選択 + フォーカス
+  const handleSelectCycleNode = useCallback(
+    (nodeId: string) => {
+      if (!data) return
+      const target = data.graph.nodes.find((n) => n.id === nodeId)
+      if (!target) return
+      const cluster = data.clusters.find((c) => c.nodes.includes(nodeId))
+      if (cluster) {
+        const key = makeClusterKey(target.package, cluster.id)
+        setExpandedClustersOverride((prev) => {
+          const base = prev !== null ? prev : defaultExpandedClusters
+          if (base.has(key)) return prev
+          const next = new Set(base)
+          next.add(key)
+          return next
+        })
+      }
+      setSelectedNodeId(nodeId)
+    },
+    [data, defaultExpandedClusters],
+  )
+
   const { panelNode, selectedCluster, selectedLayer, panelDiff } = useMemo(() => {
     if (!data || !selectedNodeId) {
       return {
@@ -99,6 +122,14 @@ export default function AnalysisGraphView({ jobId }: Props) {
       const pkg = fileNodes[0].package
       const layer = inferLayer(pkg)
       const changedCount = fileNodes.filter((n) => n.changed).length
+      const addedCount = fileNodes.filter((n) => n.diff_status === 'added').length
+      const removedCount = fileNodes.filter((n) => n.diff_status === 'removed').length
+      const fileDiffStatus: DiffStatus =
+        addedCount === fileNodes.length
+          ? 'added'
+          : removedCount === fileNodes.length
+            ? 'removed'
+            : 'existing'
 
       const clusterFreq = new Map<number, number>()
       for (const n of fileNodes) {
@@ -125,7 +156,10 @@ export default function AnalysisGraphView({ jobId }: Props) {
           packagePath: pkg,
           functionCount: fileNodes.length,
           changedCount,
+          addedCount,
+          removedCount,
           changed: changedCount > 0,
+          diffStatus: fileDiffStatus,
           clusterId: domCid,
           clusterColorHex: color.hex,
           layer,
@@ -161,6 +195,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
         file: gn.file,
         line: gn.line,
         changed: gn.changed,
+        diffStatus: gn.diff_status,
         clusterId: cid,
         clusterColorHex: color.hex,
         layer,
@@ -200,7 +235,12 @@ export default function AnalysisGraphView({ jobId }: Props) {
 
   return (
     <AppShell
-      topBar={<PRMetaBar pr={data.pr} />}
+      topBar={
+        <div className="flex flex-col gap-1">
+          <PRMetaBar pr={data.pr} />
+          <CycleAlert cycles={data.cycles} onSelectCycleNode={handleSelectCycleNode} />
+        </div>
+      }
       rightPanel={
         panelNode ? (
           <FunctionDetailsPanel

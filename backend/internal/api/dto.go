@@ -35,6 +35,14 @@ type GraphResponse struct {
 	PR       PRInfoDTO    `json:"pr"`
 	Clusters []ClusterDTO `json:"clusters"`
 	Graph    GraphDTO     `json:"graph"`
+	Cycles   []CycleDTO   `json:"cycles"`
+}
+
+// CycleDTO は循環参照の JSON 表現
+type CycleDTO struct {
+	ID    int      `json:"id"`
+	Nodes []string `json:"nodes"`
+	IsNew bool     `json:"is_new"`
 }
 
 // ClusterDTO はクラスタの JSON 表現
@@ -52,18 +60,20 @@ type GraphDTO struct {
 
 // NodeDTO はノードの JSON 表現
 type NodeDTO struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Package string `json:"package"`
-	File    string `json:"file"`
-	Line    int    `json:"line"`
-	Changed bool   `json:"changed"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Package    string `json:"package"`
+	File       string `json:"file"`
+	Line       int    `json:"line"`
+	Changed    bool   `json:"changed"`
+	DiffStatus string `json:"diff_status"` // "added" | "removed" | "existing"
 }
 
 // EdgeDTO はエッジの JSON 表現
 type EdgeDTO struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Status string `json:"status"` // "added" | "removed" | "existing"
 }
 
 // DiffResponse は GET /api/diff/:jobId のレスポンス
@@ -113,19 +123,37 @@ func toGraphResponse(a *domain.Analysis) GraphResponse {
 
 	nodes := make([]NodeDTO, len(r.Graph.Nodes))
 	for i, n := range r.Graph.Nodes {
+		ds := string(n.DiffStatus)
+		if ds == "" {
+			ds = string(domain.DiffStatusExisting)
+		}
 		nodes[i] = NodeDTO{
-			ID:      string(n.ID),
-			Name:    n.Name,
-			Package: n.Package,
-			File:    n.File,
-			Line:    n.Line,
-			Changed: n.Changed,
+			ID:         string(n.ID),
+			Name:       n.Name,
+			Package:    n.Package,
+			File:       n.File,
+			Line:       n.Line,
+			Changed:    n.Changed,
+			DiffStatus: ds,
 		}
 	}
 
 	edges := make([]EdgeDTO, len(r.Graph.Edges))
 	for i, e := range r.Graph.Edges {
-		edges[i] = EdgeDTO{From: string(e.From), To: string(e.To)}
+		st := string(e.Status)
+		if st == "" {
+			st = string(domain.DiffStatusExisting)
+		}
+		edges[i] = EdgeDTO{From: string(e.From), To: string(e.To), Status: st}
+	}
+
+	cycles := make([]CycleDTO, len(r.Cycles))
+	for i, c := range r.Cycles {
+		nodeIDs := make([]string, len(c.Nodes))
+		for j, n := range c.Nodes {
+			nodeIDs[j] = string(n)
+		}
+		cycles[i] = CycleDTO{ID: c.ID, Nodes: nodeIDs, IsNew: c.IsNew}
 	}
 
 	return GraphResponse{
@@ -139,5 +167,6 @@ func toGraphResponse(a *domain.Analysis) GraphResponse {
 		},
 		Clusters: clusters,
 		Graph:    GraphDTO{Nodes: nodes, Edges: edges},
+		Cycles:   cycles,
 	}
 }

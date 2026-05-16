@@ -1,5 +1,6 @@
+import type { CSSProperties } from 'react'
 import type { Edge } from '@xyflow/react'
-import type { GraphResponse, Cluster, GraphEdge } from '@/types/api'
+import type { GraphResponse, Cluster, GraphEdge, DiffStatus } from '@/types/api'
 import type {
   AnyFlowNode,
   NodeKind,
@@ -35,8 +36,11 @@ type InputNode = {
   file: string
   line: number
   changed: boolean
+  diffStatus: DiffStatus
   functionCount: number
   changedCount: number
+  addedCount: number
+  removedCount: number
 }
 
 export type LayoutResult = { nodes: AnyFlowNode[]; edges: Edge[] }
@@ -44,6 +48,25 @@ export type LayoutResult = { nodes: AnyFlowNode[]; edges: Edge[] }
 /** "layer:clusterId" 形式のキーを返す */
 export function makeClusterKey(pkg: string, clusterId: number): string {
   return `${inferLayer(pkg)}:${clusterId}`
+}
+
+// 集約エッジの DiffStatus 優先順: added > removed > existing
+function mergeEdgeStatus(a: DiffStatus, b: DiffStatus): DiffStatus {
+  if (a === 'added' || b === 'added') return 'added'
+  if (a === 'removed' || b === 'removed') return 'removed'
+  return 'existing'
+}
+
+function edgeStyleByStatus(status: DiffStatus): CSSProperties {
+  switch (status) {
+    case 'added':
+      return { stroke: '#10b981', strokeWidth: 2.5 }
+    case 'removed':
+      return { stroke: '#a8a29e', strokeWidth: 1.5, strokeDasharray: '6 4', opacity: 0.6 }
+    case 'existing':
+    default:
+      return { stroke: '#d6d3d1', strokeWidth: 1.5 }
+  }
 }
 
 export function layoutGraph(
@@ -57,14 +80,34 @@ export function layoutGraph(
 
   if (nodeKind === 'file') {
     const agg = aggregateByFile(data)
-    inputNodes = agg.nodes
+    inputNodes = agg.nodes.map((n) => ({
+      id: n.id,
+      name: n.name,
+      package: n.package,
+      file: n.file,
+      line: n.line,
+      changed: n.changed,
+      diffStatus: n.diffStatus,
+      functionCount: n.functionCount,
+      changedCount: n.changedCount,
+      addedCount: n.addedCount,
+      removedCount: n.removedCount,
+    }))
     inputEdges = agg.edges
     clusters = agg.clusters
   } else {
     inputNodes = data.graph.nodes.map((n) => ({
-      ...n,
+      id: n.id,
+      name: n.name,
+      package: n.package,
+      file: n.file,
+      line: n.line,
+      changed: n.changed,
+      diffStatus: n.diff_status,
       functionCount: 1,
       changedCount: n.changed ? 1 : 0,
+      addedCount: n.diff_status === 'added' ? 1 : 0,
+      removedCount: n.diff_status === 'removed' ? 1 : 0,
     }))
     inputEdges = data.graph.edges
     clusters = data.clusters
@@ -91,9 +134,9 @@ export function layoutGraph(
 
   const flowNodes: AnyFlowNode[] = []
 
-  // Build edges with cluster aggregation
-  const edgeSet = new Set<string>()
-  const flowEdges: Edge[] = []
+  // Build edges with cluster aggregation. DiffStatus は added > removed > existing で昇格。
+  const edgeStatusMap = new Map<string, DiffStatus>()
+  const edgeKeyToFromTo = new Map<string, { source: string; target: string }>()
 
   for (const e of inputEdges) {
     const fromNode = nodeMap.get(e.from)
@@ -111,14 +154,22 @@ export function layoutGraph(
     if (srcId === dstId) continue
 
     const edgeKey = `${srcId}→${dstId}`
-    if (edgeSet.has(edgeKey)) continue
-    edgeSet.add(edgeKey)
+    const prev = edgeStatusMap.get(edgeKey)
+    edgeStatusMap.set(edgeKey, prev ? mergeEdgeStatus(prev, e.status) : e.status)
+    if (!edgeKeyToFromTo.has(edgeKey)) {
+      edgeKeyToFromTo.set(edgeKey, { source: srcId, target: dstId })
+    }
+  }
 
+  const flowEdges: Edge[] = []
+  for (const [edgeKey, status] of edgeStatusMap.entries()) {
+    const ft = edgeKeyToFromTo.get(edgeKey)!
     flowEdges.push({
       id: `e:${edgeKey}`,
-      source: srcId,
-      target: dstId,
-      style: { stroke: '#d6d3d1', strokeWidth: 1.5 },
+      source: ft.source,
+      target: ft.target,
+      style: edgeStyleByStatus(status),
+      data: { diffStatus: status },
     })
   }
 
@@ -149,6 +200,8 @@ export function layoutGraph(
         // Collapsed: render a single super node
         const changedCount = nodes.reduce((acc, n) => acc + n.changedCount, 0)
         const functionCount = nodes.reduce((acc, n) => acc + n.functionCount, 0)
+        const addedCount = nodes.reduce((acc, n) => acc + n.addedCount, 0)
+        const removedCount = nodes.reduce((acc, n) => acc + n.removedCount, 0)
 
         flowNodes.push({
           id: `super:${key}`,
@@ -162,7 +215,9 @@ export function layoutGraph(
             clusterColorSoft: color.soft,
             functionCount,
             changedCount,
-            hasChanged: changedCount > 0,
+            addedCount,
+            removedCount,
+            hasChanged: changedCount > 0 || addedCount > 0 || removedCount > 0,
           } as SuperClusterNodeData,
           style: { width: SUPER_W, height: SUPER_H },
         })
@@ -203,7 +258,7 @@ export function layoutGraph(
           const y = PADDING + CLUSTER_LABEL_H + row * ROW_STRIDE
 
           if (nodeKind === 'file') {
-            const fn = n as AggregatedFileNode
+            const fn = n as unknown as AggregatedFileNode
             flowNodes.push({
               id: n.id,
               type: 'file',
@@ -216,7 +271,10 @@ export function layoutGraph(
                 packagePath: fn.package,
                 functionCount: fn.functionCount,
                 changedCount: fn.changedCount,
+                addedCount: fn.addedCount,
+                removedCount: fn.removedCount,
                 changed: fn.changed,
+                diffStatus: fn.diffStatus,
                 clusterId: cid,
                 clusterColorHex: color.hex,
                 layer,
@@ -236,6 +294,7 @@ export function layoutGraph(
                 file: n.file,
                 line: n.line,
                 changed: n.changed,
+                diffStatus: n.diffStatus,
                 clusterId: cid,
                 clusterColorHex: color.hex,
                 layer,

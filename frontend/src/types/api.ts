@@ -14,10 +14,13 @@ export type PRInfo = {
   head_ref: string
 }
 
+export type DiffStatus = 'added' | 'removed' | 'existing'
+
 export type GraphResponse = {
   pr: PRInfo
   clusters: Cluster[]
   graph: Graph
+  cycles: Cycle[]
 }
 
 export type Cluster = {
@@ -38,11 +41,19 @@ export type GraphNode = {
   file: string
   line: number
   changed: boolean
+  diff_status: DiffStatus
 }
 
 export type GraphEdge = {
   from: string
   to: string
+  status: DiffStatus
+}
+
+export type Cycle = {
+  id: number
+  nodes: string[]
+  is_new: boolean
 }
 
 export type DiffFile = {
