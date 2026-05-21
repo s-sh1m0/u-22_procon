@@ -1,4 +1,4 @@
-package cluster
+package usecase
 
 import (
 	"fmt"
@@ -8,6 +8,34 @@ import (
 
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
+
+// labelClusters は clusters の各クラスタに対し graph の情報からラベルを計算し、
+// Label を差し替えた新しいスライスを返す。入力の clusters は変更しない。
+func labelClusters(clusters []domain.Cluster, g domain.Graph) []domain.Cluster {
+	if len(clusters) == 0 {
+		return clusters
+	}
+	nodeByID := make(map[domain.NodeID]domain.Node, len(g.Nodes))
+	for _, n := range g.Nodes {
+		nodeByID[n.ID] = n
+	}
+	// 入次数はグラフ全体で一度だけ計算し、全クラスタで使い回す（O(E)）。
+	// クラスタ毎に再計算すると O(C×E) になるため。
+	inDeg := computeInDegree(g.Edges)
+	out := make([]domain.Cluster, len(clusters))
+	for i, c := range clusters {
+		clusterNodes := make([]domain.Node, 0, len(c.Nodes))
+		for _, id := range c.Nodes {
+			if n, ok := nodeByID[id]; ok {
+				clusterNodes = append(clusterNodes, n)
+			}
+		}
+		labeled := c
+		labeled.Label = labelCluster(c.ID, clusterNodes, inDeg)
+		out[i] = labeled
+	}
+	return out
+}
 
 // labelCluster はクラスタを構成するノード群から人間に読めるラベルを生成する。
 //
@@ -20,12 +48,12 @@ import (
 //  4. tie-break は名前の昇順
 //
 // パッケージ名・関数名のいずれも欠けている場合は "cluster N" にフォールバックする。
-func labelCluster(idx int, nodes []domain.Node, edges []domain.Edge) string {
+func labelCluster(idx int, nodes []domain.Node, inDeg map[domain.NodeID]int) string {
 	if len(nodes) == 0 {
 		return fmt.Sprintf("cluster %d", idx)
 	}
 
-	rep := pickRepresentative(nodes, edges)
+	rep := pickRepresentative(nodes, inDeg)
 	short := shortPackage(rep.Package)
 
 	switch {
@@ -41,9 +69,8 @@ func labelCluster(idx int, nodes []domain.Node, edges []domain.Edge) string {
 }
 
 // pickRepresentative はクラスタから代表ノードを選ぶ。len(nodes) > 0 を前提とする。
-func pickRepresentative(nodes []domain.Node, edges []domain.Edge) domain.Node {
-	inDeg := computeInDegree(nodes, edges)
-
+// inDeg はグラフ全体の入次数マップ（computeInDegree の結果）を想定する。
+func pickRepresentative(nodes []domain.Node, inDeg map[domain.NodeID]int) domain.Node {
 	candidates := filterNodes(nodes, func(n domain.Node) bool { return n.Changed })
 	if len(candidates) == 0 {
 		candidates = nodes
@@ -63,18 +90,12 @@ func pickRepresentative(nodes []domain.Node, edges []domain.Edge) domain.Node {
 	return best
 }
 
-// computeInDegree はクラスタ内ノードに対するグラフ全体での入次数を返す。
+// computeInDegree はグラフ全体の各ノードの入次数を返す。
 // edges は cluster を跨ぐ呼び出しも含むグラフ全体のエッジを想定する。
-func computeInDegree(nodes []domain.Node, edges []domain.Edge) map[domain.NodeID]int {
-	set := make(map[domain.NodeID]struct{}, len(nodes))
-	for _, n := range nodes {
-		set[n.ID] = struct{}{}
-	}
-	deg := make(map[domain.NodeID]int, len(nodes))
+func computeInDegree(edges []domain.Edge) map[domain.NodeID]int {
+	deg := make(map[domain.NodeID]int, len(edges))
 	for _, e := range edges {
-		if _, ok := set[e.To]; ok {
-			deg[e.To]++
-		}
+		deg[e.To]++
 	}
 	return deg
 }
