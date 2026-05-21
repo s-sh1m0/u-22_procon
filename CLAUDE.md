@@ -44,6 +44,10 @@
      - 確認対象: 変更画面の golden path + 関連画面のリグレッション
      - lint / 型チェック / テストが通っても「機能として正しく動く」ことの保証にはならないため必須
      - AI エージェントは CLI 環境では実機確認できないので、PR の Test plan にチェック項目として明示し、ユーザー側で確認してもらう
+   - **バックエンドのコードを変更したら dev server に反映するため再ビルドが必要**
+     - `backend` コンテナはソースを bind mount せず `compose.yml` の `build:` でイメージに焼き込むため、`docker compose up` だけでは古いバイナリのまま動く（フロントは bind mount なので即反映され、挙動が食い違う）
+     - 反映コマンド: `docker compose up -d --build backend`（または `docker compose watch`）
+     - `docker compose run --rm backend ...`（lint / test）は実行ごとにビルドされるのでこの影響は受けない
 5. コミット（[`.claude/rules/commit-style.md`](./.claude/rules/commit-style.md) に従う）
 6. push して PR を作成（`develop` 宛）
 7. ユーザーにレビュー依頼
