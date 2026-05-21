@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { Edge } from '@xyflow/react'
+import { MarkerType, type Edge, type EdgeMarker } from '@xyflow/react'
 import type { GraphResponse, Cluster, GraphEdge, DiffStatus } from '@/types/api'
 import type {
   AnyFlowNode,
@@ -54,16 +54,34 @@ function mergeEdgeStatus(a: DiffStatus, b: DiffStatus): DiffStatus {
   return 'existing'
 }
 
-function edgeStyleByStatus(status: DiffStatus): CSSProperties {
+function edgeColorByStatus(status: DiffStatus): string {
   switch (status) {
     case 'added':
-      return { stroke: '#10b981', strokeWidth: 2.5 }
+      return '#10b981'
     case 'removed':
-      return { stroke: '#a8a29e', strokeWidth: 1.5, strokeDasharray: '6 4', opacity: 0.6 }
+      return '#a8a29e'
     case 'existing':
     default:
-      return { stroke: '#d6d3d1', strokeWidth: 1.5 }
+      return '#d6d3d1'
   }
+}
+
+function edgeStyleByStatus(status: DiffStatus): CSSProperties {
+  const stroke = edgeColorByStatus(status)
+  switch (status) {
+    case 'added':
+      return { stroke, strokeWidth: 2.5 }
+    case 'removed':
+      return { stroke, strokeWidth: 1.5, strokeDasharray: '6 4', opacity: 0.6 }
+    case 'existing':
+    default:
+      return { stroke, strokeWidth: 1.5 }
+  }
+}
+
+// 呼び出し方向（caller → callee）を示す矢印マーカー。色は stroke と揃える。
+function edgeMarkerByStatus(status: DiffStatus): EdgeMarker {
+  return { type: MarkerType.ArrowClosed, color: edgeColorByStatus(status), width: 16, height: 16 }
 }
 
 export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>): LayoutResult {
@@ -139,6 +157,7 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
       source: ft.source,
       target: ft.target,
       style: edgeStyleByStatus(status),
+      markerEnd: edgeMarkerByStatus(status),
       data: { diffStatus: status },
     })
   }
