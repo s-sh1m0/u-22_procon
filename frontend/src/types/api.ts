@@ -1,6 +1,11 @@
+// JobPhase は running 中のジョブの現在フェーズ（バックエンドの実処理と連動）。
+// 配列順が解析パイプラインの進行順と一致する。
+export type JobPhase = 'clone' | 'build_graph' | 'diff' | 'cluster' | 'visualize'
+
 export type JobResponse = {
   job_id: string
   status: 'pending' | 'running' | 'done' | 'error'
+  phase?: JobPhase
   analysis_id?: string
   error?: string
 }

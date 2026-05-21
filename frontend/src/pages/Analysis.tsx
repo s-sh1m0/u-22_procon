@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useJobStatus } from '@/hooks/useJobStatus'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import AnalysisGraphView from '@/pages/AnalysisGraphView'
+import type { JobPhase } from '@/types/api'
 
+// STEPS と PHASE_ORDER は同じ並び・同じ長さ。各ステップがバックエンドの 1 フェーズに対応する。
 const STEPS = [
   'リポジトリのクローン',
   '依存グラフの構築 (AST 解析)',
@@ -13,28 +14,21 @@ const STEPS = [
   '可視化の生成',
 ] as const
 
-const STEP_DURATIONS_MS = [2000, 4000, 6000, 9000]
+const PHASE_ORDER: JobPhase[] = ['clone', 'build_graph', 'diff', 'cluster', 'visualize']
 
 type StepStatus = 'done' | 'active' | 'pending'
 
-function useStepProgress(jobStatus: string | undefined): StepStatus[] {
-  const [elapsed, setElapsed] = useState(0)
+// stepStatuses はジョブの実フェーズから各ステップの表示状態を導出する（時間ベースの推測はしない）。
+function stepStatuses(jobStatus: string | undefined, phase: JobPhase | undefined): StepStatus[] {
+  if (jobStatus === 'done') return STEPS.map(() => 'done')
+  if (jobStatus === 'error') return STEPS.map(() => 'pending')
 
-  useEffect(() => {
-    if (jobStatus !== 'pending' && jobStatus !== 'running') return
-    const start = Date.now()
-    const id = setInterval(() => setElapsed(Date.now() - start), 500)
-    return () => clearInterval(id)
-  }, [jobStatus])
-
-  if (jobStatus === 'done' || jobStatus === 'error') {
-    return STEPS.map(() => (jobStatus === 'done' ? 'done' : 'pending'))
-  }
-
+  // pending（キュー待ち）でフェーズ未設定なら全て pending。それ以外は現在フェーズまでを done/active。
+  const current = phase ? PHASE_ORDER.indexOf(phase) : -1
   return STEPS.map((_, i) => {
-    if (i < STEPS.length - 1 && elapsed > STEP_DURATIONS_MS[i]) return 'done'
-    const prevDone = i === 0 || elapsed > STEP_DURATIONS_MS[i - 1]
-    if (prevDone) return 'active'
+    if (current < 0) return 'pending'
+    if (i < current) return 'done'
+    if (i === current) return 'active'
     return 'pending'
   })
 }
@@ -46,7 +40,7 @@ function isNoPackagesError(msg: string | undefined) {
 export default function Analysis() {
   const { jobId } = useParams<{ jobId: string }>()
   const { data: job, isLoading } = useJobStatus(jobId ?? '')
-  const stepStatuses = useStepProgress(job?.status)
+  const steps = stepStatuses(job?.status, job?.phase)
 
   if (isLoading || !job) {
     return (
@@ -100,7 +94,7 @@ export default function Analysis() {
         <Card className="border-stone-200">
           <CardContent className="px-0 py-1">
             {STEPS.map((label, i) => {
-              const s = stepStatuses[i]
+              const s = steps[i]
               return (
                 <div
                   key={label}
