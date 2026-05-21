@@ -197,6 +197,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
         onChangeClusterMode={handleChangeClusterMode}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
+        onClearSelection={() => setSelectedNodeId(null)}
         expandedClusters={expandedClusters}
         onToggleCluster={handleToggleCluster}
         onExpandAll={handleExpandAll}

@@ -149,8 +149,18 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 | `ClusterGroup` | 展開中クラスタの背景コンテナ。子ノードを `parentId` で内包 |
 | `SuperClusterNode` | 折りたたみ中クラスタのスーパーノード。クリックで展開 |
 | `FunctionDetailsPanel` | 右パネル。クラスタラベル・レイヤー・diff |
+| `FocusLegend` | フォーカスモード中に左上に出る凡例（呼び出し元/先の方向色と件数） |
 | `DiffViewer` | `@monaco-editor/react` で before/after 表示 |
 | `ClusterSidebar` | クラスタ一覧（実装位置: `layout/`） |
+
+### 3.6 グラフのフォーカスモードとエッジ方向
+
+- **エッジ矢印**: すべてのエッジに矢印マーカー（caller → callee の向き）を付ける。色は diff ステータスの stroke に揃える（added=emerald / removed=stone 破線 / existing=薄 stone）。
+- **フォーカスモード**: 関数ノードを選択すると、直接の caller / callee と接続エッジだけを強調し、それ以外のノード・エッジを減光する（`DIMMED_OPACITY`）。Pane クリックで解除。
+- **方向色**（`src/lib/graphFocus.ts` に集約。グラフ機能上の意味色として hex 直書きを許容）:
+  - 呼び出し元（upstream caller, 選択ノードを呼ぶ側）: blue `#3b82f6`
+  - 呼び出し先（downstream callee, 選択ノードが呼ぶ側）: orange `#f97316`
+- フォーカス計算（1-hop 近傍）は純粋関数 `computeFocus` に切り出し、レイアウト/描画から分離している。
 
 ### 3.5 採用ライブラリ（外観に影響するもの）
 
