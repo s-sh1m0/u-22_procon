@@ -16,10 +16,14 @@ import (
 //
 //	example.com/cgfixture
 //	  pkg/a/a.go  -- func A() { b.B() }  /  func C() {}  /  func D() { closure → C() }
+//	                 type T1/T2 それぞれに func M() { closure → C() }
 //	  pkg/b/b.go  -- func B() {}
 //
 // D はクロージャを内部で呼び出すため、SSA 上では D$1 という別関数になる。
 // クロージャ畳み込みの検証に使う。
+// T1.M / T2.M は同名メソッドで、それぞれ内部にクロージャを持つ。
+// NodeID にレシーバ型が含まれず衝突しないこと（およびクロージャ畳み込みでも
+// 衝突しないこと）の検証に使う。
 func setupCGFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -44,6 +48,20 @@ func A() { b.B() }
 func C() {}
 
 func D() {
+	f := func() { C() }
+	f()
+}
+
+type T1 struct{}
+
+func (T1) M() {
+	f := func() { C() }
+	f()
+}
+
+type T2 struct{}
+
+func (T2) M() {
 	f := func() { C() }
 	f()
 }
@@ -223,6 +241,49 @@ func TestGoCallGraphBuilder_Build_ClosureMerged(t *testing.T) {
 	}
 	if !foundDC {
 		t.Errorf("edge D->C (reattached from closure) not found (edges: %v)", graph.Edges)
+	}
+}
+
+func TestGoCallGraphBuilder_Build_SameMethodNameNotCollided(t *testing.T) {
+	root := setupCGFixture(t)
+	pkgs := loadCGFixture(t, root)
+
+	b := &GoCallGraphBuilder{MaxDepth: 3}
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")}, root)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// 同名メソッド T1.M / T2.M が NodeID 衝突せず別ノードとして存在する
+	var mIDs []string
+	var cID string
+	for _, n := range graph.Nodes {
+		switch n.Name {
+		case "M":
+			mIDs = append(mIDs, string(n.ID))
+		case "C":
+			cID = string(n.ID)
+		}
+	}
+	if len(mIDs) != 2 {
+		t.Fatalf("want 2 distinct nodes named M (T1.M, T2.M), got %d (nodes: %v)", len(mIDs), graph.Nodes)
+	}
+	if mIDs[0] == mIDs[1] {
+		t.Errorf("T1.M and T2.M must have distinct NodeIDs, both = %q", mIDs[0])
+	}
+
+	// 各メソッド内クロージャの C 呼び出しが、衝突せずそれぞれの親メソッドに付け替わる
+	for _, mID := range mIDs {
+		found := false
+		for _, e := range graph.Edges {
+			if string(e.From) == mID && string(e.To) == cID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("edge %s->C not found (edges: %v)", mID, graph.Edges)
+		}
 	}
 }
 

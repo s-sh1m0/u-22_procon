@@ -219,11 +219,14 @@ func rootFunc(fn *ssa.Function) *ssa.Function {
 	return fn
 }
 
+// toNodeID は関数の一意な識別子を返す。
+// fn.Name() はメソッドだとレシーバ型を含まない短い名前（例: "M"）になり、
+// 同一パッケージ内で同名メソッドを持つ複数の型があると NodeID が衝突して
+// 別々の関数が 1 ノードに統合されてしまう。クロージャ畳み込み（rootFunc）でも
+// 同名メソッド内のクロージャが同じく衝突する。これを防ぐため、レシーバ型まで
+// 含む fn.String()（= RelString(nil)、例: "(*pkg.T).M"）を識別子に使う。
 func toNodeID(fn *ssa.Function) domain.NodeID {
-	if fn.Package() == nil {
-		return domain.NodeID(fn.String())
-	}
-	return domain.NodeID(fn.Package().Pkg.Path() + "." + fn.Name())
+	return domain.NodeID(fn.String())
 }
 
 func pkgPath(fn *ssa.Function) string {
