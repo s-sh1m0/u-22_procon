@@ -35,7 +35,7 @@ func TestLabelCluster_PrefersChangedOverHigherInDegree(t *testing.T) {
 		{From: "a", To: "b"},
 		{From: "ext", To: "b"},
 	}
-	got := labelCluster(0, nodes, edges)
+	got := labelCluster(0, nodes, computeInDegree(edges))
 	want := "pkg.Important"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -51,7 +51,7 @@ func TestLabelCluster_PrefersExportedAmongChanged(t *testing.T) {
 	edges := []domain.Edge{
 		{From: "x", To: "b"}, // private の方が in-degree 高いが exported 優先
 	}
-	got := labelCluster(0, nodes, edges)
+	got := labelCluster(0, nodes, computeInDegree(edges))
 	want := "pkg.Public"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -70,7 +70,7 @@ func TestLabelCluster_PicksHighestInDegree(t *testing.T) {
 		{From: "b", To: "c"},
 		{From: "a", To: "b"},
 	}
-	got := labelCluster(0, nodes, edges)
+	got := labelCluster(0, nodes, computeInDegree(edges))
 	want := "pkg.CCC"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -100,7 +100,7 @@ func TestLabelCluster_AllUnchangedFallsThrough(t *testing.T) {
 	edges := []domain.Edge{
 		{From: "x", To: "a"}, // a の in-degree が高い
 	}
-	got := labelCluster(0, nodes, edges)
+	got := labelCluster(0, nodes, computeInDegree(edges))
 	want := "pkg.Foo"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
