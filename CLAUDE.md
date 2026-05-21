@@ -24,7 +24,8 @@
 - タスクを一つ終わらせるごとにコミットする。
 - **コミット前にリンター・フォーマッター・テストを必ず通す**
   - バックエンド（フォーマット + lint）: `docker run --rm -v $(pwd)/backend:/app -w /app golang:1.25 sh -c 'gofmt -w . && go vet ./...'`
-  - バックエンド（テスト）: `docker compose run --rm backend go test ./...`
+  - バックエンド（テスト）: `docker compose run --build --rm backend go test ./...`
+    - `backend` はソースを bind mount せず `compose.yml` の `build:` でイメージに焼き込む。`docker compose run` は `--build` を付けないとキャッシュ済みイメージを使い回し、変更したコードが反映されず**古いコードをテストしてしまう**（新規テストが `no tests to run` になる等で気づきにくい）。テスト時は必ず `--build` を付ける
   - フロントエンド: `docker compose run --rm frontend sh -c 'npm run lint && npx tsc -b && npx prettier --write .'`
 - ブランチ名: `{種類}_{issue番号}_{概要}`
   - 種類: `feature` / `fix` / `chore` / `docs`

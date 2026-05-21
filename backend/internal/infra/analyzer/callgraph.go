@@ -140,12 +140,20 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 	}
 
 	// 6. 収集ノード・エッジを domain.Graph に変換
+	// 無名関数（クロージャ）は囲うトップレベル親関数に畳み込む。複数の callgraph
+	// ノード（親本体 + 各クロージャ）が同一 NodeID を指すため、ノードは重複排除し、
+	// エッジは親 NodeID へ付け替えたうえで自己ループ・重複を除去する。
 	nodeIDMap := make(map[*callgraph.Node]domain.NodeID, len(collected))
+	nodeSeen := make(map[domain.NodeID]struct{}, len(collected))
 	var nodes []domain.Node
 	for cgNode := range collected {
-		fn := cgNode.Func
+		fn := rootFunc(cgNode.Func)
 		nid := toNodeID(fn)
 		nodeIDMap[cgNode] = nid
+		if _, dup := nodeSeen[nid]; dup {
+			continue
+		}
+		nodeSeen[nid] = struct{}{}
 
 		pos := prog.Fset.Position(fn.Pos())
 		_, fileChanged := changedFileSet[pos.Filename]
@@ -176,6 +184,9 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 			if !ok2 {
 				continue
 			}
+			if callerID == calleeID { // 親→クロージャ / クロージャ→クロージャ由来の自己ループを除去
+				continue
+			}
 			key := [2]domain.NodeID{callerID, calleeID}
 			if _, dup := seen[key]; dup {
 				continue
@@ -196,11 +207,26 @@ func isInLoadedSet(fn *ssa.Function, loadedSet map[string]struct{}) bool {
 	return ok
 }
 
-func toNodeID(fn *ssa.Function) domain.NodeID {
-	if fn.Package() == nil {
-		return domain.NodeID(fn.String())
+// rootFunc は無名関数（クロージャ）を囲うトップレベル関数まで遡って返す。
+// SSA はクロージャを `親関数名$連番` で命名し独立した関数として扱うため、
+// グラフ上で `regroupBy$1` のような別ノードに分裂する。これを親 1 ノードへ
+// 畳み込むため、fn.Parent() が nil（=トップレベル）になるまで遡る。
+// ネストしたクロージャも最上位の関数まで遡る。
+func rootFunc(fn *ssa.Function) *ssa.Function {
+	for fn.Parent() != nil {
+		fn = fn.Parent()
 	}
-	return domain.NodeID(fn.Package().Pkg.Path() + "." + fn.Name())
+	return fn
+}
+
+// toNodeID は関数の一意な識別子を返す。
+// fn.Name() はメソッドだとレシーバ型を含まない短い名前（例: "M"）になり、
+// 同一パッケージ内で同名メソッドを持つ複数の型があると NodeID が衝突して
+// 別々の関数が 1 ノードに統合されてしまう。クロージャ畳み込み（rootFunc）でも
+// 同名メソッド内のクロージャが同じく衝突する。これを防ぐため、レシーバ型まで
+// 含む fn.String()（= RelString(nil)、例: "(*pkg.T).M"）を識別子に使う。
+func toNodeID(fn *ssa.Function) domain.NodeID {
+	return domain.NodeID(fn.String())
 }
 
 func pkgPath(fn *ssa.Function) string {
