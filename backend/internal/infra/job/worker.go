@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -19,6 +20,7 @@ import (
 type jobStore interface {
 	FindByID(ctx context.Context, id domain.JobID) (*domain.Job, error)
 	UpdateStatus(ctx context.Context, id domain.JobID, status domain.JobStatus, errMsg string) error
+	UpdatePhase(ctx context.Context, id domain.JobID, phase domain.JobPhase) error
 	UpdateAnalysisID(ctx context.Context, id domain.JobID, analysisID domain.AnalysisID) error
 }
 
@@ -85,10 +87,18 @@ func (w *Worker) process(ctx context.Context, item Item) {
 		log.Printf("worker: job %s failed: %v", jobID, err)
 		_ = w.jobs.UpdateStatus(ctx, jobID, domain.JobStatusError, err.Error())
 	}
+	// setPhase はフロントの進捗表示用にジョブの現在フェーズを更新する。
+	// 進捗表示は付随情報なので、失敗してもジョブ自体は止めずログのみ残す。
+	setPhase := func(p domain.JobPhase) {
+		if err := w.jobs.UpdatePhase(ctx, jobID, p); err != nil {
+			log.Printf("worker: failed to set phase %s for job %s: %v", p, jobID, err)
+		}
+	}
 
 	if err := w.jobs.UpdateStatus(ctx, jobID, domain.JobStatusRunning, ""); err != nil {
 		log.Printf("worker: failed to mark job %s running: %v", jobID, err)
 	}
+	setPhase(domain.JobPhaseClone)
 
 	j, err := w.jobs.FindByID(ctx, jobID)
 	if err != nil {
@@ -116,8 +126,13 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	}
 	log.Printf("worker: ListChangedGoFiles took %s (%d files)", time.Since(t0), len(changed))
 
+	// クローン完了後、最初にグラフ構築へ入った時点で一度だけ build_graph フェーズへ移す
+	// (base/head が並列なため sync.Once で先着のみ反映する)。
+	var buildOnce sync.Once
+	onBuild := func() { buildOnce.Do(func() { setPhase(domain.JobPhaseBuildGraph) }) }
+
 	t1 := time.Now()
-	headGraph, baseGraph, cleanups, err := w.buildBothGraphs(ctx, *prInfo, item.Token, changed)
+	headGraph, baseGraph, cleanups, err := w.buildBothGraphs(ctx, *prInfo, item.Token, changed, onBuild)
 	defer func() {
 		for _, c := range cleanups {
 			if c != nil {
@@ -134,12 +149,14 @@ func (w *Worker) process(ctx context.Context, item Item) {
 		len(headGraph.Nodes), len(headGraph.Edges),
 		len(baseGraph.Nodes), len(baseGraph.Edges))
 
+	setPhase(domain.JobPhaseDiff)
 	// base/head のグラフを合成して DiffStatus を付与する
 	diffGraph := analyzer.MergeWithDiffStatus(baseGraph, headGraph)
 
 	// 循環参照を検出（base にあった cycle と比較して IsNew を決定）
 	cycles := analyzer.DetectNewCycles(baseGraph, headGraph)
 
+	setPhase(domain.JobPhaseCluster)
 	t3 := time.Now()
 	result, err := w.clusterer.Cluster(ctx, diffGraph)
 	if err != nil {
@@ -149,6 +166,7 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	result.Cycles = cycles
 	log.Printf("worker: Cluster took %s (cycles=%d)", time.Since(t3), len(cycles))
 
+	setPhase(domain.JobPhaseVisualize)
 	t4 := time.Now()
 	diffFiles, err := analyzer.CollectDiffFiles(ctx, w.prRepo, item.Token, *prInfo, changed)
 	if err != nil {
@@ -183,11 +201,13 @@ func (w *Worker) process(ctx context.Context, item Item) {
 // buildBothGraphs は head/base 両方の callgraph を errgroup で並列に構築する。
 // 戻り値の cleanups スライスには各 PreparedSource.Cleanup が入る（呼び出し元が defer で全部呼ぶこと）。
 // 一方が失敗した時点で他方の ctx もキャンセルされ、エラーが返る。
+// onBuild は各 Prepare（クローン）完了後・Build 開始前に呼ばれる進捗通知コールバック。
 func (w *Worker) buildBothGraphs(
 	ctx context.Context,
 	pr domain.PRInfo,
 	token string,
 	changed []domain.ChangedFile,
+	onBuild func(),
 ) (head, base *domain.Graph, cleanups []func() error, err error) {
 	cleanups = make([]func() error, 2)
 
@@ -199,6 +219,7 @@ func (w *Worker) buildBothGraphs(
 			return fmt.Errorf("head prepare: %w", err)
 		}
 		cleanups[0] = prepared.Cleanup
+		onBuild()
 		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 		if err != nil {
 			return fmt.Errorf("head build: %w", err)
@@ -214,6 +235,7 @@ func (w *Worker) buildBothGraphs(
 			return fmt.Errorf("base prepare: %w", err)
 		}
 		cleanups[1] = prepared.Cleanup
+		onBuild()
 		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 		if err != nil {
 			return fmt.Errorf("base build: %w", err)

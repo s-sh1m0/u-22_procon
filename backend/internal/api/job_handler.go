@@ -37,6 +37,7 @@ func (h *JobHandler) Get(c echo.Context) error {
 	return c.JSON(http.StatusOK, JobResponse{
 		JobID:      string(j.ID),
 		Status:     string(j.Status),
+		Phase:      string(j.Phase),
 		AnalysisID: string(j.AnalysisID),
 		Error:      j.Error,
 	})

@@ -38,6 +38,9 @@ func migrate(db *sql.DB) error {
 	if err := addColumnIfNotExists(db, "jobs", "pr_base_sha", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := addColumnIfNotExists(db, "jobs", "phase", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	return nil
 }
 

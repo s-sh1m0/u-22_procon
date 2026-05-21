@@ -11,6 +11,7 @@ type AnalyzeRequest struct {
 type JobResponse struct {
 	JobID      string `json:"job_id"`
 	Status     string `json:"status"`
+	Phase      string `json:"phase,omitempty"`
 	AnalysisID string `json:"analysis_id,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
