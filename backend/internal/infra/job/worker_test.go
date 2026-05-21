@@ -25,7 +25,8 @@ type fakeJobStore struct {
 		id         domain.JobID
 		analysisID domain.AnalysisID
 	}
-	findErr error
+	phaseCalls []domain.JobPhase
+	findErr    error
 }
 
 func newFakeJobStore() *fakeJobStore {
@@ -47,6 +48,14 @@ func (s *fakeJobStore) UpdateStatus(_ context.Context, id domain.JobID, status d
 	}{id, status, errMsg})
 	if j, ok := s.jobs[id]; ok {
 		j.Status = status
+	}
+	return nil
+}
+
+func (s *fakeJobStore) UpdatePhase(_ context.Context, id domain.JobID, phase domain.JobPhase) error {
+	s.phaseCalls = append(s.phaseCalls, phase)
+	if j, ok := s.jobs[id]; ok {
+		j.Phase = phase
 	}
 	return nil
 }
@@ -208,6 +217,22 @@ func TestWorker_HappyPath(t *testing.T) {
 	}
 	if analyses.saved[0].ID != fixedID {
 		t.Errorf("unexpected analysis ID: %s", analyses.saved[0].ID)
+	}
+	// フェーズが順番どおりに記録されたことを確認（build_graph は sync.Once で 1 回のみ）
+	wantPhases := []domain.JobPhase{
+		domain.JobPhaseClone,
+		domain.JobPhaseBuildGraph,
+		domain.JobPhaseDiff,
+		domain.JobPhaseCluster,
+		domain.JobPhaseVisualize,
+	}
+	if len(jobs.phaseCalls) != len(wantPhases) {
+		t.Fatalf("phase calls: got %v want %v", jobs.phaseCalls, wantPhases)
+	}
+	for i, p := range wantPhases {
+		if jobs.phaseCalls[i] != p {
+			t.Errorf("phase[%d]: got %s want %s", i, jobs.phaseCalls[i], p)
+		}
 	}
 	// base/head が両方呼ばれたことを確認
 	if st.prepareCalls != 1 {

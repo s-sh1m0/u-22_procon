@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     id          TEXT PRIMARY KEY,
     analysis_id TEXT,
     status      TEXT NOT NULL,
+    phase       TEXT NOT NULL DEFAULT '',
     error       TEXT,
     created_at  DATETIME NOT NULL,
     updated_at  DATETIME NOT NULL,
