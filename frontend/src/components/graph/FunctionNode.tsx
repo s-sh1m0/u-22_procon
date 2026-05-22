@@ -4,6 +4,7 @@ import type { FunctionFlowNode } from '@/types/graph'
 export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowNode>) {
   const isAdded = data.diffStatus === 'added'
   const isRemoved = data.diffStatus === 'removed'
+  const inCycle = data.inCycle
   return (
     <div
       className={[
@@ -11,8 +12,9 @@ export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowN
         'w-[200px]',
         isRemoved ? 'border-dashed border-stone-300 opacity-60 grayscale' : 'border-stone-200',
         selected ? 'ring-2 ring-stone-900' : '',
-        !selected && isAdded ? 'ring-2 ring-emerald-500' : '',
-        !selected && !isAdded && data.changed ? 'ring-2 ring-amber-400' : '',
+        !selected && inCycle ? 'ring-2 ring-red-500' : '',
+        !selected && !inCycle && isAdded ? 'ring-2 ring-emerald-500' : '',
+        !selected && !inCycle && !isAdded && data.changed ? 'ring-2 ring-amber-400' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -39,6 +41,14 @@ export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowN
       )}
       {!isAdded && !isRemoved && data.changed && (
         <div className="absolute right-1.5 top-1.5 size-2 rounded-full bg-amber-400" />
+      )}
+      {inCycle && (
+        <div
+          className="absolute bottom-1.5 right-1.5 flex size-3.5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold leading-none text-white"
+          title="新規循環参照に含まれる"
+        >
+          ↻
+        </div>
       )}
       <div className="pl-3 pr-4 py-2">
         <p

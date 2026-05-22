@@ -1,5 +1,6 @@
 import type { AnyFlowNode, LayerKind } from '@/types/graph'
 import type { Cluster, DiffFile, PRInfo } from '@/types/api'
+import type { ReviewPriority } from '@/lib/reviewPriority'
 import { getClusterColor } from '@/lib/clusterColors'
 import { buildBlobUrl } from '@/lib/githubLinks'
 import DiffViewer from '@/components/diff/DiffViewer'
@@ -12,20 +13,42 @@ const LAYER_LABELS: Record<LayerKind, string> = {
   other: 'Other',
 }
 
+const PRIORITY_LABELS: Record<ReviewPriority, string> = {
+  high: '高',
+  medium: '中',
+  low: '低',
+}
+
+const PRIORITY_CLASSES: Record<ReviewPriority, string> = {
+  high: 'bg-red-100 text-red-700',
+  medium: 'bg-amber-100 text-amber-700',
+  low: 'bg-stone-100 text-stone-500',
+}
+
 type Props = {
   node: AnyFlowNode | null
   cluster: Cluster | null
   layer: LayerKind
   diff: DiffFile | undefined
   pr: PRInfo
+  priority: ReviewPriority
   onClose: () => void
 }
 
-export default function FunctionDetailsPanel({ node, cluster, layer, diff, pr, onClose }: Props) {
+export default function FunctionDetailsPanel({
+  node,
+  cluster,
+  layer,
+  diff,
+  pr,
+  priority,
+  onClose,
+}: Props) {
   if (!node || node.type !== 'function') return null
 
   const color = cluster ? getClusterColor(cluster.id) : null
   const changed = node.data.changed as boolean
+  const inCycle = node.data.inCycle as boolean
   const blobUrl = buildBlobUrl(pr, node.data.file, node.data.line, node.data.diffStatus)
 
   return (
@@ -54,6 +77,12 @@ export default function FunctionDetailsPanel({ node, cluster, layer, diff, pr, o
 
       <div className="p-4 space-y-4 border-b border-stone-100">
         <div className="flex flex-wrap gap-1.5">
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_CLASSES[priority]}`}
+            title="レビュー優先度（新規循環・変更・被呼び出し数から算出）"
+          >
+            優先度 {PRIORITY_LABELS[priority]}
+          </span>
           {cluster && color && (
             <span
               className="rounded-full px-2 py-0.5 text-xs font-medium"
@@ -68,6 +97,11 @@ export default function FunctionDetailsPanel({ node, cluster, layer, diff, pr, o
           {changed && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
               changed
+            </span>
+          )}
+          {inCycle && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+              循環参照
             </span>
           )}
         </div>
