@@ -1,21 +1,13 @@
 import AppMark from './AppMark'
 
-type Props = { size?: number; color?: string }
+type Props = { size?: number }
 
-export default function Brand({ size = 16, color = 'var(--ink, #1c1917)' }: Props) {
+export default function Brand({ size = 16 }: Props) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div className="flex items-center gap-2.5">
       <AppMark size={size + 12} />
-      <span
-        style={{
-          fontFamily: "'Inter Tight', sans-serif",
-          fontSize: size,
-          fontWeight: 600,
-          letterSpacing: '-0.025em',
-          color,
-        }}
-      >
-        diffmap<span style={{ color: 'var(--brand, #0f766e)' }}>.</span>
+      <span className="font-semibold tracking-[-0.025em] text-stone-900" style={{ fontSize: size }}>
+        diffmap<span className="text-teal-700">.</span>
       </span>
     </div>
   )

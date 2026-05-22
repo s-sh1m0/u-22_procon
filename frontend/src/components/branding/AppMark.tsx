@@ -21,7 +21,7 @@ type Props = {
 export default function AppMark({
   size = 32,
   rx = 0.22,
-  bg = 'var(--brand, #0f766e)',
+  bg = '#0f766e',
   fg = 'white',
   accent = 'white',
   shadow = false,

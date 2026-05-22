@@ -1,50 +1,21 @@
 import type { ReactNode } from 'react'
+import Wrap from './Wrap'
 import SectionHead from './SectionHead'
 import { GitHubGlyph } from './glyphs'
 
 function StepMock1() {
   return (
-    <div style={{ width: '100%' }}>
-      <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 6 }}>
-        PR URL
-      </div>
-      <div
-        style={{
-          background: 'white',
-          border: '1.5px solid var(--brand)',
-          borderRadius: 8,
-          padding: '8px 10px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <GitHubGlyph size={12} color="var(--ink-3)" />
-        <span
-          className="mono"
-          style={{
-            fontSize: 11,
-            color: 'var(--ink-2)',
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
+    <div className="w-full">
+      <div className="mb-1.5 font-mono text-[10px] text-stone-500">PR URL</div>
+      <div className="flex items-center gap-2 rounded-lg border-[1.5px] border-teal-700 bg-white px-2.5 py-2">
+        <GitHubGlyph size={12} className="text-stone-500" />
+        <span className="flex-1 overflow-hidden font-mono text-[11px] text-ellipsis whitespace-nowrap text-stone-700">
           github.com/kobold/checkout-service/pull/1284
         </span>
-        <span style={{ fontSize: 10, color: 'var(--added)', fontWeight: 500 }}>✓</span>
+        <span className="text-[10px] font-medium text-green-600">✓</span>
       </div>
-      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-        <div
-          style={{
-            background: 'var(--ink)',
-            color: 'white',
-            padding: '6px 12px',
-            borderRadius: 6,
-            fontSize: 11,
-          }}
-        >
+      <div className="mt-2 flex justify-end">
+        <div className="rounded-md bg-stone-900 px-3 py-1.5 text-[11px] text-white">
           解析を開始 →
         </div>
       </div>
@@ -60,8 +31,8 @@ function StepMock2() {
     [156, 108, 'util.go'],
   ]
   return (
-    <svg viewBox="0 0 240 160" style={{ width: '100%' }} aria-hidden="true">
-      <g stroke="var(--line-strong)" strokeWidth="1" fill="none">
+    <svg viewBox="0 0 240 160" className="w-full" aria-hidden="true">
+      <g stroke="#d6d3d1" strokeWidth="1" fill="none">
         <line x1="60" y1="40" x2="120" y2="80" />
         <line x1="180" y1="40" x2="120" y2="80" />
         <line x1="60" y1="120" x2="120" y2="80" />
@@ -70,28 +41,20 @@ function StepMock2() {
       <g>
         {files.map(([x, y, label]) => (
           <g key={label}>
-            <rect
-              x={x}
-              y={y}
-              width="48"
-              height="24"
-              rx="4"
-              fill="white"
-              stroke="var(--line-strong)"
-            />
+            <rect x={x} y={y} width="48" height="24" rx="4" fill="white" stroke="#d6d3d1" />
             <text
               x={x + 24}
               y={y + 16}
               textAnchor="middle"
               fontSize="9"
-              fill="var(--ink-2)"
+              fill="#44403c"
               fontFamily="Inter Tight"
             >
               {label}
             </text>
           </g>
         ))}
-        <circle cx="120" cy="80" r="14" fill="var(--brand)" />
+        <circle cx="120" cy="80" r="14" fill="#0f766e" />
         <text
           x="120"
           y="84"
@@ -109,28 +72,19 @@ function StepMock2() {
 }
 
 function StepMock3() {
-  const bars: [string, string, string, string, number][] = [
-    ['追加', 'var(--added)', 'var(--added-bg)', 'var(--added-bd)', 70],
-    ['修正', 'var(--modified)', 'var(--modified-bg)', 'var(--modified-bd)', 90],
-    ['リファクタ', 'var(--refactor)', 'var(--refactor-bg)', 'var(--refactor-bd)', 45],
-    ['削除', 'var(--removed)', 'var(--removed-bg)', 'var(--removed-bd)', 30],
+  const bars: [string, string, string, number][] = [
+    ['追加', 'bg-green-100 border-green-300', 'bg-green-600', 70],
+    ['修正', 'bg-amber-100 border-amber-300', 'bg-amber-600', 90],
+    ['リファクタ', 'bg-violet-100 border-violet-300', 'bg-violet-600', 45],
+    ['削除', 'bg-red-100 border-red-300', 'bg-red-600', 30],
   ]
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
-      {bars.map(([lbl, c, bg, bd, w]) => (
-        <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 64, fontSize: 11, color: 'var(--ink-2)' }}>{lbl}</span>
-          <div
-            style={{
-              flex: 1,
-              height: 10,
-              background: bg,
-              border: `1px solid ${bd}`,
-              borderRadius: 99,
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ width: `${w}%`, height: '100%', background: c, opacity: 0.85 }} />
+    <div className="flex w-full flex-col gap-1.5">
+      {bars.map(([lbl, track, fill, w]) => (
+        <div key={lbl} className="flex items-center gap-2">
+          <span className="w-16 text-[11px] text-stone-700">{lbl}</span>
+          <div className={`h-2.5 flex-1 overflow-hidden rounded-full border ${track}`}>
+            <div className={`h-full opacity-85 ${fill}`} style={{ width: `${w}%` }} />
           </div>
         </div>
       ))}
@@ -165,71 +119,34 @@ export default function HowItWorks() {
   return (
     <section
       id="how"
-      style={{
-        padding: 'clamp(72px, 10vw, 112px) 0',
-        borderBottom: '1px solid var(--line)',
-        background: 'linear-gradient(180deg, var(--bg) 0%, white 100%)',
-      }}
+      className="border-b border-stone-200 bg-linear-to-b from-stone-50 to-white py-[clamp(72px,10vw,112px)]"
     >
-      <div className="wrap">
+      <Wrap>
         <SectionHead
           eyebrow="How it works"
           title="3 ステップで、PR を構造化。"
           lead="バックエンドが Go AST を解析し、フロントが xyflow でレンダリング。"
         />
-        <div className="grid-3" style={{ marginTop: 56 }}>
+        <div className="mt-14 grid grid-cols-1 gap-5 lg:grid-cols-3">
           {STEPS.map((s) => (
             <div
               key={s.n}
-              style={{
-                background: 'white',
-                border: '1px solid var(--line)',
-                borderRadius: 16,
-                padding: 24,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16,
-                minHeight: 380,
-              }}
+              className="flex min-h-[380px] flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-6"
             >
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-                <span
-                  className="mono"
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--brand)',
-                    letterSpacing: '0.06em',
-                    flexShrink: 0,
-                  }}
-                >
+              <div className="flex items-baseline gap-3">
+                <span className="shrink-0 font-mono text-[11px] tracking-[0.06em] text-teal-700">
                   {s.n}
                 </span>
-                <h3 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.015em', margin: 0 }}>
-                  {s.title}
-                </h3>
+                <h3 className="m-0 text-[19px] font-semibold tracking-[-0.015em]">{s.title}</h3>
               </div>
-              <p style={{ fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.6, margin: 0 }}>
-                {s.desc}
-              </p>
-              <div
-                style={{
-                  marginTop: 'auto',
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'var(--bg-alt)',
-                  border: '1px solid var(--line)',
-                  borderRadius: 12,
-                  padding: 16,
-                }}
-              >
+              <p className="m-0 text-[13.5px] leading-relaxed text-stone-700">{s.desc}</p>
+              <div className="mt-auto flex flex-1 items-center justify-center rounded-xl border border-stone-200 bg-stone-100 p-4">
                 {s.mock}
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </Wrap>
     </section>
   )
 }

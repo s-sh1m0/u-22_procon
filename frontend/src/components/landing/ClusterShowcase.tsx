@@ -1,51 +1,47 @@
+import Wrap from './Wrap'
 import SectionHead from './SectionHead'
 
 type Cluster = {
   label: string
   desc: string
-  c: string
-  bg: string
-  bd: string
   icon: string
   n: number
+  bar: string
+  iconBox: string
 }
 
 const CLUSTERS: Cluster[] = [
   {
     label: '追加',
     desc: '新規モジュール',
-    c: 'var(--added)',
-    bg: 'var(--added-bg)',
-    bd: 'var(--added-bd)',
     icon: '+',
     n: 11,
+    bar: 'bg-green-600',
+    iconBox: 'bg-green-100 border-green-300 text-green-600',
   },
   {
     label: '削除',
     desc: '削除されたモジュール',
-    c: 'var(--removed)',
-    bg: 'var(--removed-bg)',
-    bd: 'var(--removed-bd)',
     icon: '−',
     n: 4,
+    bar: 'bg-red-600',
+    iconBox: 'bg-red-100 border-red-300 text-red-600',
   },
   {
     label: '修正',
     desc: 'ロジック変更を含む',
-    c: 'var(--modified)',
-    bg: 'var(--modified-bg)',
-    bd: 'var(--modified-bd)',
     icon: '~',
     n: 13,
+    bar: 'bg-amber-600',
+    iconBox: 'bg-amber-100 border-amber-300 text-amber-600',
   },
   {
     label: 'リファクタ',
     desc: '振る舞い保存・構造変更',
-    c: 'var(--refactor)',
-    bg: 'var(--refactor-bg)',
-    bd: 'var(--refactor-bd)',
     icon: '↻',
     n: 6,
+    bar: 'bg-violet-600',
+    iconBox: 'bg-violet-100 border-violet-300 text-violet-600',
   },
 ]
 
@@ -53,72 +49,37 @@ export default function ClusterShowcase() {
   return (
     <section
       id="showcase"
-      style={{ padding: 'clamp(72px, 10vw, 112px) 0 88px', borderBottom: '1px solid var(--line)' }}
+      className="border-b border-stone-200 py-[clamp(72px,10vw,112px)] pb-[88px]"
     >
-      <div className="wrap">
+      <Wrap>
         <SectionHead
           eyebrow="4-way auto cluster"
           title="変更の種類で、自動的に4つに分ける。"
           lead="ファイル名やパスではなく、AST と呼び出しグラフから「変更の意味」を抽出。レビュアーは色とまとまりで読み進められます。"
         />
-        <div className="grid-4" style={{ marginTop: 48 }}>
+        <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {CLUSTERS.map((k) => (
             <div
               key={k.label}
-              style={{
-                background: 'white',
-                border: '1px solid var(--line)',
-                borderRadius: 14,
-                padding: 22,
-                position: 'relative',
-                overflow: 'hidden',
-              }}
+              className="relative overflow-hidden rounded-[14px] border border-stone-200 bg-white p-[22px]"
             >
-              <div
-                style={{ position: 'absolute', inset: '0 auto 0 0', width: 3, background: k.c }}
-              />
-              <div
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-              >
+              <div className={`absolute inset-y-0 left-0 w-[3px] ${k.bar}`} />
+              <div className="flex items-center justify-between">
                 <div
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 10,
-                    background: k.bg,
-                    border: `1px solid ${k.bd}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: k.c,
-                    fontWeight: 600,
-                    fontSize: 18,
-                  }}
+                  className={`flex size-[38px] items-center justify-center rounded-[10px] border text-lg font-semibold ${k.iconBox}`}
                 >
                   {k.icon}
                 </div>
-                <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                  n={k.n}
-                </div>
+                <div className="font-mono text-[11px] text-stone-500">n={k.n}</div>
               </div>
-              <div
-                style={{
-                  fontSize: 16,
-                  fontWeight: 600,
-                  color: 'var(--ink)',
-                  marginTop: 16,
-                  letterSpacing: '-0.01em',
-                }}
-              >
+              <div className="mt-4 text-base font-semibold tracking-[-0.01em] text-stone-900">
                 {k.label}
               </div>
-              <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, lineHeight: 1.5 }}>
-                {k.desc}
-              </div>
+              <div className="mt-1 text-[13px] leading-normal text-stone-500">{k.desc}</div>
             </div>
           ))}
         </div>
-      </div>
+      </Wrap>
     </section>
   )
 }

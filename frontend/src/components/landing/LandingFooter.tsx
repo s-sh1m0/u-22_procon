@@ -1,6 +1,7 @@
 import Brand from '@/components/branding/Brand'
+import { Button } from '@/components/ui/button'
+import Wrap from './Wrap'
 import { GitHubGlyph } from './glyphs'
-import { btn, btnGhost } from './styles'
 
 const REPO_URL = 'https://github.com/s-sh1m0/u-22_procon'
 
@@ -38,73 +39,37 @@ const COLS: Col[] = [
   },
 ]
 
-const linkStyle = { fontSize: 13, color: 'var(--ink-3)', textDecoration: 'none' } as const
-
 function FooterLink({ link }: { link: Link }) {
   if (link.href) {
     return (
-      <a href={link.href} style={{ ...linkStyle, cursor: 'pointer' }}>
+      <a href={link.href} className="text-[13px] text-stone-500 hover:text-stone-700">
         {link.label}
       </a>
     )
   }
-  return <span style={{ ...linkStyle, cursor: 'default' }}>{link.label}</span>
+  return <span className="text-[13px] text-stone-500">{link.label}</span>
 }
 
 export default function LandingFooter() {
   return (
-    <footer
-      style={{ padding: '72px 0 40px', background: 'white', borderTop: '1px solid var(--line)' }}
-    >
-      <div className="wrap footer-grid">
+    <footer className="border-t border-stone-200 bg-white pt-18 pb-10">
+      <Wrap className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_repeat(3,1fr)] lg:gap-12">
         <div>
           <Brand size={16} />
-          <p
-            style={{
-              fontSize: 13,
-              color: 'var(--ink-3)',
-              margin: '14px 0 20px',
-              lineHeight: 1.6,
-              maxWidth: 280,
-            }}
-          >
+          <p className="my-3.5 mb-5 max-w-[280px] text-[13px] leading-relaxed text-stone-500">
             PR を変更行ではなく依存グラフとして読むためのレビュー支援ツール。
           </p>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <a
-              href={REPO_URL}
-              target="_blank"
-              rel="noreferrer"
-              style={{ ...btnGhost, ...btn, height: 32, padding: '0 12px', fontSize: 12 }}
-            >
+          <Button asChild variant="outline" size="sm" className="border-stone-300 text-stone-900">
+            <a href={REPO_URL} target="_blank" rel="noreferrer">
               <GitHubGlyph size={12} />
               GitHub
             </a>
-          </div>
+          </Button>
         </div>
         {COLS.map((c) => (
           <div key={c.title}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: 'var(--ink-2)',
-                marginBottom: 12,
-                letterSpacing: '-0.005em',
-              }}
-            >
-              {c.title}
-            </div>
-            <ul
-              style={{
-                listStyle: 'none',
-                padding: 0,
-                margin: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-              }}
-            >
+            <div className="mb-3 text-xs font-semibold text-stone-700">{c.title}</div>
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
               {c.links.map((l) => (
                 <li key={l.label}>
                   <FooterLink link={l} />
@@ -113,24 +78,11 @@ export default function LandingFooter() {
             </ul>
           </div>
         ))}
-      </div>
-      <div
-        className="wrap"
-        style={{
-          marginTop: 56,
-          paddingTop: 24,
-          borderTop: '1px solid var(--line)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          fontSize: 12,
-          color: 'var(--ink-3)',
-        }}
-      >
+      </Wrap>
+      <Wrap className="mt-14 flex flex-wrap justify-between gap-3 border-t border-stone-200 pt-6 text-xs text-stone-500">
         <span>© 2026 diffmap. — u-22 プログラミングコンテスト</span>
-        <span className="mono">v0.4.2-beta</span>
-      </div>
+        <span className="font-mono">v0.4.2-beta</span>
+      </Wrap>
     </footer>
   )
 }

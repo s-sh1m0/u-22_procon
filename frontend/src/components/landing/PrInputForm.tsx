@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { parsePrUrl } from '@/lib/prUrl'
 import { useAnalyzeMutation } from '@/hooks/useAnalysis'
 import { ApiError } from '@/lib/api'
 import { CheckGlyph, GitHubGlyph } from './glyphs'
-import { btn, btnInk } from './styles'
 
 /**
  * Logged-in hero CTA: a real PR URL form wired to the analyze mutation.
@@ -33,69 +35,31 @@ export default function PrInputForm() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 560 }}>
-      <div
-        style={{
-          background: 'white',
-          border: '1px solid var(--line)',
-          borderRadius: 14,
-          padding: 18,
-          boxShadow: '0 1px 2px rgba(0,0,0,0.02), 0 8px 28px rgba(15,118,110,0.06)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 8,
-          }}
-        >
+    <div className="flex max-w-[560px] flex-col gap-3.5">
+      <div className="rounded-[14px] border border-stone-200 bg-white p-[18px] shadow-[0_1px_2px_rgba(0,0,0,0.02),0_8px_28px_rgba(15,118,110,0.06)]">
+        <div className="mb-2 flex items-center justify-between">
           <label
-            className="mono"
             htmlFor="pr-url"
-            style={{
-              fontSize: 11,
-              color: 'var(--ink-3)',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-            }}
+            className="font-mono text-[11px] uppercase tracking-[0.04em] text-stone-500"
           >
             Step 1 / 2 · PR URL
           </label>
           {valid && (
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                fontSize: 11,
-                color: 'var(--added)',
-                fontWeight: 500,
-              }}
-            >
-              <CheckGlyph color="var(--added)" /> 有効な URL
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-600">
+              <CheckGlyph className="text-green-600" /> 有効な URL
             </span>
           )}
         </div>
         <form onSubmit={handleSubmit}>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="flex gap-2">
             <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                border: `1.5px solid ${valid ? 'var(--brand)' : 'var(--line-strong)'}`,
-                borderRadius: 10,
-                padding: '12px 14px',
-                background: 'var(--bg)',
-                transition: 'border-color 100ms ease, box-shadow 100ms ease',
-                boxShadow: valid ? '0 0 0 4px rgba(15,118,110,0.08)' : 'none',
-              }}
+              className={cn(
+                'flex flex-1 items-center gap-2.5 rounded-lg border-[1.5px] bg-stone-50 px-3.5 py-3 transition-[border-color,box-shadow]',
+                valid ? 'border-teal-700 ring-4 ring-teal-700/10' : 'border-stone-300',
+              )}
             >
-              <GitHubGlyph size={15} color="var(--ink-3)" />
-              <input
+              <GitHubGlyph size={15} className="text-stone-500" />
+              <Input
                 id="pr-url"
                 value={url}
                 onChange={(e) => {
@@ -103,75 +67,36 @@ export default function PrInputForm() {
                   setSubmitError(null)
                 }}
                 placeholder="https://github.com/owner/repo/pull/123"
-                className="mono"
-                style={{
-                  flex: 1,
-                  border: 'none',
-                  outline: 'none',
-                  fontSize: 13,
-                  color: 'var(--ink)',
-                  background: 'transparent',
-                }}
+                className="h-auto border-0 bg-transparent p-0 font-mono text-[13px] text-stone-900 shadow-none focus-visible:ring-0"
               />
             </div>
-            <button
+            <Button
               type="submit"
               disabled={!valid || mutation.isPending}
-              style={{
-                ...btn,
-                ...btnInk,
-                height: 48,
-                padding: '0 18px',
-                fontSize: 14,
-                opacity: valid && !mutation.isPending ? 1 : 0.45,
-                cursor: valid && !mutation.isPending ? 'pointer' : 'not-allowed',
-              }}
+              className="h-12 bg-stone-900 px-[18px] text-sm text-white hover:bg-stone-800"
             >
               {mutation.isPending ? '送信中…' : '解析を開始 →'}
-            </button>
+            </Button>
           </div>
+
           {!empty && !valid && (
-            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--removed)' }}>
+            <div className="mt-2.5 text-xs text-red-600">
               有効な GitHub PR URL を入力してください
             </div>
           )}
           {submitError && (
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: 12,
-                color: 'var(--removed)',
-                background: 'var(--removed-bg)',
-                border: '1px solid var(--removed-bd)',
-                borderRadius: 8,
-                padding: '8px 12px',
-              }}
-            >
+            <div className="mt-2.5 rounded-lg border border-red-300 bg-red-100 px-3 py-2 text-xs text-red-600">
               {submitError}
             </div>
           )}
           {valid && parsed && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: '10px 14px',
-                background: 'var(--bg-alt)',
-                borderRadius: 8,
-                fontSize: 12,
-                color: 'var(--ink-2)',
-                display: 'grid',
-                gridTemplateColumns: 'auto 1fr',
-                gap: '4px 16px',
-              }}
-            >
-              <span style={{ color: 'var(--ink-3)' }}>リポジトリ</span>
-              <span className="mono" style={{ textAlign: 'right' }}>
+            <div className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg bg-stone-100 px-3.5 py-2.5 text-xs text-stone-700">
+              <span className="text-stone-500">リポジトリ</span>
+              <span className="text-right font-mono">
                 {parsed.owner}/{parsed.repo}
               </span>
-              <span style={{ color: 'var(--ink-3)' }}>PR</span>
-              <span className="mono" style={{ textAlign: 'right' }}>
-                #{parsed.number}
-              </span>
+              <span className="text-stone-500">PR</span>
+              <span className="text-right font-mono">#{parsed.number}</span>
             </div>
           )}
         </form>

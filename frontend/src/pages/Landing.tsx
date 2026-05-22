@@ -6,13 +6,12 @@ import HowItWorks from '@/components/landing/HowItWorks'
 import FeatureGrid from '@/components/landing/FeatureGrid'
 import CtaStrip from '@/components/landing/CtaStrip'
 import LandingFooter from '@/components/landing/LandingFooter'
-import '@/components/landing/landing.css'
 
 export default function Landing() {
   const { user, isAuthenticated } = useAuth()
 
   return (
-    <div className="landing-root" id="top">
+    <div id="top" className="min-h-svh bg-stone-50 text-stone-900">
       <LandingNav isAuthenticated={isAuthenticated} login={user?.login} />
       <LandingHero isAuthenticated={isAuthenticated} />
       <ClusterShowcase />

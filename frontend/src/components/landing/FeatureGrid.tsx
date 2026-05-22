@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react'
+import Wrap from './Wrap'
 import SectionHead from './SectionHead'
 
 function FeatureArt1() {
   return (
-    <svg viewBox="0 0 200 120" style={{ width: '100%', height: '100%' }} aria-hidden="true">
+    <svg viewBox="0 0 200 120" className="h-full w-full" aria-hidden="true">
       <circle
         cx="100"
         cy="60"
         r="50"
         fill="none"
-        stroke="var(--brand-light)"
+        stroke="#5eead4"
         strokeWidth="1"
         strokeDasharray="2 3"
         opacity="0.6"
@@ -19,12 +20,12 @@ function FeatureArt1() {
         cy="60"
         r="32"
         fill="none"
-        stroke="var(--brand-light)"
+        stroke="#5eead4"
         strokeWidth="1"
         strokeDasharray="2 3"
         opacity="0.8"
       />
-      <circle cx="100" cy="60" r="14" fill="var(--brand)" />
+      <circle cx="100" cy="60" r="14" fill="#0f766e" />
       <text
         x="100"
         y="64"
@@ -41,7 +42,7 @@ function FeatureArt1() {
         y="22"
         textAnchor="middle"
         fontSize="9"
-        fill="var(--brand)"
+        fill="#0f766e"
         fontFamily="JetBrains Mono"
       >
         1 hop
@@ -51,7 +52,7 @@ function FeatureArt1() {
         y="6"
         textAnchor="middle"
         fontSize="9"
-        fill="var(--brand)"
+        fill="#0f766e"
         fontFamily="JetBrains Mono"
         opacity="0.7"
       >
@@ -63,36 +64,15 @@ function FeatureArt1() {
 
 function FeatureArt2() {
   return (
-    <div className="mono" style={{ fontSize: 10, color: 'var(--ink-2)', width: '100%' }}>
-      <div
-        style={{
-          background: 'white',
-          borderRadius: 6,
-          border: '1px solid var(--line)',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            padding: '4px 8px',
-            borderBottom: '1px solid var(--line)',
-            color: 'var(--ink-3)',
-          }}
-        >
-          PaymentService.go
-        </div>
-        <div style={{ padding: '4px 8px', background: 'var(--added-bg)', color: 'var(--added)' }}>
+    <div className="w-full font-mono text-[10px] text-stone-700">
+      <div className="overflow-hidden rounded-md border border-stone-200 bg-white">
+        <div className="border-b border-stone-200 px-2 py-1 text-stone-500">PaymentService.go</div>
+        <div className="bg-green-100 px-2 py-1 text-green-600">
           + func (s *PaymentService) Charge(...
         </div>
-        <div style={{ padding: '4px 8px', color: 'var(--ink-2)' }}>
-          &nbsp;&nbsp;return s.adapter.Process(...)
-        </div>
-        <div
-          style={{ padding: '4px 8px', background: 'var(--removed-bg)', color: 'var(--removed)' }}
-        >
-          − func (s *PaymentService) Pay(...
-        </div>
-        <div style={{ padding: '4px 8px', color: 'var(--ink-2)' }}>{'}'}</div>
+        <div className="px-2 py-1 text-stone-700">&nbsp;&nbsp;return s.adapter.Process(...)</div>
+        <div className="bg-red-100 px-2 py-1 text-red-600">− func (s *PaymentService) Pay(...</div>
+        <div className="px-2 py-1 text-stone-700">{'}'}</div>
       </div>
     </div>
   )
@@ -100,17 +80,17 @@ function FeatureArt2() {
 
 function FeatureArt3() {
   return (
-    <svg viewBox="0 0 200 120" style={{ width: '100%', height: '100%' }} aria-hidden="true">
-      <rect x="20" y="20" width="100" height="80" rx="8" fill="white" stroke="var(--line-strong)" />
-      <text x="30" y="38" fontSize="9" fill="var(--ink-3)" fontFamily="JetBrains Mono">
+    <svg viewBox="0 0 200 120" className="h-full w-full" aria-hidden="true">
+      <rect x="20" y="20" width="100" height="80" rx="8" fill="white" stroke="#d6d3d1" />
+      <text x="30" y="38" fontSize="9" fill="#78716c" fontFamily="JetBrains Mono">
         func Charge()
       </text>
-      <rect x="30" y="46" width="80" height="2" fill="var(--ink-3)" opacity="0.2" />
-      <rect x="30" y="52" width="60" height="2" fill="var(--ink-3)" opacity="0.2" />
-      <rect x="30" y="58" width="70" height="2" fill="var(--ink-3)" opacity="0.2" />
-      <path d="M120 60 L150 40" stroke="var(--brand)" strokeWidth="1.5" />
+      <rect x="30" y="46" width="80" height="2" fill="#78716c" opacity="0.2" />
+      <rect x="30" y="52" width="60" height="2" fill="#78716c" opacity="0.2" />
+      <rect x="30" y="58" width="70" height="2" fill="#78716c" opacity="0.2" />
+      <path d="M120 60 L150 40" stroke="#0f766e" strokeWidth="1.5" />
       <g>
-        <rect x="140" y="20" width="50" height="36" rx="8" fill="var(--brand)" />
+        <rect x="140" y="20" width="50" height="36" rx="8" fill="#0f766e" />
         <circle cx="151" cy="32" r="3" fill="white" />
         <rect x="158" y="30" width="22" height="2" fill="white" opacity="0.7" />
         <rect x="158" y="34" width="18" height="2" fill="white" opacity="0.7" />
@@ -145,54 +125,28 @@ const FEATURES: Feature[] = [
 
 export default function FeatureGrid() {
   return (
-    <section
-      id="features"
-      style={{ padding: 'clamp(72px, 10vw, 112px) 0', borderBottom: '1px solid var(--line)' }}
-    >
-      <div className="wrap">
+    <section id="features" className="border-b border-stone-200 py-[clamp(72px,10vw,112px)]">
+      <Wrap>
         <SectionHead
           eyebrow="Features"
           title="グラフだけじゃない。"
           lead="解析の仕方そのものを設計し直したから、レビューの一歩一歩が短くなります。"
         />
-        <div className="grid-3" style={{ marginTop: 48 }}>
+        <div className="mt-12 grid grid-cols-1 gap-5 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <div
               key={f.title}
-              style={{
-                background: 'white',
-                border: '1px solid var(--line)',
-                borderRadius: 16,
-                padding: 24,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16,
-              }}
+              className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-6"
             >
-              <div
-                style={{
-                  height: 140,
-                  background: 'var(--brand-tint)',
-                  border: '1px solid #ccfbf1',
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 16,
-                }}
-              >
+              <div className="flex h-[140px] items-center justify-center rounded-[10px] border border-teal-100 bg-teal-50 p-4">
                 {f.art}
               </div>
-              <h3 style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.015em', margin: 0 }}>
-                {f.title}
-              </h3>
-              <p style={{ fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.6, margin: 0 }}>
-                {f.desc}
-              </p>
+              <h3 className="m-0 text-[18px] font-semibold tracking-[-0.015em]">{f.title}</h3>
+              <p className="m-0 text-[13.5px] leading-relaxed text-stone-700">{f.desc}</p>
             </div>
           ))}
         </div>
-      </div>
+      </Wrap>
     </section>
   )
 }

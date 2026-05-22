@@ -1,45 +1,35 @@
+import { Button } from '@/components/ui/button'
 import { CheckGlyph, GitHubGlyph } from './glyphs'
-import { btn, btnGhost, btnInk } from './styles'
 
 export default function GuestCta() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start' }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <a
-          href="/auth/github"
-          style={{
-            ...btn,
-            ...btnInk,
-            height: 52,
-            padding: '0 22px',
-            fontSize: 15,
-            boxShadow: '0 4px 14px rgba(28,25,23,0.18), inset 0 1px 0 rgba(255,255,255,0.08)',
-          }}
+    <div className="flex flex-col items-start gap-3.5">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <Button
+          asChild
+          className="h-13 gap-2 bg-stone-900 px-[22px] text-[15px] text-white shadow-[0_4px_14px_rgba(28,25,23,0.18),inset_0_1px_0_rgba(255,255,255,0.08)] hover:bg-stone-800"
         >
-          <GitHubGlyph size={16} />
-          GitHub で始める
-          <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>
-        </a>
-        <a href="#how" style={{ ...btn, ...btnGhost, height: 52, padding: '0 22px', fontSize: 15 }}>
-          デモを見る
-        </a>
+          <a href="/auth/github">
+            <GitHubGlyph size={16} />
+            GitHub で始める
+            <span className="ml-1 opacity-50">→</span>
+          </a>
+        </Button>
+        <Button
+          asChild
+          variant="outline"
+          className="h-13 border-stone-300 px-[22px] text-[15px] text-stone-900"
+        >
+          <a href="#how">デモを見る</a>
+        </Button>
       </div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 14,
-          fontSize: 12,
-          color: 'var(--ink-3)',
-          flexWrap: 'wrap',
-        }}
-      >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <CheckGlyph color="var(--added)" />
+      <div className="flex flex-wrap items-center gap-3.5 text-xs text-stone-500">
+        <span className="inline-flex items-center gap-1.5">
+          <CheckGlyph className="text-green-600" />
           無料で使い始められる
         </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <CheckGlyph color="var(--added)" />
+        <span className="inline-flex items-center gap-1.5">
+          <CheckGlyph className="text-green-600" />
           パブリックリポジトリのみ要求
         </span>
       </div>
