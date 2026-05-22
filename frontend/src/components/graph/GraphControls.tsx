@@ -8,6 +8,9 @@ type Props = {
   onFitChanged: () => void
   onExpandAll: () => void
   onCollapseAll: () => void
+  blastMode: boolean
+  onToggleBlast: () => void
+  blastDisabled: boolean
 }
 
 const CLUSTER_MODES: { value: ClusterMode; label: string }[] = [
@@ -22,6 +25,9 @@ export default function GraphControls({
   onFitChanged,
   onExpandAll,
   onCollapseAll,
+  blastMode,
+  onToggleBlast,
+  blastDisabled,
 }: Props) {
   return (
     <Card className="shadow-md border-stone-200 bg-white">
@@ -58,6 +64,16 @@ export default function GraphControls({
         </div>
         <Button variant="outline" size="sm" className="h-7 w-full text-xs" onClick={onFitChanged}>
           変更ノードに寄せる
+        </Button>
+        <Button
+          variant={blastMode ? 'default' : 'outline'}
+          size="sm"
+          className="h-7 w-full text-xs"
+          disabled={blastDisabled}
+          onClick={onToggleBlast}
+          title="変更ノードから波及する影響範囲（上流/下流）をハイライト"
+        >
+          影響範囲{blastMode ? ' ON' : ''}
         </Button>
       </CardContent>
     </Card>
