@@ -54,7 +54,7 @@ export default function PrInputForm() {
           <div className="flex gap-2">
             <div
               className={cn(
-                'flex flex-1 items-center gap-2.5 rounded-lg border-[1.5px] bg-stone-50 px-3.5 py-3 transition-[border-color,box-shadow]',
+                'flex flex-1 items-center gap-2.5 rounded-lg border-[1.5px] bg-stone-50 px-3.5 py-3 transition-[border-color,box-shadow] focus-within:border-teal-700 focus-within:ring-4 focus-within:ring-teal-700/10',
                 valid ? 'border-teal-700 ring-4 ring-teal-700/10' : 'border-stone-300',
               )}
             >
