@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>diffmap. — A4·4 production set</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafaf9;
+    --bg2: #f5f5f4;
+    --line: #e7e5e4;
+    --line2: #d6d3d1;
+    --ink: #1c1917;
+    --ink2: #44403c;
+    --ink3: #78716c;
+    --teal: #0f766e;
+    --teal-deep: #0d5e57;
+    --teal-tint: #ccfbf1;
+    --teal-light: #5eead4;
+    --teal-bg: #f0fdfa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Inter Tight', system-ui, sans-serif; }
+  body { padding: 56px 64px 96px; }
+  h1, h2, h3 { letter-spacing: -0.02em; }
+  h1 { font-size: 32px; font-weight: 600; margin: 0 0 10px; }
+  h2 { font-size: 18px; font-weight: 600; margin: 0; }
+  h3 { font-size: 14px; font-weight: 600; margin: 0; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--bg2); padding: 1px 6px; border-radius: 4px; color: var(--ink2); }
+
+  header { max-width: 720px; margin-bottom: 64px; }
+  header p { color: var(--ink3); font-size: 14px; line-height: 1.7; margin: 0; }
+  .section { margin-bottom: 80px; }
+  .section-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 28px; }
+  .section-head h2 { letter-spacing: -0.01em; }
+  .section-head .num { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 3px 9px; background: var(--ink); color: var(--bg); border-radius: 99px; letter-spacing: 0.06em; }
+  .section-head p { font-size: 13px; color: var(--ink3); margin: 0; max-width: 520px; }
+  .section-head::after { content: ''; flex: 1; height: 1px; background: var(--line); align-self: center; }
+
+  /* HERO */
+  .hero { display: grid; grid-template-columns: 1.2fr 1fr; gap: 48px; align-items: center; padding: 56px 48px; background: linear-gradient(180deg, white 0%, var(--bg2) 100%); border: 1px solid var(--line); border-radius: 28px; }
+  .hero-mark { display: flex; align-items: center; justify-content: center; }
+  .hero-mark svg { width: 100%; max-width: 320px; aspect-ratio: 1/1; filter: drop-shadow(0 24px 48px rgba(15,118,110,0.18)) drop-shadow(0 4px 8px rgba(28,25,23,0.08)); border-radius: 22%; }
+  .hero-info .lockup { display: flex; align-items: baseline; gap: 16px; margin-bottom: 24px; }
+  .hero-info .lockup svg { width: 56px; height: 56px; border-radius: 22%; }
+  .hero-info .lockup .name { font-size: 36px; font-weight: 600; letter-spacing: -0.03em; }
+  .hero-info .tagline { font-size: 15px; color: var(--ink2); line-height: 1.7; margin: 0 0 24px; max-width: 380px; }
+  .hero-info .specs { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 12px; }
+  .hero-info .specs dt { color: var(--ink3); font-family: 'JetBrains Mono', monospace; }
+  .hero-info .specs dd { margin: 0; color: var(--ink2); }
+
+  /* CARDS */
+  .grid { display: grid; gap: 20px; }
+  .grid.c4 { grid-template-columns: repeat(4, 1fr); }
+  .grid.c3 { grid-template-columns: repeat(3, 1fr); }
+  .grid.c6 { grid-template-columns: repeat(6, 1fr); }
+  .stage { background: white; border: 1px solid var(--line); border-radius: 22px; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; padding: 22px; position: relative; overflow: hidden; }
+  .stage.dark { background: var(--ink); border-color: var(--ink); }
+  .stage.teal { background: var(--teal); border-color: var(--teal); }
+  .stage.tint { background: var(--teal-bg); border-color: var(--teal-tint); }
+  .stage svg { width: 100%; height: 100%; max-width: 200px; }
+  .stage .badge { position: absolute; top: 12px; left: 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ink3); letter-spacing: 0.04em; }
+  .stage.dark .badge, .stage.teal .badge { color: rgba(255,255,255,0.6); }
+
+  .meta { padding: 12px 2px 0; }
+  .meta .label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ink3); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; }
+  .meta .name { font-size: 13px; font-weight: 500; }
+  .meta .desc { font-size: 11px; color: var(--ink3); margin-top: 3px; line-height: 1.5; }
+
+  /* Corner radius row */
+  .radius-row { display: flex; gap: 20px; align-items: flex-end; }
+  .radius-row .item { flex: 1; }
+  .radius-row .icon-wrap { aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; }
+  .radius-row svg.app { width: 100%; aspect-ratio: 1/1; box-shadow: 0 8px 24px rgba(15,118,110,0.18), 0 2px 4px rgba(28,25,23,0.08); }
+
+  /* Favicon strip */
+  .fav-strip { display: flex; align-items: flex-end; gap: 32px; padding: 36px; background: white; border: 1px solid var(--line); border-radius: 18px; }
+  .fav-item { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .fav-item svg { display: block; image-rendering: -webkit-optimize-contrast; }
+  .fav-item .px { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ink3); }
+
+  /* OG mockup */
+  .og {
+    width: 100%; aspect-ratio: 1200/630;
+    background: var(--ink);
+    border-radius: 18px; overflow: hidden;
+    position: relative; padding: 64px 72px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    color: white;
+    background-image:
+      radial-gradient(120% 100% at 100% 0%, rgba(15,118,110,0.45) 0%, transparent 55%),
+      radial-gradient(80% 60% at 0% 100%, rgba(94,234,212,0.12) 0%, transparent 60%);
+  }
+  .og::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(120% 80% at 30% 50%, black 0%, transparent 70%);
+  }
+  .og-top { display: flex; align-items: center; gap: 18px; position: relative; }
+  .og-top svg { width: 72px; height: 72px; border-radius: 22%; flex-shrink: 0; }
+  .og-top .brand { font-size: 36px; font-weight: 600; letter-spacing: -0.025em; }
+  .og-main { position: relative; }
+  .og-main h2 { font-size: 64px; font-weight: 600; letter-spacing: -0.035em; line-height: 1.04; max-width: 720px; }
+  .og-main h2 .accent { color: var(--teal-light); }
+  .og-main p { margin: 20px 0 0; font-size: 18px; color: rgba(255,255,255,0.65); max-width: 560px; line-height: 1.5; }
+  .og-foot { display: flex; justify-content: space-between; align-items: flex-end; position: relative; }
+  .og-foot .url { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: rgba(255,255,255,0.5); }
+  .og-foot .chips { display: flex; gap: 8px; }
+  .og-foot .chip { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 5px 10px; border-radius: 99px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.85); }
+
+  /* Spec line */
+  .construct { background: white; border: 1px solid var(--line); border-radius: 22px; padding: 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 36px; align-items: center; }
+  .construct .left svg { width: 100%; max-width: 360px; aspect-ratio: 1/1; }
+  .construct h3 { margin-bottom: 12px; }
+  .construct ul { padding-left: 18px; margin: 0; color: var(--ink2); font-size: 13px; line-height: 1.8; }
+  .construct ul li::marker { color: var(--ink3); }
+  .construct ul code { font-size: 11px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>A4·4 — production set</h1>
+    <p><strong>Big cluster + 1 change</strong> をベースに、ジオメトリを整え、角丸 / グラデ / 背景色 / ファビコン / OG画像 まで展開。</p>
+  </header>
+
+  <!-- HERO -->
+  <section class="section">
+    <div class="hero">
+      <div class="hero-mark">
+        <svg viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg" id="hero-svg"></svg>
+      </div>
+      <div class="hero-info">
+        <div class="lockup">
+          <svg viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg" id="lockup-svg"></svg>
+          <span class="name">diffmap<span style="color: var(--teal);">.</span></span>
+        </div>
+        <p class="tagline">既存モジュール群（cluster）に対し、PR がもたらす <em>1 つの変更</em> が伸びていく — その関係をそのまま記号化したアイコン。</p>
+        <dl class="specs">
+          <dt>viewBox</dt><dd>192 × 192</dd>
+          <dt>safe area</dt><dd>168 × 168 (12px inset)</dd>
+          <dt>stroke</dt><dd>8 / 9 / 12</dd>
+          <dt>nodes</dt><dd>r=11 / r=16 (accent)</dd>
+          <dt>palette</dt><dd>ink <code>#1c1917</code> + teal <code>#0f766e</code></dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1. Refined geometry -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">01</span>
+      <h2>Refined geometry</h2>
+      <p>元案からクラスタ配置を整え、accent ノードの重心をビジュアル中央に寄せた。</p>
+    </div>
+    <div class="construct">
+      <div class="left">
+        <svg viewBox="0 0 192 192" id="construct-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="right">
+        <h3>調整点</h3>
+        <ul>
+          <li>5 ノードの cluster を <code>x=42..98</code> の範囲に圧縮、視覚的に「塊」に</li>
+          <li>accent ノードは <code>(146, 96)</code> 配置。<code>r=16</code> で他より一回り大きく主役化</li>
+          <li>橋渡しエッジは <code>stroke-width=10</code>。クラスタ内エッジは <code>8</code> に落とし、accent 線を強調</li>
+          <li>safe area は四辺 12px。iOS/Android のアダプティブマスクに耐える</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Color treatments -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">02</span>
+      <h2>Color treatments</h2>
+      <p>4 種類の背景・配色。それぞれ用途を想定。</p>
+    </div>
+    <div class="grid c4" id="treatments"></div>
+  </section>
+
+  <!-- 3. Gradient study -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">03</span>
+      <h2>Gradient study</h2>
+      <p>flat / subtle / duotone。アプリアイコンは subtle 推奨。</p>
+    </div>
+    <div class="grid c3" id="gradients"></div>
+  </section>
+
+  <!-- 4. Corner radius -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">04</span>
+      <h2>Corner radius</h2>
+      <p>OS マスクに応じた角丸。iOS 22% / Android adaptive / square。</p>
+    </div>
+    <div class="radius-row" id="radii"></div>
+  </section>
+
+  <!-- 5. Favicon scales -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">05</span>
+      <h2>Favicon scales</h2>
+      <p>小サイズでの可読性。16px でもクラスタと accent が判別できる。</p>
+    </div>
+    <div class="fav-strip" id="favicons"></div>
+  </section>
+
+  <!-- 6. OG image -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">06</span>
+      <h2>Open Graph image</h2>
+      <p>1200 × 630。Twitter / Slack / Notion 等のリンク展開用。</p>
+    </div>
+    <div class="og">
+      <div class="og-top">
+        <svg viewBox="0 0 192 192" id="og-mark" xmlns="http://www.w3.org/2000/svg"></svg>
+        <span class="brand">diffmap<span style="color: var(--teal-light);">.</span></span>
+      </div>
+      <div class="og-main">
+        <h2>PR を <span class="accent">構造</span>として読む。</h2>
+        <p>変更ファイルの羅列ではなく、モジュールの関係としてプルリクエストを可視化する。</p>
+      </div>
+      <div class="og-foot">
+        <span class="url">diffmap.dev</span>
+        <div class="chips">
+          <span class="chip">dependency graph</span>
+          <span class="chip">impact analysis</span>
+          <span class="chip">4-way cluster</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+<script src="a4-4-build.js"></script>
+</body>
+</html>
