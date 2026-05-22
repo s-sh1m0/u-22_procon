@@ -2,8 +2,7 @@ import Brand from '@/components/branding/Brand'
 import { Button } from '@/components/ui/button'
 import Wrap from './Wrap'
 import { GitHubGlyph } from './glyphs'
-
-const REPO_URL = 'https://github.com/s-sh1m0/u-22_procon'
+import { REPO_URL } from './constants'
 
 type Link = { label: string; href?: string }
 type Col = { title: string; links: Link[] }
