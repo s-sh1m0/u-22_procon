@@ -177,6 +177,16 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 
 新規ライブラリ導入は議論してから。
 
+### 3.8 ランディングページ（公開）
+
+`/` は未認証でも見られる公開 LP（`pages/Landing.tsx`）。セクションは `components/landing/` に分割（`LandingNav` / `LandingHero` / `ClusterShowcase` / `HowItWorks` / `FeatureGrid` / `CtaStrip` / `LandingFooter`）。
+
+- **認証で出し分け**: Hero と CTA strip は `useAuth()` を見て切替える。未ログイン → GitHub 連携ボタン（`/auth/github`）、ログイン済み → PR URL 入力フォーム（`PrInputForm`、`useAnalyzeMutation` + `parsePrUrl` に接続し `/analysis/:jobId` へ遷移）。
+- **ルート**: `/`=LP（公開） / `/analyze`=PR 入力 Home（要認証） / `/analysis/:jobId`=結果（要認証） / `/login`。`RequireAuth` から外れる公開ページは `/` のみ。
+- **実装**: Claude Design の handoff（`design/project/landing.jsx`）を Tailwind ユーティリティで再現。handoff の色は Tailwind 標準パレットにそのまま対応する（中立色=`stone`、ブランド=`teal`、4 クラスタ=`green`/`red`/`amber`/`violet` の 600/100/300）。ボタンと入力欄は shadcn/ui の `Button`（`asChild` でリンク化）/ `Input` を流用。中央寄せコンテナは `components/landing/Wrap.tsx` に共通化。レスポンシブは Tailwind の `sm:`/`lg:` と `clamp()`（見出し）で担保。装飾の radial-gradient/mask とグラフ系 SVG の配色のみ inline style / リテラル hex（グラフ意味色の慣習に準拠）。
+- **プロダクトマーク**: `components/branding/AppMark.tsx` が diffmap. のアプリアイコン（design "A4·4"：ノード群が 1 つの accent ノードへ V 字で収束する形）。`Brand.tsx` と `public/favicon.svg` もこれに統一。
+- **データ整合**: 「最近の解析」一覧は対応するバックエンド API が未実装のため、handoff のダミーは載せず省略している（4 状態原則・データ捏造回避）。実装後に追加する。Hero の統計値（解析数・短縮率など）は handoff のマーケコピーをそのまま採用。
+
 ---
 
 ## 4. 変更時のチェックリスト
