@@ -18,6 +18,7 @@ import PRMetaBar from '@/components/layout/PRMetaBar'
 import DependencyGraph from '@/components/graph/DependencyGraph'
 import FunctionDetailsPanel from '@/components/graph/FunctionDetailsPanel'
 import CycleAlert from '@/components/graph/CycleAlert'
+import LayeringAlert from '@/components/graph/LayeringAlert'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -201,6 +202,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
         <div className="flex flex-col gap-1">
           <PRMetaBar pr={data.pr} />
           <CycleAlert cycles={data.cycles} onSelectCycleNode={handleSelectCycleNode} />
+          <LayeringAlert violations={data.violations} onSelectNode={handleSelectCycleNode} />
         </div>
       }
       rightPanel={

@@ -156,6 +156,9 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	// 循環参照を検出（base にあった cycle と比較して IsNew を決定）
 	cycles := analyzer.DetectNewCycles(baseGraph, headGraph)
 
+	// 依存方向の逆転（domain → infra 等）を検出（added エッジを新規違反とする）
+	violations := analyzer.DetectLayeringViolations(diffGraph)
+
 	setPhase(domain.JobPhaseCluster)
 	t3 := time.Now()
 	result, err := w.clusterer.Cluster(ctx, diffGraph)
@@ -164,7 +167,8 @@ func (w *Worker) process(ctx context.Context, item Item) {
 		return
 	}
 	result.Cycles = cycles
-	log.Printf("worker: Cluster took %s (cycles=%d)", time.Since(t3), len(cycles))
+	result.LayerViolations = violations
+	log.Printf("worker: Cluster took %s (cycles=%d, violations=%d)", time.Since(t3), len(cycles), len(violations))
 
 	setPhase(domain.JobPhaseVisualize)
 	t4 := time.Now()

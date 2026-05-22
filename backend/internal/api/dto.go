@@ -35,10 +35,11 @@ type PRInfoDTO struct {
 
 // GraphResponse は GET /api/graph/:jobId のレスポンス
 type GraphResponse struct {
-	PR       PRInfoDTO    `json:"pr"`
-	Clusters []ClusterDTO `json:"clusters"`
-	Graph    GraphDTO     `json:"graph"`
-	Cycles   []CycleDTO   `json:"cycles"`
+	PR         PRInfoDTO           `json:"pr"`
+	Clusters   []ClusterDTO        `json:"clusters"`
+	Graph      GraphDTO            `json:"graph"`
+	Cycles     []CycleDTO          `json:"cycles"`
+	Violations []LayerViolationDTO `json:"violations"`
 }
 
 // CycleDTO は循環参照の JSON 表現
@@ -46,6 +47,15 @@ type CycleDTO struct {
 	ID    int      `json:"id"`
 	Nodes []string `json:"nodes"`
 	IsNew bool     `json:"is_new"`
+}
+
+// LayerViolationDTO は依存方向の逆転（アンチパターン）の JSON 表現
+type LayerViolationDTO struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	FromLayer string `json:"from_layer"`
+	ToLayer   string `json:"to_layer"`
+	IsNew     bool   `json:"is_new"`
 }
 
 // ClusterDTO はクラスタの JSON 表現
@@ -159,6 +169,17 @@ func toGraphResponse(a *domain.Analysis) GraphResponse {
 		cycles[i] = CycleDTO{ID: c.ID, Nodes: nodeIDs, IsNew: c.IsNew}
 	}
 
+	violations := make([]LayerViolationDTO, len(r.LayerViolations))
+	for i, v := range r.LayerViolations {
+		violations[i] = LayerViolationDTO{
+			From:      string(v.From),
+			To:        string(v.To),
+			FromLayer: v.FromLayer,
+			ToLayer:   v.ToLayer,
+			IsNew:     v.IsNew,
+		}
+	}
+
 	return GraphResponse{
 		PR: PRInfoDTO{
 			Owner:   a.PR.Owner,
@@ -170,8 +191,9 @@ func toGraphResponse(a *domain.Analysis) GraphResponse {
 			BaseSHA: a.PR.BaseSHA,
 			HeadSHA: a.PR.HeadSHA,
 		},
-		Clusters: clusters,
-		Graph:    GraphDTO{Nodes: nodes, Edges: edges},
-		Cycles:   cycles,
+		Clusters:   clusters,
+		Graph:      GraphDTO{Nodes: nodes, Edges: edges},
+		Cycles:     cycles,
+		Violations: violations,
 	}
 }

@@ -30,6 +30,7 @@ export type GraphResponse = {
   clusters: Cluster[]
   graph: Graph
   cycles: Cycle[]
+  violations: LayerViolation[]
 }
 
 export type Cluster = {
@@ -62,6 +63,16 @@ export type GraphEdge = {
 export type Cycle = {
   id: number
   nodes: string[]
+  is_new: boolean
+}
+
+// LayerViolation は依存方向の逆転（内側レイヤー → 外側レイヤー）を表す。
+// 例: from_layer="domain" / to_layer="infra" は DIP に反するアンチパターン。
+export type LayerViolation = {
+  from: string
+  to: string
+  from_layer: string
+  to_layer: string
   is_new: boolean
 }
 
