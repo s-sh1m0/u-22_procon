@@ -1,0 +1,144 @@
+/*
+ * Scoped palette + layout helpers for the public landing page.
+ *
+ * The landing page is a faithful port of the Claude Design handoff
+ * (`design/project/landing.jsx`), which is authored with inline styles that
+ * reference a flat set of CSS custom properties. We scope those variables to
+ * `.landing-root` so they don't leak into the rest of the (Tailwind/shadcn) app,
+ * and add the media queries the inline-style prototype could not express.
+ */
+
+.landing-root {
+  --bg: #fafaf9;
+  --bg-alt: #f5f5f4;
+  --line: #e7e5e4;
+  --line-strong: #d6d3d1;
+  --ink: #1c1917;
+  --ink-2: #44403c;
+  --ink-3: #78716c;
+  --ink-4: #a8a29e;
+  --brand: #0f766e;
+  --brand-deep: #0d5e57;
+  --brand-soft: #ccfbf1;
+  --brand-tint: #f0fdfa;
+  --brand-ink: #134e4a;
+  --brand-light: #5eead4;
+
+  --added: #16a34a;
+  --added-bg: #dcfce7;
+  --added-bd: #86efac;
+  --removed: #dc2626;
+  --removed-bg: #fee2e2;
+  --removed-bd: #fca5a5;
+  --modified: #d97706;
+  --modified-bg: #fef3c7;
+  --modified-bd: #fcd34d;
+  --refactor: #7c3aed;
+  --refactor-bg: #ede9fe;
+  --refactor-bd: #c4b5fd;
+
+  background: var(--bg);
+  color: var(--ink);
+  font-family:
+    'Inter Tight',
+    -apple-system,
+    system-ui,
+    sans-serif;
+  font-feature-settings: 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+.landing-root *,
+.landing-root *::before,
+.landing-root *::after {
+  box-sizing: border-box;
+}
+
+.landing-root .mono {
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+}
+
+.landing-root h1,
+.landing-root h2,
+.landing-root h3 {
+  text-wrap: pretty;
+}
+
+.landing-root .wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 36px;
+}
+
+/* Responsive grids ----------------------------------------------------- */
+
+.landing-root .hero-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 64px;
+  align-items: center;
+}
+
+.landing-root .grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.landing-root .grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.landing-root .cta-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  align-items: center;
+  gap: 56px;
+}
+
+.landing-root .footer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(3, 1fr);
+  gap: 48px;
+}
+
+@media (max-width: 960px) {
+  .landing-root .hero-grid {
+    grid-template-columns: 1fr;
+    gap: 44px;
+  }
+  .landing-root .grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .landing-root .grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .landing-root .cta-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .landing-root .cta-art {
+    display: none;
+  }
+  .landing-root .footer-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+  .landing-root .nav-mid {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .landing-root .wrap {
+    padding: 0 20px;
+  }
+  .landing-root .grid-4 {
+    grid-template-columns: 1fr;
+  }
+  .landing-root .footer-grid {
+    grid-template-columns: 1fr;
+  }
+}

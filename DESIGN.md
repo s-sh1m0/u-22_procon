@@ -177,6 +177,16 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 
 新規ライブラリ導入は議論してから。
 
+### 3.8 ランディングページ（公開）
+
+`/` は未認証でも見られる公開 LP（`pages/Landing.tsx`）。セクションは `components/landing/` に分割（`LandingNav` / `LandingHero` / `ClusterShowcase` / `HowItWorks` / `FeatureGrid` / `CtaStrip` / `LandingFooter`）。
+
+- **認証で出し分け**: Hero と CTA strip は `useAuth()` を見て切替える。未ログイン → GitHub 連携ボタン（`/auth/github`）、ログイン済み → PR URL 入力フォーム（`PrInputForm`、`useAnalyzeMutation` + `parsePrUrl` に接続し `/analysis/:jobId` へ遷移）。
+- **ルート**: `/`=LP（公開） / `/analyze`=PR 入力 Home（要認証） / `/analysis/:jobId`=結果（要認証） / `/login`。`RequireAuth` から外れる公開ページは `/` のみ。
+- **実装方針の例外**: LP は Claude Design の handoff（`design/project/landing.jsx`）を**ピクセル単位で再現**するため、Tailwind ではなくインラインスタイル + スコープ付き CSS 変数で移植している。パレットは `components/landing/landing.css` の `.landing-root` に閉じ込めており、アプリ全体（Tailwind/shadcn）には漏れない。レスポンシブ（grid 段組み・`clamp()` フォント）も同 CSS の media query で担保。原則「Tailwind トークン優先」「hex 直書きを避ける」の例外として、handoff 再現を理由に許容する。
+- **プロダクトマーク**: `components/branding/AppMark.tsx` が diffmap. のアプリアイコン（design "A4·4"：ノード群が 1 つの accent ノードへ V 字で収束する形）。`Brand.tsx` と `public/favicon.svg` もこれに統一。
+- **データ整合**: 「最近の解析」一覧は対応するバックエンド API が未実装のため、handoff のダミーは載せず省略している（4 状態原則・データ捏造回避）。実装後に追加する。Hero の統計値（解析数・短縮率など）は handoff のマーケコピーをそのまま採用。
+
 ---
 
 ## 4. 変更時のチェックリスト
