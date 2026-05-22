@@ -41,6 +41,13 @@ func migrate(db *sql.DB) error {
 	if err := addColumnIfNotExists(db, "jobs", "phase", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	// analyses に PR メタ情報（タイトル・ref・SHA）を後付けする。
+	// GitHub 定義行リンク / PR メタ表示は解析結果から復元するためここに永続化する。
+	for _, col := range []string{"pr_title", "pr_base_ref", "pr_head_ref", "pr_base_sha", "pr_head_sha"} {
+		if err := addColumnIfNotExists(db, "analyses", col, "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
