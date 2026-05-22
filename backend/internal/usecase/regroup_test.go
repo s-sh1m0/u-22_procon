@@ -70,14 +70,29 @@ func TestRegroupBy_File(t *testing.T) {
 	}
 }
 
-func TestApplyClusterMode_LouvainPassthrough(t *testing.T) {
+func TestApplyClusterMode_LouvainLabelsClusters(t *testing.T) {
 	orig := &domain.ClusterResult{
-		Clusters: []domain.Cluster{{ID: 0, Label: "kept", Nodes: []domain.NodeID{"a"}}},
+		Clusters: []domain.Cluster{{ID: 0, Label: "raw", Nodes: []domain.NodeID{"a", "b"}}},
 		Graph:    sampleGraph(),
+		Cycles:   []domain.Cycle{{ID: 3, Nodes: []domain.NodeID{"a", "b"}, IsNew: true}},
 	}
 	got := applyClusterMode(orig, domain.ClusterModeLouvain)
-	if got != orig {
-		t.Error("Louvain mode should return the original result pointer unchanged")
+	if got == nil {
+		t.Fatal("Louvain mode returned nil")
+	}
+	// Louvain モードはクラスタ構成（ノードの所属）を変えずにラベルだけ付け直す。
+	if len(got.Clusters) != 1 || len(got.Clusters[0].Nodes) != 2 {
+		t.Errorf("clusters should be preserved, got %+v", got.Clusters)
+	}
+	if got.Clusters[0].Label == "raw" {
+		t.Error("Louvain mode should relabel clusters via labelClusters, but kept the input label")
+	}
+	// Graph と Cycles はそのまま保持される。
+	if len(got.Graph.Nodes) != len(orig.Graph.Nodes) {
+		t.Errorf("Graph not preserved: got %d nodes, want %d", len(got.Graph.Nodes), len(orig.Graph.Nodes))
+	}
+	if len(got.Cycles) != 1 || got.Cycles[0].ID != 3 {
+		t.Errorf("Cycles not preserved: %+v", got.Cycles)
 	}
 }
 

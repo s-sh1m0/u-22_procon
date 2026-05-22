@@ -17,6 +17,8 @@ export type PRInfo = {
   title: string
   base_ref: string
   head_ref: string
+  base_sha: string
+  head_sha: string
 }
 
 export type DiffStatus = 'added' | 'removed' | 'existing'

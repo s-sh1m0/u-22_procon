@@ -7,6 +7,12 @@ import { useDiff } from '@/hooks/useDiff'
 import { inferLayer } from '@/lib/layerInference'
 import { getClusterColor } from '@/lib/clusterColors'
 import { makeClusterKey } from '@/lib/graphLayout'
+import {
+  computeInDegree,
+  computeReviewPriority,
+  newCycleNodeIds,
+  type ReviewPriority,
+} from '@/lib/reviewPriority'
 import AppShell from '@/components/layout/AppShell'
 import PRMetaBar from '@/components/layout/PRMetaBar'
 import DependencyGraph from '@/components/graph/DependencyGraph'
@@ -105,23 +111,34 @@ export default function AnalysisGraphView({ jobId }: Props) {
     [data, defaultExpandedClusters],
   )
 
-  const { panelNode, selectedCluster, selectedLayer, panelDiff } = useMemo(() => {
-    if (!data || !selectedNodeId) {
-      return {
-        panelNode: null,
-        selectedCluster: null,
-        selectedLayer: 'other' as LayerKind,
-        panelDiff: undefined as DiffFile | undefined,
-      }
+  // in-degree（被呼び出し数）と新規循環ノード集合はグラフ全体から一度だけ算出する。
+  const { inDegree, cycleNodeIds } = useMemo(
+    () => ({
+      inDegree: data ? computeInDegree(data.graph.edges) : new Map<string, number>(),
+      cycleNodeIds: data ? newCycleNodeIds(data.cycles) : new Set<string>(),
+    }),
+    [data],
+  )
+
+  const { panelNode, selectedCluster, selectedLayer, panelDiff, panelPriority } = useMemo(() => {
+    const empty = {
+      panelNode: null,
+      selectedCluster: null,
+      selectedLayer: 'other' as LayerKind,
+      panelDiff: undefined as DiffFile | undefined,
+      panelPriority: 'low' as ReviewPriority,
     }
+    if (!data || !selectedNodeId) return empty
 
     const gn = data.graph.nodes.find((n) => n.id === selectedNodeId)
-    if (!gn) return { panelNode: null, selectedCluster: null, selectedLayer: 'other' as LayerKind }
+    if (!gn) return empty
 
     const layer = inferLayer(gn.package)
     const cluster: Cluster | null = data.clusters.find((c) => c.nodes.includes(gn.id)) ?? null
     const cid = cluster?.id ?? 0
     const color = getClusterColor(cid)
+    const inCycle = cycleNodeIds.has(gn.id)
+    const priority = computeReviewPriority(gn, inDegree.get(gn.id) ?? 0, inCycle)
 
     const node: AnyFlowNode = {
       id: gn.id,
@@ -134,6 +151,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
         line: gn.line,
         changed: gn.changed,
         diffStatus: gn.diff_status,
+        inCycle,
         clusterId: cid,
         clusterColorHex: color.hex,
         layer,
@@ -142,8 +160,14 @@ export default function AnalysisGraphView({ jobId }: Props) {
     const funcDiff = diffData?.files.find(
       (f) => gn.file === f.filename || gn.file.endsWith('/' + f.filename),
     )
-    return { panelNode: node, selectedCluster: cluster, selectedLayer: layer, panelDiff: funcDiff }
-  }, [data, diffData, selectedNodeId])
+    return {
+      panelNode: node,
+      selectedCluster: cluster,
+      selectedLayer: layer,
+      panelDiff: funcDiff,
+      panelPriority: priority,
+    }
+  }, [data, diffData, selectedNodeId, inDegree, cycleNodeIds])
 
   if (isLoading) {
     return (
@@ -186,6 +210,8 @@ export default function AnalysisGraphView({ jobId }: Props) {
             cluster={selectedCluster}
             layer={selectedLayer}
             diff={panelDiff}
+            pr={data.pr}
+            priority={panelPriority}
             onClose={() => setSelectedNodeId(null)}
           />
         ) : undefined

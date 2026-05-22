@@ -54,6 +54,9 @@ function mergeEdgeStatus(a: DiffStatus, b: DiffStatus): DiffStatus {
   return 'existing'
 }
 
+// 新規循環参照を構成するエッジの強調色（red-500）。diff の色より優先する。
+const CYCLE_EDGE_COLOR = '#ef4444'
+
 function edgeColorByStatus(status: DiffStatus): string {
   switch (status) {
     case 'added':
@@ -84,6 +87,14 @@ function edgeMarkerByStatus(status: DiffStatus): EdgeMarker {
   return { type: MarkerType.ArrowClosed, color: edgeColorByStatus(status), width: 16, height: 16 }
 }
 
+// 新規循環参照を構成するエッジのスタイル / マーカー（赤・太線）。
+function cycleEdgeStyle(): CSSProperties {
+  return { stroke: CYCLE_EDGE_COLOR, strokeWidth: 2.5 }
+}
+function cycleEdgeMarker(): EdgeMarker {
+  return { type: MarkerType.ArrowClosed, color: CYCLE_EDGE_COLOR, width: 16, height: 16 }
+}
+
 export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>): LayoutResult {
   const inputNodes: InputNode[] = data.graph.nodes.map((n) => ({
     id: n.id,
@@ -100,6 +111,15 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
   }))
   const inputEdges: GraphEdge[] = data.graph.edges
   const clusters: Cluster[] = data.clusters
+
+  // 新規循環参照（is_new）に属するノード集合と、同一循環内のノード対集合を作る。
+  // ノード強調用に集合、エッジ強調用に各循環のノードセットを持つ。
+  const newCycleSets = data.cycles.filter((c) => c.is_new).map((c) => new Set(c.nodes))
+  const cycleNodeIds = new Set<string>()
+  for (const s of newCycleSets) for (const id of s) cycleNodeIds.add(id)
+  // エッジ (from→to) が同一の新規循環の内部辺なら true。
+  const isCycleEdge = (from: string, to: string): boolean =>
+    newCycleSets.some((s) => s.has(from) && s.has(to))
 
   const nodeToCluster = new Map<string, number>()
   for (const c of clusters) {
@@ -125,6 +145,8 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
   // Build edges with cluster aggregation. DiffStatus は added > removed > existing で昇格。
   const edgeStatusMap = new Map<string, DiffStatus>()
   const edgeKeyToFromTo = new Map<string, { source: string; target: string }>()
+  // 集約後のエッジが新規循環の内部辺を1本でも含むなら強調する。
+  const edgeCycleMap = new Map<string, boolean>()
 
   for (const e of inputEdges) {
     const fromNode = nodeMap.get(e.from)
@@ -147,18 +169,20 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
     if (!edgeKeyToFromTo.has(edgeKey)) {
       edgeKeyToFromTo.set(edgeKey, { source: srcId, target: dstId })
     }
+    if (isCycleEdge(e.from, e.to)) edgeCycleMap.set(edgeKey, true)
   }
 
   const flowEdges: Edge[] = []
   for (const [edgeKey, status] of edgeStatusMap.entries()) {
     const ft = edgeKeyToFromTo.get(edgeKey)!
+    const inCycle = edgeCycleMap.get(edgeKey) ?? false
     flowEdges.push({
       id: `e:${edgeKey}`,
       source: ft.source,
       target: ft.target,
-      style: edgeStyleByStatus(status),
-      markerEnd: edgeMarkerByStatus(status),
-      data: { diffStatus: status },
+      style: inCycle ? cycleEdgeStyle() : edgeStyleByStatus(status),
+      markerEnd: inCycle ? cycleEdgeMarker() : edgeMarkerByStatus(status),
+      data: { diffStatus: status, inCycle },
     })
   }
 
@@ -260,6 +284,7 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
               line: n.line,
               changed: n.changed,
               diffStatus: n.diffStatus,
+              inCycle: cycleNodeIds.has(n.id),
               clusterId: cid,
               clusterColorHex: color.hex,
               layer,
