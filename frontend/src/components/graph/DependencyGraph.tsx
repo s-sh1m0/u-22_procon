@@ -15,7 +15,16 @@ import FunctionNode from './FunctionNode'
 import ClusterGroup from './ClusterGroup'
 import SuperClusterNode from './SuperClusterNode'
 import GraphControls from './GraphControls'
+import FocusLegend from './FocusLegend'
 import { layoutGraph } from '@/lib/graphLayout'
+import {
+  computeFocus,
+  focusEdgeStyle,
+  focusEdgeMarker,
+  DIMMED_EDGE_STYLE,
+  FOCUSED_OPACITY,
+  DIMMED_OPACITY,
+} from '@/lib/graphFocus'
 
 const nodeTypes = {
   function: FunctionNode,
@@ -29,6 +38,7 @@ type Props = {
   onChangeClusterMode: (mode: ClusterMode) => void
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
+  onClearSelection: () => void
   expandedClusters: Set<string>
   onToggleCluster: (key: string) => void
   onExpandAll: () => void
@@ -41,6 +51,7 @@ function GraphInner({
   onChangeClusterMode,
   selectedNodeId,
   onSelectNode,
+  onClearSelection,
   expandedClusters,
   onToggleCluster,
   onExpandAll,
@@ -48,15 +59,52 @@ function GraphInner({
 }: Props) {
   const { fitView } = useReactFlow()
 
-  const { nodes: layoutNodes, edges } = useMemo(
+  const { nodes: layoutNodes, edges: layoutEdges } = useMemo(
     () => layoutGraph(data, expandedClusters),
     [data, expandedClusters],
   )
 
+  // フォーカス: 選択ノードが現在のレイアウトに存在するときだけ有効化する
+  // （クラスタ折りたたみ等で非表示になった選択は無視し、全体減光を避ける）。
+  const focus = useMemo(() => {
+    if (!selectedNodeId) return null
+    if (!layoutNodes.some((n) => n.id === selectedNodeId)) return null
+    return computeFocus(layoutEdges, selectedNodeId)
+  }, [selectedNodeId, layoutNodes, layoutEdges])
+
+  // フォーカス中に通常表示するクラスタコンテナ = フォーカス対象の関数ノードの親
+  const focusedContainerIds = useMemo(() => {
+    if (!focus) return null
+    const ids = new Set<string>()
+    for (const n of layoutNodes) {
+      if (n.type === 'function' && n.parentId && focus.nodeIds.has(n.id)) ids.add(n.parentId)
+    }
+    return ids
+  }, [focus, layoutNodes])
+
   const nodes = useMemo(
-    () => layoutNodes.map((n) => ({ ...n, selected: n.id === selectedNodeId })),
-    [layoutNodes, selectedNodeId],
+    () =>
+      layoutNodes.map((n) => {
+        const base = { ...n, selected: n.id === selectedNodeId }
+        if (!focus) return base
+        const inFocus =
+          n.type === 'cluster' ? (focusedContainerIds?.has(n.id) ?? false) : focus.nodeIds.has(n.id)
+        return {
+          ...base,
+          style: { ...n.style, opacity: inFocus ? FOCUSED_OPACITY : DIMMED_OPACITY },
+        }
+      }),
+    [layoutNodes, selectedNodeId, focus, focusedContainerIds],
   )
+
+  const edges = useMemo(() => {
+    if (!focus) return layoutEdges
+    return layoutEdges.map((e) => {
+      const dir = focus.edgeDir.get(e.id)
+      if (!dir) return { ...e, style: DIMMED_EDGE_STYLE, markerEnd: undefined, animated: false }
+      return { ...e, style: focusEdgeStyle(dir), markerEnd: focusEdgeMarker(dir), animated: true }
+    })
+  }, [layoutEdges, focus])
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_, node) => {
@@ -91,9 +139,15 @@ function GraphInner({
       minZoom={0.05}
       maxZoom={2.5}
       onNodeClick={handleNodeClick}
+      onPaneClick={onClearSelection}
       proOptions={{ hideAttribution: false }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} color="#e7e5e4" />
+      {focus && (
+        <Panel position="top-left">
+          <FocusLegend callerCount={focus.callerCount} calleeCount={focus.calleeCount} />
+        </Panel>
+      )}
       <Controls position="bottom-left" />
       <MiniMap
         nodeColor={(n) =>
