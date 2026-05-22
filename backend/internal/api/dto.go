@@ -29,6 +29,8 @@ type PRInfoDTO struct {
 	Title   string `json:"title"`
 	BaseRef string `json:"base_ref"`
 	HeadRef string `json:"head_ref"`
+	BaseSHA string `json:"base_sha"`
+	HeadSHA string `json:"head_sha"`
 }
 
 // GraphResponse は GET /api/graph/:jobId のレスポンス
@@ -165,6 +167,8 @@ func toGraphResponse(a *domain.Analysis) GraphResponse {
 			Title:   a.PR.Title,
 			BaseRef: a.PR.BaseRef,
 			HeadRef: a.PR.HeadRef,
+			BaseSHA: a.PR.BaseSHA,
+			HeadSHA: a.PR.HeadSHA,
 		},
 		Clusters: clusters,
 		Graph:    GraphDTO{Nodes: nodes, Edges: edges},

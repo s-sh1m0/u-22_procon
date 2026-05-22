@@ -186,6 +186,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
             cluster={selectedCluster}
             layer={selectedLayer}
             diff={panelDiff}
+            pr={data.pr}
             onClose={() => setSelectedNodeId(null)}
           />
         ) : undefined

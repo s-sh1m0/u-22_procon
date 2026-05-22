@@ -148,7 +148,7 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 | `FunctionNode` / `FileNode` | グラフ上のノード。`changed=true` で `ring-amber-400` |
 | `ClusterGroup` | 展開中クラスタの背景コンテナ。子ノードを `parentId` で内包 |
 | `SuperClusterNode` | 折りたたみ中クラスタのスーパーノード。クリックで展開 |
-| `FunctionDetailsPanel` | 右パネル。クラスタラベル・レイヤー・diff |
+| `FunctionDetailsPanel` | 右パネル。クラスタラベル・レイヤー・GitHub 該当行リンク・diff |
 | `FocusLegend` | フォーカスモード中に左上に出る凡例（呼び出し元/先の方向色と件数） |
 | `DiffViewer` | `@monaco-editor/react` で before/after 表示 |
 | `ClusterSidebar` | クラスタ一覧（実装位置: `layout/`） |

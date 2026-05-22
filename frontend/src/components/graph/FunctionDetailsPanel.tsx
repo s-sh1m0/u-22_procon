@@ -1,6 +1,7 @@
 import type { AnyFlowNode, LayerKind } from '@/types/graph'
-import type { Cluster, DiffFile } from '@/types/api'
+import type { Cluster, DiffFile, PRInfo } from '@/types/api'
 import { getClusterColor } from '@/lib/clusterColors'
+import { buildBlobUrl } from '@/lib/githubLinks'
 import DiffViewer from '@/components/diff/DiffViewer'
 
 const LAYER_LABELS: Record<LayerKind, string> = {
@@ -16,14 +17,16 @@ type Props = {
   cluster: Cluster | null
   layer: LayerKind
   diff: DiffFile | undefined
+  pr: PRInfo
   onClose: () => void
 }
 
-export default function FunctionDetailsPanel({ node, cluster, layer, diff, onClose }: Props) {
+export default function FunctionDetailsPanel({ node, cluster, layer, diff, pr, onClose }: Props) {
   if (!node || node.type !== 'function') return null
 
   const color = cluster ? getClusterColor(cluster.id) : null
   const changed = node.data.changed as boolean
+  const blobUrl = buildBlobUrl(pr, node.data.file, node.data.line, node.data.diffStatus)
 
   return (
     <div
@@ -73,9 +76,37 @@ export default function FunctionDetailsPanel({ node, cluster, layer, diff, onClo
           <p className="break-all text-base font-bold text-stone-900">{node.data.label}</p>
           <p className="mt-1 break-all font-mono text-xs text-stone-500">{node.data.packagePath}</p>
         </div>
-        <p className="font-mono text-xs text-stone-400">
-          {node.data.file.split('/').pop()}:{node.data.line}
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="break-all font-mono text-xs text-stone-400">
+            {node.data.file.split('/').pop()}:{node.data.line}
+          </p>
+          {blobUrl && (
+            <a
+              href={blobUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-shrink-0 items-center gap-1 text-xs font-medium text-teal-600 hover:text-teal-700 hover:underline"
+              title="GitHub で該当行を開く"
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+              GitHub
+            </a>
+          )}
+        </div>
       </div>
 
       {diff ? (
