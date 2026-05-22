@@ -31,8 +31,17 @@ func TestAnalysisRepo_SaveAndFindByID(t *testing.T) {
 		},
 	}
 	a := &domain.Analysis{
-		ID:        "test-analysis-id",
-		PR:        domain.PRInfo{Owner: "owner", Repo: "repo", Number: 42},
+		ID: "test-analysis-id",
+		PR: domain.PRInfo{
+			Owner:   "owner",
+			Repo:    "repo",
+			Number:  42,
+			Title:   "Add feature",
+			BaseRef: "main",
+			HeadRef: "feature-x",
+			BaseSHA: "base123",
+			HeadSHA: "head456",
+		},
 		Result:    result,
 		CreatedAt: time.Now().UTC().Truncate(time.Second),
 	}
@@ -50,6 +59,11 @@ func TestAnalysisRepo_SaveAndFindByID(t *testing.T) {
 	}
 	if got.PR.Owner != "owner" || got.PR.Repo != "repo" || got.PR.Number != 42 {
 		t.Errorf("PR mismatch: got %+v", got.PR)
+	}
+	// PR メタ情報（タイトル・ref・SHA）が round-trip すること（GitHub 定義行リンクの ref に使う）。
+	if got.PR.Title != "Add feature" || got.PR.BaseRef != "main" || got.PR.HeadRef != "feature-x" ||
+		got.PR.BaseSHA != "base123" || got.PR.HeadSHA != "head456" {
+		t.Errorf("PR metadata mismatch: got %+v", got.PR)
 	}
 	if len(got.Result.Clusters) != 1 || got.Result.Clusters[0].Label != "pkg/foo" {
 		t.Errorf("Clusters mismatch: got %+v", got.Result.Clusters)
@@ -143,7 +157,9 @@ func TestAnalysisRepo_FindByPR_ReturnsLatest(t *testing.T) {
 	emptyResult := &domain.ClusterResult{}
 
 	old := &domain.Analysis{ID: "old", PR: pr, Result: emptyResult, CreatedAt: time.Now().UTC().Add(-time.Hour)}
-	newer := &domain.Analysis{ID: "newer", PR: pr, Result: emptyResult, CreatedAt: time.Now().UTC()}
+	newerPR := pr
+	newerPR.HeadSHA = "head789"
+	newer := &domain.Analysis{ID: "newer", PR: newerPR, Result: emptyResult, CreatedAt: time.Now().UTC()}
 
 	for _, a := range []*domain.Analysis{old, newer} {
 		if err := repo.Save(ctx, a); err != nil {
@@ -160,6 +176,10 @@ func TestAnalysisRepo_FindByPR_ReturnsLatest(t *testing.T) {
 	}
 	if got.ID != "newer" {
 		t.Errorf("expected newest analysis, got id=%s", got.ID)
+	}
+	// 永続化された PR メタ情報（SHA）が引数 pr ではなく DB の値で復元されること。
+	if got.PR.HeadSHA != "head789" {
+		t.Errorf("expected persisted HeadSHA, got %q", got.PR.HeadSHA)
 	}
 }
 

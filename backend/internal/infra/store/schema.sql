@@ -1,11 +1,16 @@
 -- analyses テーブル
 CREATE TABLE IF NOT EXISTS analyses (
-    id         TEXT PRIMARY KEY,
-    owner      TEXT NOT NULL,
-    repo       TEXT NOT NULL,
-    pr_number  INTEGER NOT NULL,
-    result     TEXT,    -- JSON
-    created_at DATETIME NOT NULL
+    id          TEXT PRIMARY KEY,
+    owner       TEXT NOT NULL,
+    repo        TEXT NOT NULL,
+    pr_number   INTEGER NOT NULL,
+    pr_title    TEXT NOT NULL DEFAULT '',
+    pr_base_ref TEXT NOT NULL DEFAULT '',
+    pr_head_ref TEXT NOT NULL DEFAULT '',
+    pr_base_sha TEXT NOT NULL DEFAULT '',
+    pr_head_sha TEXT NOT NULL DEFAULT '',
+    result      TEXT,    -- JSON
+    created_at  DATETIME NOT NULL
 );
 
 -- jobs テーブル

@@ -39,8 +39,12 @@ func (r *AnalysisRepo) Save(ctx context.Context, a *domain.Analysis) error {
 		return fmt.Errorf("marshal analysis result: %w", err)
 	}
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO analyses (id, owner, repo, pr_number, result, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		string(a.ID), a.PR.Owner, a.PR.Repo, a.PR.Number, string(resultJSON), a.CreatedAt.UTC(),
+		`INSERT INTO analyses
+		 (id, owner, repo, pr_number, pr_title, pr_base_ref, pr_head_ref, pr_base_sha, pr_head_sha, result, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		string(a.ID), a.PR.Owner, a.PR.Repo, a.PR.Number,
+		a.PR.Title, a.PR.BaseRef, a.PR.HeadRef, a.PR.BaseSHA, a.PR.HeadSHA,
+		string(resultJSON), a.CreatedAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert analysis: %w", err)
@@ -54,13 +58,19 @@ func (r *AnalysisRepo) FindByID(ctx context.Context, id domain.AnalysisID) (*dom
 		owner      string
 		repo       string
 		prNumber   int
+		prTitle    string
+		prBaseRef  string
+		prHeadRef  string
+		prBaseSHA  string
+		prHeadSHA  string
 		resultJSON string
 		createdAt  time.Time
 	)
 	err := r.db.QueryRowContext(ctx,
-		`SELECT owner, repo, pr_number, result, created_at FROM analyses WHERE id = ?`,
+		`SELECT owner, repo, pr_number, pr_title, pr_base_ref, pr_head_ref, pr_base_sha, pr_head_sha, result, created_at
+		 FROM analyses WHERE id = ?`,
 		string(id),
-	).Scan(&owner, &repo, &prNumber, &resultJSON, &createdAt)
+	).Scan(&owner, &repo, &prNumber, &prTitle, &prBaseRef, &prHeadRef, &prBaseSHA, &prHeadSHA, &resultJSON, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -73,8 +83,17 @@ func (r *AnalysisRepo) FindByID(ctx context.Context, id domain.AnalysisID) (*dom
 		return nil, fmt.Errorf("unmarshal analysis result: %w", err)
 	}
 	return &domain.Analysis{
-		ID:           id,
-		PR:           domain.PRInfo{Owner: owner, Repo: repo, Number: prNumber},
+		ID: id,
+		PR: domain.PRInfo{
+			Owner:   owner,
+			Repo:    repo,
+			Number:  prNumber,
+			Title:   prTitle,
+			BaseRef: prBaseRef,
+			HeadRef: prHeadRef,
+			BaseSHA: prBaseSHA,
+			HeadSHA: prHeadSHA,
+		},
 		Result:       result,
 		ChangedFiles: changedFiles,
 		CreatedAt:    createdAt,
@@ -85,13 +104,19 @@ func (r *AnalysisRepo) FindByID(ctx context.Context, id domain.AnalysisID) (*dom
 func (r *AnalysisRepo) FindByPR(ctx context.Context, pr domain.PRInfo) (*domain.Analysis, error) {
 	var (
 		id         string
+		prTitle    string
+		prBaseRef  string
+		prHeadRef  string
+		prBaseSHA  string
+		prHeadSHA  string
 		resultJSON string
 		createdAt  time.Time
 	)
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, result, created_at FROM analyses WHERE owner=? AND repo=? AND pr_number=? ORDER BY created_at DESC LIMIT 1`,
+		`SELECT id, pr_title, pr_base_ref, pr_head_ref, pr_base_sha, pr_head_sha, result, created_at
+		 FROM analyses WHERE owner=? AND repo=? AND pr_number=? ORDER BY created_at DESC LIMIT 1`,
 		pr.Owner, pr.Repo, pr.Number,
-	).Scan(&id, &resultJSON, &createdAt)
+	).Scan(&id, &prTitle, &prBaseRef, &prHeadRef, &prBaseSHA, &prHeadSHA, &resultJSON, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -104,8 +129,17 @@ func (r *AnalysisRepo) FindByPR(ctx context.Context, pr domain.PRInfo) (*domain.
 		return nil, fmt.Errorf("unmarshal analysis result: %w", err)
 	}
 	return &domain.Analysis{
-		ID:           domain.AnalysisID(id),
-		PR:           pr,
+		ID: domain.AnalysisID(id),
+		PR: domain.PRInfo{
+			Owner:   pr.Owner,
+			Repo:    pr.Repo,
+			Number:  pr.Number,
+			Title:   prTitle,
+			BaseRef: prBaseRef,
+			HeadRef: prHeadRef,
+			BaseSHA: prBaseSHA,
+			HeadSHA: prHeadSHA,
+		},
 		Result:       result,
 		ChangedFiles: changedFiles,
 		CreatedAt:    createdAt,
