@@ -22,6 +22,15 @@ func Open(dsn string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
+
+	// 解析ワーカーをプール化（複数並列実行）すると、複数 goroutine が同じ DB へ
+	// 同時書き込みする。SQLite はライタが1つに限られ、コネクションを複数開くと
+	// "database is locked" (SQLITE_BUSY) が発生し得る。コネクションを1本に固定して
+	// 全 SQL を直列化することで競合を根本的に避ける。DB アクセスは解析本体（秒オーダ）
+	// に比べ極小・低頻度なので直列化のコストは無視できる。
+	// 副次効果として、modernc.org/sqlite の :memory: はコネクション単位で別 DB に
+	// なるため、テストの :memory: 利用も1本固定で安定する。
+	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
