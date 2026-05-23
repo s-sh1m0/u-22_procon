@@ -17,6 +17,12 @@ services:
       - "8080"
     env_file:
       - .env
+    environment:
+      # 大規模リポジトリ解析時のメモリ枯渇でホストごと落とさないためのソフト上限。
+      # 近傍パッケージ数の上限(defaultMaxNeighborhood)が主たる対策で、これは保険。
+      GOMEMLIMIT: "4GiB"
+    # OOM 時にホスト(WSL)を巻き込まずコンテナ単体で完結させるためのハード上限。
+    mem_limit: 5g
     volumes:
       - ./data:/app/data
     develop:

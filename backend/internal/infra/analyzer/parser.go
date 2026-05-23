@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -14,8 +15,18 @@ import (
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
 
-// ErrNoPackages はGo パッケージが1件も見つからなかったときのsentinel error。
+// ErrNoPackages は対象に Go パッケージ（.go ファイル / go.mod）が無く、
+// 「Go リポジトリではない」と判定してよいときの sentinel error。
 var ErrNoPackages = errors.New("analyzer: no Go packages found")
+
+// ErrGoToolchainUnavailable はリポジトリの go.mod が要求する Go バージョンの
+// toolchain を用意できなかったときの sentinel error（GOTOOLCHAIN=auto でも DL に失敗した等）。
+// 解析環境側の問題であり「Go リポジトリではない」とは区別する。
+var ErrGoToolchainUnavailable = errors.New("analyzer: required Go toolchain unavailable")
+
+// ErrPackageLoadFailed は go/packages のドライバ起動自体が失敗したときの sentinel error
+// （依存解決・vendoring 不整合など）。「Go パッケージ皆無」とは区別する。
+var ErrPackageLoadFailed = errors.New("analyzer: failed to load Go packages")
 
 // loadMode は callgraph (#5) と diff→AST マップ (#6) で必要なフラグを全て含む。
 const loadMode = packages.NeedName |
@@ -62,6 +73,89 @@ func NewGoPackageLoader() *GoPackageLoader {
 	return &GoPackageLoader{}
 }
 
+// analyzerEnv はパッケージロード時の環境変数を構築する。
+//
+//   - ホスト由来の GOWORK を除去し、go.work の解決を go の自動探索に委ねる。
+//     解析は clone した一時ディレクトリ内で完結するため、リポジトリ自身の go.work
+//     （例: Kubernetes の workspace 構成）は尊重しつつ、ホストの go.work は一時
+//     ディレクトリの祖先に無いので混入しない。以前は GOWORK=off を一律強制していたが、
+//     これは workspace vendoring と不整合になり依存解決を壊していた。
+//   - GOTOOLCHAIN=auto を明示し、ベースイメージが焼く GOTOOLCHAIN=local を上書きする。
+//     リポジトリの go.mod が要求する新しい Go を必要に応じて自動取得する。
+func analyzerEnv() []string {
+	src := os.Environ()
+	env := make([]string, 0, len(src)+1)
+	for _, kv := range src {
+		if strings.HasPrefix(kv, "GOWORK=") || strings.HasPrefix(kv, "GOTOOLCHAIN=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "GOTOOLCHAIN=auto")
+}
+
+// classifyLoadErr は packages.Load のトップレベルエラーを sentinel に分類する。
+// toolchain バージョンの入手失敗・go.mod 不在（＝Go リポジトリではない）・その他の
+// ロード失敗を区別し、frontend が原因に応じた文言を出せるようにする。
+func classifyLoadErr(err error) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "toolchain not available"),
+		strings.Contains(msg, "requires go >="),
+		strings.Contains(msg, "GOTOOLCHAIN"):
+		return fmt.Errorf("%w: %w", ErrGoToolchainUnavailable, err)
+	case strings.Contains(msg, "does not contain main module"),
+		strings.Contains(msg, "go.mod file not found"),
+		strings.Contains(msg, "matched no packages"):
+		return fmt.Errorf("%w: %w", ErrNoPackages, err)
+	default:
+		return fmt.Errorf("%w: %w", ErrPackageLoadFailed, err)
+	}
+}
+
+// workspacePatterns は loadDir に go.work があれば各 workspace モジュールごとの
+// "./<rel>/..." パターン列を返す。無ければ ["./..."] を返す。
+//
+// "./..." はネストした別モジュール（go.mod を持つサブディレクトリ）の境界で止まり
+// 中の別モジュールを列挙しないため、workspace（例: Kubernetes の staging/src/k8s.io/*）
+// では取りこぼしが出る。go list -m でモジュールディレクトリを列挙して補う。
+// 列挙に失敗したら ["./..."] にフォールバックする（最低限ルートモジュールは解析する）。
+func workspacePatterns(ctx context.Context, loadDir string) []string {
+	fallback := []string{"./..."}
+	if _, err := os.Stat(filepath.Join(loadDir, "go.work")); err != nil {
+		return fallback
+	}
+
+	cmd := exec.CommandContext(ctx, "go", "list", "-m", "-f", "{{.Dir}}")
+	cmd.Dir = loadDir
+	cmd.Env = analyzerEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return fallback
+	}
+
+	var patterns []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		dir := strings.TrimSpace(line)
+		if dir == "" {
+			continue
+		}
+		rel, err := filepath.Rel(loadDir, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue // workspace 外（loadDir の外）のモジュールは対象外
+		}
+		if rel == "." {
+			patterns = append(patterns, "./...")
+		} else {
+			patterns = append(patterns, "./"+filepath.ToSlash(rel)+"/...")
+		}
+	}
+	if len(patterns) == 0 {
+		return fallback
+	}
+	return patterns
+}
+
 // FastLoad はrootDir配下の全Goパッケージを型チェックなしで高速ロードする。
 // 変更パッケージの特定と近傍パッケージの計算にのみ使う。
 func (l *GoPackageLoader) FastLoad(ctx context.Context, rootDir string) ([]*packages.Package, error) {
@@ -70,12 +164,12 @@ func (l *GoPackageLoader) FastLoad(ctx context.Context, rootDir string) ([]*pack
 		Dir:     rootDir,
 		Context: ctx,
 		Tests:   false,
-		Env:     append(os.Environ(), "GOWORK=off"),
+		Env:     analyzerEnv(),
 	}
 
-	pkgs, err := packages.Load(cfg, "./...")
+	pkgs, err := packages.Load(cfg, workspacePatterns(ctx, rootDir)...)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrNoPackages, err)
+		return nil, classifyLoadErr(err)
 	}
 
 	var usable int
@@ -91,7 +185,8 @@ func (l *GoPackageLoader) FastLoad(ctx context.Context, rootDir string) ([]*pack
 }
 
 // Load はpatterns で指定したパッケージを型情報付きでロードする。
-// GOWORK=offを強制してホスト環境のgo.workの影響を受けないようにする。
+// patterns はインポートパスのリストで、workspace では別モジュールのパッケージも
+// インポートパス指定でそのまま解決できる（analyzerEnv が go.work 自動探索を許すため）。
 func (l *GoPackageLoader) Load(ctx context.Context, rootDir string, patterns []string) (*LoadResult, error) {
 	if len(patterns) == 0 {
 		return &LoadResult{}, nil
@@ -102,12 +197,12 @@ func (l *GoPackageLoader) Load(ctx context.Context, rootDir string, patterns []s
 		Dir:     rootDir,
 		Context: ctx,
 		Tests:   false,
-		Env:     append(os.Environ(), "GOWORK=off"),
+		Env:     analyzerEnv(),
 	}
 
 	pkgs, err := packages.Load(cfg, patterns...)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrNoPackages, err)
+		return nil, classifyLoadErr(err)
 	}
 
 	// パッケージ個別のエラーを収集（型エラー等は致命扱いしない）
@@ -178,7 +273,12 @@ func IdentifyChangedPackages(rootDir string, pkgs []*packages.Package, changed [
 // プロジェクト内パッケージのIDスライスを返す（重複なし・ソート済み）。
 // allPkgs は FastLoad で得たプロジェクト内パッケージのみを想定する。
 // 外部ライブラリは含まない。
-func FindNeighborhood(changedPkgs []string, allPkgs []*packages.Package, maxDepth int) []string {
+//
+// maxPkgs は返すパッケージ数の上限（<=0 で無制限）。BFS は深さ順に展開するため、
+// 上限に達したら近いホップを優先的に残して打ち切る。変更パッケージ自体は上限を
+// 超えても必ず含める（Phase 2 のフルロード対象が爆発してメモリ枯渇するのを防ぐ。
+// k8s 等のハブパッケージを含む PR では 3 ホップで数千パッケージに膨らむため）。
+func FindNeighborhood(changedPkgs []string, allPkgs []*packages.Package, maxDepth, maxPkgs int) []string {
 	// プロジェクトパッケージIDセット
 	projectIDs := make(map[string]struct{}, len(allPkgs))
 	for _, pkg := range allPkgs {
@@ -220,14 +320,22 @@ func FindNeighborhood(changedPkgs []string, allPkgs []*packages.Package, maxDept
 		}
 	}
 
+	capped := func() bool { return maxPkgs > 0 && len(visited) >= maxPkgs }
+
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
 		if cur.depth >= maxDepth {
 			continue
 		}
+		if capped() {
+			break // 近いホップから埋めているので、上限到達で打ち切る
+		}
 		neighbors := append(forward[cur.id], reverse[cur.id]...)
 		for _, nid := range neighbors {
+			if capped() {
+				break
+			}
 			if _, ok := visited[nid]; !ok {
 				visited[nid] = struct{}{}
 				queue = append(queue, entry{nid, cur.depth + 1})
