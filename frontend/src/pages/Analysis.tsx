@@ -33,8 +33,17 @@ function stepStatuses(jobStatus: string | undefined, phase: JobPhase | undefined
   })
 }
 
-function isNoPackagesError(msg: string | undefined) {
-  return msg?.includes('no Go packages found') || msg?.includes('ErrNoPackages')
+// errorMessage はバックエンドのエラー文字列を原因別のユーザー向け文言に変換する。
+// analyzer の sentinel error テキストに対応する（backend/internal/infra/analyzer/parser.go）。
+// 「ロード失敗」を一律「Go リポジトリではない」に丸めず、toolchain 起因と区別する。
+function errorMessage(msg: string | undefined): string {
+  if (msg?.includes('required Go toolchain unavailable')) {
+    return 'このリポジトリが要求する Go のバージョンを解析環境が用意できませんでした。少し時間をおいて再試行してください。'
+  }
+  if (msg?.includes('no Go packages found') || msg?.includes('ErrNoPackages')) {
+    return 'Go コードを含む PR ではありません。Go リポジトリの PR URL を指定してください。'
+  }
+  return msg ?? '解析中に予期しないエラーが発生しました。'
 }
 
 export default function Analysis() {
@@ -51,7 +60,6 @@ export default function Analysis() {
   }
 
   if (job.status === 'error') {
-    const isNonGo = isNoPackagesError(job.error)
     return (
       <div className="flex min-h-svh items-center justify-center bg-[#fafaf9]">
         <Card className="w-full max-w-md border-red-200">
@@ -60,11 +68,7 @@ export default function Analysis() {
               <ErrorIcon />
               <span>解析に失敗しました</span>
             </div>
-            <p className="text-sm text-stone-600">
-              {isNonGo
-                ? 'Go コードを含む PR ではありません。Go リポジトリの PR URL を指定してください。'
-                : job.error}
-            </p>
+            <p className="text-sm text-stone-600">{errorMessage(job.error)}</p>
             <Button asChild variant="outline" size="sm" className="mt-2">
               <Link to="/">別の PR を試す</Link>
             </Button>
