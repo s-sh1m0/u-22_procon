@@ -15,6 +15,11 @@ import (
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
 
+// defaultMaxNeighborhood は Phase 2 で型情報付きロードする近傍パッケージ数の上限。
+// これを超える近傍は近いホップ優先で打ち切る。k8s のようなハブパッケージを含む
+// 巨大リポジトリでフルロードがメモリ枯渇するのを防ぐためのガード。
+const defaultMaxNeighborhood = 500
+
 // PreparedSource はclone・ロード・変更パッケージ特定の結果をまとめたもの。
 type PreparedSource struct {
 	RepoRoot            string // リポジトリルート（GitHub API パスの基点）
@@ -110,11 +115,16 @@ func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, 
 		}, nil
 	}
 
-	// Phase 2: 変更パッケージとその近傍（defaultMaxDepth ホップ以内）のみを
-	// 型情報付きでロードする。外部ライブラリは型チェックの依存として読まれるが
-	// 返却パッケージには含まれない。
-	neighborhood := FindNeighborhood(changedPkgs, fastPkgs, defaultMaxDepth)
-	log.Printf("analyzer: neighborhood(%d pkgs): %v", len(neighborhood), neighborhood)
+	// Phase 2: 変更パッケージとその近傍（defaultMaxDepth ホップ以内・最大
+	// defaultMaxNeighborhood 件）のみを型情報付きでロードする。外部ライブラリは
+	// 型チェックの依存として読まれるが返却パッケージには含まれない。
+	// 件数を上限で抑えるのは、ハブパッケージを含む PR（k8s 等）で近傍が数千件に
+	// 膨らみ、フルロード時にメモリ枯渇（OOM）するのを防ぐため。
+	neighborhood := FindNeighborhood(changedPkgs, fastPkgs, defaultMaxDepth, defaultMaxNeighborhood)
+	if len(neighborhood) >= defaultMaxNeighborhood {
+		log.Printf("analyzer: neighborhood capped at %d pkgs (changed=%d) — graph may be partial", defaultMaxNeighborhood, len(changedPkgs))
+	}
+	log.Printf("analyzer: neighborhood(%d pkgs)", len(neighborhood))
 
 	t1 := time.Now()
 	result, err := s.Loader.Load(ctx, loadDir, neighborhood)

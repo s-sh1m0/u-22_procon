@@ -273,7 +273,12 @@ func IdentifyChangedPackages(rootDir string, pkgs []*packages.Package, changed [
 // プロジェクト内パッケージのIDスライスを返す（重複なし・ソート済み）。
 // allPkgs は FastLoad で得たプロジェクト内パッケージのみを想定する。
 // 外部ライブラリは含まない。
-func FindNeighborhood(changedPkgs []string, allPkgs []*packages.Package, maxDepth int) []string {
+//
+// maxPkgs は返すパッケージ数の上限（<=0 で無制限）。BFS は深さ順に展開するため、
+// 上限に達したら近いホップを優先的に残して打ち切る。変更パッケージ自体は上限を
+// 超えても必ず含める（Phase 2 のフルロード対象が爆発してメモリ枯渇するのを防ぐ。
+// k8s 等のハブパッケージを含む PR では 3 ホップで数千パッケージに膨らむため）。
+func FindNeighborhood(changedPkgs []string, allPkgs []*packages.Package, maxDepth, maxPkgs int) []string {
 	// プロジェクトパッケージIDセット
 	projectIDs := make(map[string]struct{}, len(allPkgs))
 	for _, pkg := range allPkgs {
@@ -315,14 +320,22 @@ func FindNeighborhood(changedPkgs []string, allPkgs []*packages.Package, maxDept
 		}
 	}
 
+	capped := func() bool { return maxPkgs > 0 && len(visited) >= maxPkgs }
+
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
 		if cur.depth >= maxDepth {
 			continue
 		}
+		if capped() {
+			break // 近いホップから埋めているので、上限到達で打ち切る
+		}
 		neighbors := append(forward[cur.id], reverse[cur.id]...)
 		for _, nid := range neighbors {
+			if capped() {
+				break
+			}
 			if _, ok := visited[nid]; !ok {
 				visited[nid] = struct{}{}
 				queue = append(queue, entry{nid, cur.depth + 1})

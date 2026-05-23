@@ -322,7 +322,7 @@ func FD() {}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := FindNeighborhood(tc.changedPkgs, fastPkgs, tc.maxDepth)
+			got := FindNeighborhood(tc.changedPkgs, fastPkgs, tc.maxDepth, 0)
 			gotSet := make(map[string]struct{}, len(got))
 			for _, id := range got {
 				gotSet[id] = struct{}{}

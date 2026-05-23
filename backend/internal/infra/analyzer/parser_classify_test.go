@@ -82,3 +82,53 @@ func Sub() {}
 		}
 	}
 }
+
+func TestFindNeighborhood_Cap(t *testing.T) {
+	// a → b → c → d の import チェーン。a 起点・深さ十分でも maxPkgs=2 で打ち切られ、
+	// 起点の a は必ず含まれることを確認する。
+	dir := writeFixture(t, map[string]string{
+		"go.mod": "module example.com/cap\n\ngo 1.21\n",
+		"pkg/a/a.go": `package a
+
+import "example.com/cap/pkg/b"
+
+func FA() { b.FB() }
+`,
+		"pkg/b/b.go": `package b
+
+import "example.com/cap/pkg/c"
+
+func FB() { c.FC() }
+`,
+		"pkg/c/c.go": `package c
+
+import "example.com/cap/pkg/d"
+
+func FC() { d.FD() }
+`,
+		"pkg/d/d.go": `package d
+
+func FD() {}
+`,
+	})
+
+	loader := NewGoPackageLoader()
+	pkgs, err := loader.FastLoad(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("FastLoad: %v", err)
+	}
+
+	got := FindNeighborhood([]string{"example.com/cap/pkg/a"}, pkgs, 5, 2)
+	if len(got) > 2 {
+		t.Errorf("neighborhood not capped: got %d (%v), want <= 2", len(got), got)
+	}
+	var hasA bool
+	for _, id := range got {
+		if id == "example.com/cap/pkg/a" {
+			hasA = true
+		}
+	}
+	if !hasA {
+		t.Errorf("changed package a missing from capped neighborhood: %v", got)
+	}
+}
