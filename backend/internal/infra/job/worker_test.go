@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -343,6 +344,67 @@ func TestWorker_ContextCancel_StopsLoop(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("Run did not stop after context cancel")
+	}
+}
+
+// blockingSourceTree は ctx がキャンセル/タイムアウトされるまで Prepare をブロックする。
+type blockingSourceTree struct{}
+
+func (s *blockingSourceTree) Prepare(ctx context.Context, _ domain.PRInfo, _ string, _ []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (s *blockingSourceTree) PrepareAtSHA(ctx context.Context, _ domain.PRInfo, _, _ string, _ []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestWorker_JobTimeout_MarksError(t *testing.T) {
+	prInfo := &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h", BaseSHA: "b"}
+	jobs := newFakeJobStore()
+	jobs.jobs["job-t"] = &domain.Job{
+		ID:     "job-t",
+		Status: domain.JobStatusPending,
+		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+	}
+	analyses := &fakeAnalysisRepo{}
+
+	q := NewQueue(1)
+	w := NewWorker(q, jobs, analyses,
+		&fakePRRepo{prInfo: prInfo, changed: []domain.ChangedFile{}},
+		&blockingSourceTree{},
+		&fakeCGBuilder{graph: &domain.Graph{}},
+		&fakeClusterer{result: &domain.ClusterResult{}},
+		WithJobTimeout(50*time.Millisecond),
+	)
+	w.now = func() time.Time { return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) }
+	w.newID = func() string { return fixedID }
+
+	done := make(chan struct{})
+	go func() {
+		w.process(context.Background(), Item{JobID: "job-t", Token: "tok"})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process did not return after job timeout")
+	}
+
+	j := jobs.jobs["job-t"]
+	if j.Status != domain.JobStatusError {
+		t.Errorf("expected error status, got %s", j.Status)
+	}
+	var gotMsg string
+	for _, c := range jobs.statusCalls {
+		if c.status == domain.JobStatusError {
+			gotMsg = c.errMsg
+		}
+	}
+	if !strings.Contains(gotMsg, "タイムアウト") {
+		t.Errorf("expected timeout message, got %q", gotMsg)
 	}
 }
 
