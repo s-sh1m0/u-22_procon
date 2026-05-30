@@ -13,8 +13,8 @@ import { inferLayer } from './layerInference'
 
 const LAYER_ORDER: LayerKind[] = ['ui', 'domain', 'data', 'infra', 'other']
 
-const NODE_W = 200
-const NODE_H = 60
+export const NODE_W = 200
+export const NODE_H = 60
 const COLS = 5
 const COL_STRIDE = 220
 const ROW_STRIDE = 140
@@ -276,6 +276,10 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
             parentId: clusterId,
             extent: 'parent',
             position: { x, y },
+            // onlyRenderVisibleElements がビューポート外ノードを描画前に間引くには
+            // 寸法が必要。レイアウトが前提とする固定サイズをそのまま渡す。
+            width: NODE_W,
+            height: NODE_H,
             zIndex: 1,
             data: {
               label: n.name,

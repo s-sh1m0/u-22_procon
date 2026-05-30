@@ -32,6 +32,14 @@ const nodeTypes = {
   supercluster: SuperClusterNode,
 }
 
+// 描画ノード数がこれを超えたら MiniMap を省略する。MiniMap はノード1個につき
+// SVG 矩形を1個描くため、大規模グラフでは常時コストになる。
+const MINIMAP_HIDE_NODE_THRESHOLD = 150
+
+// フォーカス時にエッジアニメーション（流れる破線）を行う最大本数。
+// ハブノード選択で数百本が同時にアニメーションすると重くなるため上限を設ける。
+const FOCUS_ANIMATE_MAX_EDGES = 60
+
 type Props = {
   data: GraphResponse
   clusterMode: ClusterMode
@@ -99,10 +107,17 @@ function GraphInner({
 
   const edges = useMemo(() => {
     if (!focus) return layoutEdges
+    // フォーカスエッジが多すぎるときはアニメーションを切る（描画負荷対策）。
+    const animate = focus.edgeDir.size <= FOCUS_ANIMATE_MAX_EDGES
     return layoutEdges.map((e) => {
       const dir = focus.edgeDir.get(e.id)
       if (!dir) return { ...e, style: DIMMED_EDGE_STYLE, markerEnd: undefined, animated: false }
-      return { ...e, style: focusEdgeStyle(dir), markerEnd: focusEdgeMarker(dir), animated: true }
+      return {
+        ...e,
+        style: focusEdgeStyle(dir),
+        markerEnd: focusEdgeMarker(dir),
+        animated: animate,
+      }
     })
   }, [layoutEdges, focus])
 
@@ -138,6 +153,10 @@ function GraphInner({
       fitView
       minZoom={0.05}
       maxZoom={2.5}
+      onlyRenderVisibleElements
+      nodesDraggable={false}
+      nodesConnectable={false}
+      elevateNodesOnSelect={false}
       onNodeClick={handleNodeClick}
       onPaneClick={onClearSelection}
       proOptions={{ hideAttribution: false }}
@@ -149,12 +168,14 @@ function GraphInner({
         </Panel>
       )}
       <Controls position="bottom-left" />
-      <MiniMap
-        nodeColor={(n) =>
-          n.type === 'cluster' || n.type === 'supercluster' ? '#e7e5e4' : '#0d9488'
-        }
-        maskColor="rgba(250,250,249,0.6)"
-      />
+      {nodes.length <= MINIMAP_HIDE_NODE_THRESHOLD && (
+        <MiniMap
+          nodeColor={(n) =>
+            n.type === 'cluster' || n.type === 'supercluster' ? '#e7e5e4' : '#0d9488'
+          }
+          maskColor="rgba(250,250,249,0.6)"
+        />
+      )}
       <Panel position="bottom-right">
         <GraphControls
           clusterMode={clusterMode}
