@@ -126,7 +126,11 @@ func (w *Worker) process(ctx context.Context, item Item) {
 			err = fmt.Errorf("解析がタイムアウトしました（%s）。対象リポジトリ／PR が大きすぎる可能性があります", timeout)
 		}
 		log.Printf("worker: job %s failed: %v", jobID, err)
-		_ = w.jobs.UpdateStatus(context.WithoutCancel(ctx), jobID, domain.JobStatusError, err.Error())
+		// 親 ctx のキャンセル／タイムアウトとは切り離しつつ、DB が詰まっても
+		// シャットダウン時にワーカーが永久ブロックしないよう短いタイムアウトを付ける。
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = w.jobs.UpdateStatus(cleanupCtx, jobID, domain.JobStatusError, err.Error())
 	}
 	// setPhase はフロントの進捗表示用にジョブの現在フェーズを更新する。
 	// 進捗表示は付随情報なので、失敗してもジョブ自体は止めずログのみ残す。
