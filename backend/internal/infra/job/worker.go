@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -141,6 +142,10 @@ func (w *Worker) process(ctx context.Context, item Item) {
 		}
 	}()
 	if err != nil {
+		if errors.Is(err, analyzer.ErrRepositoryTooLarge) {
+			fail(errors.New("大規模リポジトリは未対応です（リポジトリ全体のパッケージ数が上限を超過）。より小規模な Go リポジトリの PR でお試しください。"))
+			return
+		}
 		fail(fmt.Errorf("build base/head graphs: %w", err))
 		return
 	}

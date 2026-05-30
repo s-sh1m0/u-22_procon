@@ -47,6 +47,26 @@ func (e *errorLoader) Load(_ context.Context, _ string, _ []string) (*LoadResult
 	return nil, ErrNoPackages
 }
 
+// countingLoader は FastLoad で指定個数の空パッケージを返し、Load 呼び出し有無を追跡する
+// テスト用 Loader。リポジトリサイズ上限ガードの検証に使う。
+type countingLoader struct {
+	fastLoadCount int
+	loadCalled    bool
+}
+
+func (l *countingLoader) FastLoad(_ context.Context, _ string) ([]*packages.Package, error) {
+	pkgs := make([]*packages.Package, l.fastLoadCount)
+	for i := range pkgs {
+		pkgs[i] = &packages.Package{}
+	}
+	return pkgs, nil
+}
+
+func (l *countingLoader) Load(_ context.Context, _ string, _ []string) (*LoadResult, error) {
+	l.loadCalled = true
+	return &LoadResult{}, nil
+}
+
 func TestSourceTree_Prepare_Success(t *testing.T) {
 	// fixture: 2パッケージ構成のGoモジュール
 	dir := writeFixture(t, map[string]string{
@@ -179,5 +199,39 @@ func TestSourceTree_Prepare_LoaderFailure_CleansUp(t *testing.T) {
 	// 実際のdirがまだ存在することを確認（fakeなので消されない）
 	if _, err := os.Stat(dir); err != nil {
 		t.Errorf("fixture dir should still exist: %v", err)
+	}
+}
+
+func TestSourceTree_Prepare_RepositoryTooLarge_Rejects(t *testing.T) {
+	// go.mod を持つfixture（findGoModRootを通すため）。パッケージの中身は問わない。
+	dir := writeFixture(t, map[string]string{
+		"go.mod": "module example.com/fixture\n\ngo 1.21\n",
+	})
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fc := &fakeCloner{fixtureDir: resolvedDir}
+	cl := &countingLoader{fastLoadCount: maxFastLoadPackages + 1}
+	st := NewSourceTree(fc, cl)
+
+	pr := domain.PRInfo{Owner: "o", Repo: "r", HeadSHA: "sha"}
+	changed := []domain.ChangedFile{{Filename: "pkg/a/a.go", Status: "modified"}}
+
+	_, err = st.Prepare(context.Background(), pr, "", changed)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrRepositoryTooLarge) {
+		t.Errorf("expected ErrRepositoryTooLarge, got: %v", err)
+	}
+	// 上限超過時は Phase 2（型情報付きロード）へ進まないこと
+	if cl.loadCalled {
+		t.Error("Load should not be called when repository exceeds the package limit")
+	}
+	// reject 時も Cleanup が呼ばれ部分状態を残さないこと
+	if !fc.cleanupCalled {
+		t.Error("expected fakeCloner.Cleanup to be called on reject")
 	}
 }
