@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -30,7 +31,14 @@ type sourceTreePreparer interface {
 	PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, sha string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error)
 }
 
+// defaultJobTimeout は1ジョブの解析にかける時間の上限のデフォルト値。
+// 巨大リポジトリ（k8s 等）の解析が暴走してワーカーを無限に占有し、
+// 後続ジョブ（＝他ユーザー）を巻き添えにするのを防ぐ安全弁。
+const defaultJobTimeout = 120 * time.Second
+
 // Worker はキューからジョブを受け取り解析パイプラインを実行する。
+// Run は複数 goroutine から同時に呼び出して構わない（フィールドは不変、
+// ジョブ処理は注入された依存のみを使い受信側の可変状態を持たない）。
 type Worker struct {
 	queue      *Queue
 	jobs       jobStore
@@ -41,6 +49,20 @@ type Worker struct {
 	clusterer  cluster.Clusterer
 	now        func() time.Time
 	newID      func() string
+	jobTimeout time.Duration
+}
+
+// Option は Worker の任意設定を変更する関数オプション。
+type Option func(*Worker)
+
+// WithJobTimeout は1ジョブあたりの処理時間上限を設定する。
+// d <= 0 のときはデフォルト値を使う。
+func WithJobTimeout(d time.Duration) Option {
+	return func(w *Worker) {
+		if d > 0 {
+			w.jobTimeout = d
+		}
+	}
 }
 
 // NewWorker は Worker を返す。
@@ -52,8 +74,9 @@ func NewWorker(
 	sourceTree sourceTreePreparer,
 	cgBuilder analyzer.CallGraphBuilder,
 	clusterer cluster.Clusterer,
+	opts ...Option,
 ) *Worker {
-	return &Worker{
+	w := &Worker{
 		queue:      queue,
 		jobs:       jobs,
 		analyses:   analyses,
@@ -63,7 +86,12 @@ func NewWorker(
 		clusterer:  clusterer,
 		now:        time.Now,
 		newID:      workerRandomID,
+		jobTimeout: defaultJobTimeout,
 	}
+	for _, opt := range opts {
+		opt(w)
+	}
+	return w
 }
 
 // Run はジョブキューを読み込み、ctx がキャンセルされるかキューが閉じるまでブロックする。
@@ -83,9 +111,26 @@ func (w *Worker) Run(ctx context.Context) error {
 
 func (w *Worker) process(ctx context.Context, item Item) {
 	jobID := item.JobID
+
+	// ジョブ単位のタイムアウト。暴走解析が1本のワーカーを占有し続けるのを防ぐ。
+	timeout := w.jobTimeout
+	if timeout <= 0 {
+		timeout = defaultJobTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	fail := func(err error) {
+		// タイムアウト由来の失敗は原因が分かる文言に置き換える（巨大リポジトリの可能性）。
+		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
+			err = fmt.Errorf("解析がタイムアウトしました（%s）。対象リポジトリ／PR が大きすぎる可能性があります", timeout)
+		}
 		log.Printf("worker: job %s failed: %v", jobID, err)
-		_ = w.jobs.UpdateStatus(ctx, jobID, domain.JobStatusError, err.Error())
+		// 親 ctx のキャンセル／タイムアウトとは切り離しつつ、DB が詰まっても
+		// シャットダウン時にワーカーが永久ブロックしないよう短いタイムアウトを付ける。
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = w.jobs.UpdateStatus(cleanupCtx, jobID, domain.JobStatusError, err.Error())
 	}
 	// setPhase はフロントの進捗表示用にジョブの現在フェーズを更新する。
 	// 進捗表示は付随情報なので、失敗してもジョブ自体は止めずログのみ残す。

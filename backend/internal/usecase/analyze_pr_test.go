@@ -36,6 +36,26 @@ func (r *fakeAnalysisRepo) FindByPR(_ context.Context, _ domain.PRInfo) (*domain
 	return r.byPR, r.err
 }
 
+type fakePRRepo struct {
+	pr  *domain.PRInfo
+	err error
+}
+
+func (r *fakePRRepo) GetPR(_ context.Context, _, _, _ string, _ int) (*domain.PRInfo, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.pr, nil
+}
+
+func (r *fakePRRepo) ListChangedGoFiles(_ context.Context, _, _, _ string, _ int) ([]domain.ChangedFile, error) {
+	return nil, r.err
+}
+
+func (r *fakePRRepo) GetFileContent(_ context.Context, _, _, _, _, _ string) ([]byte, error) {
+	return nil, r.err
+}
+
 type fakeJobRepo struct {
 	saved []*domain.Job
 	err   error
@@ -82,8 +102,9 @@ func TestAnalyzePR_CacheMiss_Enqueue(t *testing.T) {
 	analyses := &fakeAnalysisRepo{byPR: nil}
 	jobs := &fakeJobRepo{}
 	enqueuer := &fakeEnqueuer{}
+	prRepo := &fakePRRepo{pr: &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"}}
 
-	uc := NewAnalyzePRUseCase(analyses, jobs, enqueuer)
+	uc := NewAnalyzePRUseCase(analyses, jobs, prRepo, enqueuer)
 	pr := domain.PRInfo{Owner: "o", Repo: "r", Number: 1}
 
 	jobID, err := uc.Execute(context.Background(), "token-xxx", pr)
@@ -110,14 +131,15 @@ func TestAnalyzePR_CacheMiss_Enqueue(t *testing.T) {
 func TestAnalyzePR_CacheHit_NoEnqueue(t *testing.T) {
 	cachedAnalysis := &domain.Analysis{
 		ID:           "cached-analysis",
-		PR:           domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+		PR:           domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"},
 		ChangedFiles: []domain.DiffFile{},
 	}
 	analyses := &fakeAnalysisRepo{byPR: cachedAnalysis}
 	jobs := &fakeJobRepo{}
 	enqueuer := &fakeEnqueuer{}
+	prRepo := &fakePRRepo{pr: &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"}}
 
-	uc := NewAnalyzePRUseCase(analyses, jobs, enqueuer)
+	uc := NewAnalyzePRUseCase(analyses, jobs, prRepo, enqueuer)
 	pr := domain.PRInfo{Owner: "o", Repo: "r", Number: 1}
 
 	jobID, err := uc.Execute(context.Background(), "token-xxx", pr)
@@ -141,13 +163,42 @@ func TestAnalyzePR_CacheHit_NoEnqueue(t *testing.T) {
 	}
 }
 
+// 新しいコミットで head SHA が変わった PR は、PR 番号が一致する古い解析が
+// キャッシュにあっても再解析（enqueue）されること。
+func TestAnalyzePR_StaleSHA_Reanalyze(t *testing.T) {
+	cachedAnalysis := &domain.Analysis{
+		ID:           "cached-analysis",
+		PR:           domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "old", BaseSHA: "b1"},
+		ChangedFiles: []domain.DiffFile{},
+	}
+	analyses := &fakeAnalysisRepo{byPR: cachedAnalysis}
+	jobs := &fakeJobRepo{}
+	enqueuer := &fakeEnqueuer{}
+	prRepo := &fakePRRepo{pr: &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "new", BaseSHA: "b1"}}
+
+	uc := NewAnalyzePRUseCase(analyses, jobs, prRepo, enqueuer)
+	pr := domain.PRInfo{Owner: "o", Repo: "r", Number: 1}
+
+	_, err := uc.Execute(context.Background(), "token-xxx", pr)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(jobs.saved) != 1 || jobs.saved[0].Status != domain.JobStatusPending {
+		t.Fatalf("expected 1 pending job, got %+v", jobs.saved)
+	}
+	if len(enqueuer.calls) != 1 {
+		t.Errorf("expected 1 enqueue call (re-analyze), got %d", len(enqueuer.calls))
+	}
+}
+
 func TestAnalyzePR_RepoError_Propagated(t *testing.T) {
 	sentinel := errors.New("db down")
 	analyses := &fakeAnalysisRepo{err: sentinel}
 	jobs := &fakeJobRepo{}
 	enqueuer := &fakeEnqueuer{}
+	prRepo := &fakePRRepo{pr: &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"}}
 
-	uc := NewAnalyzePRUseCase(analyses, jobs, enqueuer)
+	uc := NewAnalyzePRUseCase(analyses, jobs, prRepo, enqueuer)
 	_, err := uc.Execute(context.Background(), "t", domain.PRInfo{Owner: "o", Repo: "r", Number: 1})
 	if !errors.Is(err, sentinel) {
 		t.Errorf("expected sentinel error, got %v", err)
@@ -158,8 +209,9 @@ func TestAnalyzePR_IDsAreUnique(t *testing.T) {
 	analyses := &fakeAnalysisRepo{}
 	jobs := &fakeJobRepo{}
 	enqueuer := &fakeEnqueuer{}
+	prRepo := &fakePRRepo{pr: &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"}}
 
-	uc := NewAnalyzePRUseCase(analyses, jobs, enqueuer)
+	uc := NewAnalyzePRUseCase(analyses, jobs, prRepo, enqueuer)
 	uc.now = func() time.Time { return time.Now() }
 
 	pr := domain.PRInfo{Owner: "o", Repo: "r", Number: 1}

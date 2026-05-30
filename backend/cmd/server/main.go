@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"syscall"
 	"time"
@@ -58,9 +59,22 @@ func main() {
 
 	queueBuf := envIntOr("JOB_QUEUE_BUFFER", 32)
 	queue := job.NewQueue(queueBuf)
-	worker := job.NewWorker(queue, jobRepo, analysisRepo, prRepo, sourceTree, cgBuilder, clusterer)
 
-	analyzeUC := usecase.NewAnalyzePRUseCase(analysisRepo, jobRepo, queue)
+	// 1ジョブの解析時間上限。暴走解析がワーカーを占有し続けるのを防ぐ安全弁。
+	jobTimeout := time.Duration(envIntOr("JOB_TIMEOUT_SECONDS", 120)) * time.Second
+	worker := job.NewWorker(queue, jobRepo, analysisRepo, prRepo, sourceTree, cgBuilder, clusterer,
+		job.WithJobTimeout(jobTimeout))
+
+	// 同時に走らせる解析ワーカー数。直列実行だと1ジョブが詰まると後続（他ユーザー）が
+	// 全員待たされるためプール化する。1ジョブは base/head を内部で並列構築し CPU/メモリを
+	// 多く使う（型チェック＋SSA/CHA）ため、既定値は CPU 数と 4 の小さい方に抑える。
+	// メモリ枯渇を避けるには compose.yml の GOMEMLIMIT/mem_limit と合わせて調整すること。
+	workerCount := envIntOr("JOB_WORKERS", min(runtime.NumCPU(), 4))
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	analyzeUC := usecase.NewAnalyzePRUseCase(analysisRepo, jobRepo, prRepo, queue)
 	getUC := usecase.NewGetAnalysisUseCase(analysisRepo, jobRepo)
 
 	oauth := githubinfra.NewOAuthConfig(clientID, clientSecret, callbackURL)
@@ -75,9 +89,12 @@ func main() {
 
 	eg, egCtx := errgroup.WithContext(ctx)
 
-	eg.Go(func() error {
-		return worker.Run(egCtx)
-	})
+	log.Printf("startup: launching %d analysis worker(s) (job timeout %s)", workerCount, jobTimeout)
+	for i := 0; i < workerCount; i++ {
+		eg.Go(func() error {
+			return worker.Run(egCtx)
+		})
+	}
 
 	eg.Go(func() error {
 		if err := router.Start(":" + port); err != nil && err != http.ErrServerClosed {
