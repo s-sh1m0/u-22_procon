@@ -89,6 +89,14 @@ func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, 
 	}
 	log.Printf("analyzer: phase1 FastLoad(%d pkgs) took %s", len(fastPkgs), time.Since(t0))
 
+	// リポジトリ全体のパッケージ数が上限を超えるなら、Phase 2（型情報付きロード）に
+	// 進む前に reject する。型ロードやジョブタイムアウトが無言で発火するのを防ぎ、
+	// ユーザーに「大規模リポジトリは未対応」と明示するための入口側ガード。
+	if len(fastPkgs) > maxFastLoadPackages {
+		_ = cloned.Cleanup()
+		return nil, fmt.Errorf("%w: detected %d packages (limit %d)", ErrRepositoryTooLarge, len(fastPkgs), maxFastLoadPackages)
+	}
+
 	// GitHub API の changed ファイルパスはリポジトリルート相対なので clonedRoot を基点にする。
 	changedPkgs := IdentifyChangedPackages(clonedRoot, fastPkgs, changed)
 	log.Printf("analyzer: changed packages: %v", changedPkgs)

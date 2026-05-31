@@ -28,6 +28,18 @@ var ErrGoToolchainUnavailable = errors.New("analyzer: required Go toolchain unav
 // （依存解決・vendoring 不整合など）。「Go パッケージ皆無」とは区別する。
 var ErrPackageLoadFailed = errors.New("analyzer: failed to load Go packages")
 
+// ErrRepositoryTooLarge はリポジトリ全体のパッケージ数が maxFastLoadPackages を超え、
+// 解析対象外として明示的に reject するときの sentinel error。
+// PR の変更規模ではなくリポジトリ全体サイズで判定するため、巨大リポジトリ上の
+// 小さな PR は弾かれず、コアバリュー（大きな PR の分割）には影響しない。
+var ErrRepositoryTooLarge = errors.New("analyzer: repository is too large to analyze")
+
+// maxFastLoadPackages は FastLoad で得たプロジェクト全体のパッケージ数の上限。
+// これを超えるリポジトリは Phase 2（型情報付きロード）に進む前に reject する。
+// k8s 規模のリポジトリで型ロードやジョブタイムアウト（120s）が無言で発火するのを防ぎ、
+// ユーザーに「大規模リポジトリは未対応」と分かりやすく返すための入口側ガード。
+const maxFastLoadPackages = 1500
+
 // loadMode は callgraph (#5) と diff→AST マップ (#6) で必要なフラグを全て含む。
 const loadMode = packages.NeedName |
 	packages.NeedFiles |
