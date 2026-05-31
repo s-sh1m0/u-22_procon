@@ -13,8 +13,8 @@ import { inferLayer } from './layerInference'
 
 const LAYER_ORDER: LayerKind[] = ['ui', 'domain', 'data', 'infra', 'other']
 
-const NODE_W = 200
-const NODE_H = 60
+export const NODE_W = 200
+export const NODE_H = 60
 const COLS = 5
 const COL_STRIDE = 220
 const ROW_STRIDE = 140
@@ -232,6 +232,10 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
             removedCount,
             hasChanged: changedCount > 0 || addedCount > 0 || removedCount > 0,
           } as SuperClusterNodeData,
+          // onlyRenderVisibleElements の交差判定はトップレベルの width/height を読む
+          // （style は参照しない）。style と同値を渡して間引き対象に含める。
+          width: SUPER_W,
+          height: SUPER_H,
           style: { width: SUPER_W, height: SUPER_H },
         })
 
@@ -258,6 +262,10 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
             clusterColorHex: color.hex,
             clusterColorSoft: color.soft,
           } as ClusterGroupData,
+          // onlyRenderVisibleElements の交差判定はトップレベルの width/height を読む
+          // （style は参照しない）。style と同値を渡して間引き対象に含める。
+          width: clusterW,
+          height: clusterH,
           style: { width: clusterW, height: clusterH },
           draggable: false,
           selectable: true,
@@ -276,6 +284,10 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
             parentId: clusterId,
             extent: 'parent',
             position: { x, y },
+            // onlyRenderVisibleElements がビューポート外ノードを描画前に間引くには
+            // 寸法が必要。レイアウトが前提とする固定サイズをそのまま渡す。
+            width: NODE_W,
+            height: NODE_H,
             zIndex: 1,
             data: {
               label: n.name,

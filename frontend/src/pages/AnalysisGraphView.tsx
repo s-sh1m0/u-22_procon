@@ -24,6 +24,11 @@ import { Button } from '@/components/ui/button'
 
 type Props = { jobId: string }
 
+// デフォルト（初回表示）で自動展開する関数ノード数の予算。これを超える分の
+// 変更クラスタは折りたたんだまま開始し、大規模 PR で初期描画が重くなるのを防ぐ。
+// ユーザーは個別展開・すべて展開で随時開ける（展開時も仮想化で描画は軽い）。
+const AUTO_EXPAND_NODE_BUDGET = 300
+
 export default function AnalysisGraphView({ jobId }: Props) {
   const [clusterMode, setClusterMode] = useState<ClusterMode>('louvain')
   const { data, isLoading, error } = useGraph(jobId, true, clusterMode)
@@ -47,22 +52,35 @@ export default function AnalysisGraphView({ jobId }: Props) {
 
     const nodeMap = new Map(data.graph.nodes.map((n) => [n.id, n]))
 
+    // 展開キー(layer:clusterId)ごとにノード数・変更ノード数を集計する。
+    const keyStats = new Map<string, { nodeCount: number; changedCount: number }>()
     for (const cluster of data.clusters) {
-      const clusterKeys = new Set<string>()
-      let hasChanged = false
       for (const nid of cluster.nodes) {
         const n = nodeMap.get(nid)
-        if (n) {
-          const key = makeClusterKey(n.package, cluster.id)
-          clusterKeys.add(key)
-          allKeys.add(key)
-          if (n.changed || n.diff_status !== 'existing') hasChanged = true
-        }
-      }
-      if (hasChanged) {
-        clusterKeys.forEach((k) => defaultExpanded.add(k))
+        if (!n) continue
+        const key = makeClusterKey(n.package, cluster.id)
+        allKeys.add(key)
+        const s = keyStats.get(key) ?? { nodeCount: 0, changedCount: 0 }
+        s.nodeCount++
+        if (n.changed || n.diff_status !== 'existing') s.changedCount++
+        keyStats.set(key, s)
       }
     }
+
+    // 変更を含むキーを優先度順（変更ノード数 desc → ノード数 asc）に並べ、
+    // 描画ノード総数が予算を超えない範囲で自動展開する。
+    const candidates = [...keyStats.entries()]
+      .filter(([, s]) => s.changedCount > 0)
+      .sort((a, b) => b[1].changedCount - a[1].changedCount || a[1].nodeCount - b[1].nodeCount)
+
+    let used = 0
+    for (const [key, s] of candidates) {
+      // 最優先の1キーは予算超過でも必ず開く（常に何か展開された状態で見せる）。
+      if (used > 0 && used + s.nodeCount > AUTO_EXPAND_NODE_BUDGET) continue
+      defaultExpanded.add(key)
+      used += s.nodeCount
+    }
+
     return { defaultExpandedClusters: defaultExpanded, allClusterKeys: allKeys }
   }, [data])
 
