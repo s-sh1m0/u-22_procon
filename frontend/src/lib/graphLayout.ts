@@ -232,6 +232,10 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
             removedCount,
             hasChanged: changedCount > 0 || addedCount > 0 || removedCount > 0,
           } as SuperClusterNodeData,
+          // onlyRenderVisibleElements の交差判定はトップレベルの width/height を読む
+          // （style は参照しない）。style と同値を渡して間引き対象に含める。
+          width: SUPER_W,
+          height: SUPER_H,
           style: { width: SUPER_W, height: SUPER_H },
         })
 
@@ -258,6 +262,10 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
             clusterColorHex: color.hex,
             clusterColorSoft: color.soft,
           } as ClusterGroupData,
+          // onlyRenderVisibleElements の交差判定はトップレベルの width/height を読む
+          // （style は参照しない）。style と同値を渡して間引き対象に含める。
+          width: clusterW,
+          height: clusterH,
           style: { width: clusterW, height: clusterH },
           draggable: false,
           selectable: true,
