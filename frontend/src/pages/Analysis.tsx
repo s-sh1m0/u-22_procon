@@ -43,6 +43,9 @@ function errorMessage(msg: string | undefined): string {
   if (msg?.includes('no Go packages found') || msg?.includes('ErrNoPackages')) {
     return 'Go コードを含む PR ではありません。Go リポジトリの PR URL を指定してください。'
   }
+  if (msg?.includes('repository is too large to analyze')) {
+    return '大規模リポジトリは未対応です（リポジトリ全体のパッケージ数が上限を超過）。より小規模な Go リポジトリの PR でお試しください。'
+  }
   return msg ?? '解析中に予期しないエラーが発生しました。'
 }
 
