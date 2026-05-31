@@ -44,6 +44,8 @@ type Props = {
   data: GraphResponse
   clusterMode: ClusterMode
   onChangeClusterMode: (mode: ClusterMode) => void
+  impactOnly: boolean
+  onSetImpactOnly: (next: boolean) => void
   selectedNodeId: string | null
   onSelectNode: (id: string) => void
   onClearSelection: () => void
@@ -57,6 +59,8 @@ function GraphInner({
   data,
   clusterMode,
   onChangeClusterMode,
+  impactOnly,
+  onSetImpactOnly,
   selectedNodeId,
   onSelectNode,
   onClearSelection,
@@ -180,6 +184,8 @@ function GraphInner({
         <GraphControls
           clusterMode={clusterMode}
           onChangeClusterMode={onChangeClusterMode}
+          impactOnly={impactOnly}
+          onSetImpactOnly={onSetImpactOnly}
           onFitChanged={handleFitChanged}
           onExpandAll={onExpandAll}
           onCollapseAll={onCollapseAll}
