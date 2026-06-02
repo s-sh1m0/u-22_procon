@@ -1,9 +1,5 @@
-import type { GraphResponse, GraphEdge, GraphNode } from '@/types/api'
-
-/** ノードが diff に関与しているか（追加 / 削除 / 変更のいずれか）。 */
-function isChanged(n: GraphNode): boolean {
-  return n.changed || n.diff_status !== 'existing'
-}
+import type { GraphResponse, GraphEdge } from '@/types/api'
+import { isChanged } from '@/lib/nodeChange'
 
 /**
  * 変更ノード（diff に関与）とその直接近傍 1-hop（呼び出し元・呼び出し先の両方向）

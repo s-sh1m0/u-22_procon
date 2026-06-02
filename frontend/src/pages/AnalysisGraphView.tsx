@@ -8,6 +8,7 @@ import { inferLayer } from '@/lib/layerInference'
 import { getClusterColor } from '@/lib/clusterColors'
 import { makeClusterKey } from '@/lib/graphLayout'
 import { filterToImpact } from '@/lib/impactFilter'
+import { isChanged } from '@/lib/nodeChange'
 import {
   computeInDegree,
   computeReviewPriority,
@@ -83,7 +84,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
         allKeys.add(key)
         const s = keyStats.get(key) ?? { nodeCount: 0, changedCount: 0 }
         s.nodeCount++
-        if (n.changed || n.diff_status !== 'existing') s.changedCount++
+        if (isChanged(n)) s.changedCount++
         keyStats.set(key, s)
       }
     }
