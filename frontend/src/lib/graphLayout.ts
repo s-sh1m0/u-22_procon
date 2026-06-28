@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import { MarkerType, type Edge, type EdgeMarker } from '@xyflow/react'
-import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js'
+import ELKConstructor, { type ELK, type ElkNode } from 'elkjs/lib/elk-api.js'
+import elkWorkerUrl from 'elkjs/lib/elk-worker.min.js?url'
 import type { GraphResponse, Cluster, GraphEdge, DiffStatus } from '@/types/api'
 import type {
   AnyFlowNode,
@@ -25,6 +26,8 @@ const CLUSTER_PAD = 16
 
 // ELK レイヤードレイアウトのオプション。呼ぶ側→呼ばれる側を上→下に並べる。
 // hierarchyHandling=INCLUDE_CHILDREN でクラスタ枠を跨ぐエッジも階層化対象にする。
+// considerModelOrder / separateConnectedComponents は付けない（計算コストがほぼ倍増し、
+// 「すべて展開」時に体感できるレベルで重くなるため。実測で確認済み）。
 const ROOT_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.algorithm': 'layered',
   'elk.direction': 'DOWN',
@@ -32,16 +35,20 @@ const ROOT_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.layered.spacing.nodeNodeBetweenLayers': '64',
   'elk.spacing.nodeNode': '40',
   'elk.spacing.componentComponent': '64',
-  'elk.separateConnectedComponents': 'true',
-  // クラスタ内のノード順をなるべく元の並びに寄せ、再描画時の安定性を上げる。
-  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
 }
 
 const CLUSTER_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.padding': `[top=${CLUSTER_PAD_TOP},left=${CLUSTER_PAD},bottom=${CLUSTER_PAD},right=${CLUSTER_PAD}]`,
 }
 
-const elk = new ELK()
+// ELK は Web Worker で実行する（メインスレッドを塞がないため）。layered レイアウトは
+// ノード数に対して超線形に重く、メインスレッドだと大きなグラフの展開で UI がフリーズする。
+// elk-worker は Vite が別チャンクに分離するのでメインバンドルにも乗らない。
+let elkInstance: ELK | null = null
+function getElk(): ELK {
+  if (!elkInstance) elkInstance = new ELKConstructor({ workerUrl: elkWorkerUrl })
+  return elkInstance
+}
 
 type InputNode = {
   id: string
@@ -285,7 +292,7 @@ export async function layoutGraph(
     edges: flowEdges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] })),
   }
 
-  const laidOut = await elk.layout(elkGraph)
+  const laidOut = await getElk().layout(elkGraph)
 
   // ELK の結果から React Flow ノードを組み立てる。親（コンテナ）は子より先に push する。
   const flowNodes: AnyFlowNode[] = []
