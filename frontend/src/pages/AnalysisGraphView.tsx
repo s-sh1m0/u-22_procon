@@ -7,6 +7,8 @@ import { useDiff } from '@/hooks/useDiff'
 import { inferLayer } from '@/lib/layerInference'
 import { getClusterColor } from '@/lib/clusterColors'
 import { makeClusterKey } from '@/lib/graphLayout'
+import { filterToImpact } from '@/lib/impactFilter'
+import { isChanged } from '@/lib/nodeChange'
 import {
   computeInDegree,
   computeReviewPriority,
@@ -36,6 +38,15 @@ export default function AnalysisGraphView({ jobId }: Props) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   // null = 未操作（自動展開ロジックを使う）、Set = ユーザー操作後の明示的な展開セット
   const [expandedClustersOverride, setExpandedClustersOverride] = useState<Set<string> | null>(null)
+  // true = 変更影響のみ（diff 1-hop 近傍に絞り込み）、false = 全体グラフ
+  const [impactOnly, setImpactOnly] = useState(true)
+
+  // 描画に使うグラフ。変更影響ビューでは diff 近傍だけに絞った部分グラフを渡す。
+  // クラスタ集計・展開・レイアウトはすべてこの view を基準に行う。
+  const view = useMemo(() => {
+    if (!data) return data
+    return impactOnly ? filterToImpact(data) : data
+  }, [data, impactOnly])
 
   // モード切替時はクラスタが組み変わるため、選択 / 明示的な展開セットをリセットして
   // 新しいクラスタ構造に応じた自動展開ロジックを再適用する。
@@ -45,16 +56,27 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setExpandedClustersOverride(null)
   }, [])
 
+  // 影響ビューの切替もクラスタ構成が変わるため、選択 / 展開セットをリセットする。
+  const handleSetImpactOnly = useCallback(
+    (next: boolean) => {
+      if (next === impactOnly) return
+      setImpactOnly(next)
+      setSelectedNodeId(null)
+      setExpandedClustersOverride(null)
+    },
+    [impactOnly],
+  )
+
   const { defaultExpandedClusters, allClusterKeys } = useMemo(() => {
     const defaultExpanded = new Set<string>()
     const allKeys = new Set<string>()
-    if (!data) return { defaultExpandedClusters: defaultExpanded, allClusterKeys: allKeys }
+    if (!view) return { defaultExpandedClusters: defaultExpanded, allClusterKeys: allKeys }
 
-    const nodeMap = new Map(data.graph.nodes.map((n) => [n.id, n]))
+    const nodeMap = new Map(view.graph.nodes.map((n) => [n.id, n]))
 
     // 展開キー(layer:clusterId)ごとにノード数・変更ノード数を集計する。
     const keyStats = new Map<string, { nodeCount: number; changedCount: number }>()
-    for (const cluster of data.clusters) {
+    for (const cluster of view.clusters) {
       for (const nid of cluster.nodes) {
         const n = nodeMap.get(nid)
         if (!n) continue
@@ -62,7 +84,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
         allKeys.add(key)
         const s = keyStats.get(key) ?? { nodeCount: 0, changedCount: 0 }
         s.nodeCount++
-        if (n.changed || n.diff_status !== 'existing') s.changedCount++
+        if (isChanged(n)) s.changedCount++
         keyStats.set(key, s)
       }
     }
@@ -82,7 +104,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
     }
 
     return { defaultExpandedClusters: defaultExpanded, allClusterKeys: allKeys }
-  }, [data])
+  }, [view])
 
   const expandedClusters = expandedClustersOverride ?? defaultExpandedClusters
 
@@ -238,9 +260,11 @@ export default function AnalysisGraphView({ jobId }: Props) {
       }
     >
       <DependencyGraph
-        data={data}
+        data={view ?? data}
         clusterMode={clusterMode}
         onChangeClusterMode={handleChangeClusterMode}
+        impactOnly={impactOnly}
+        onSetImpactOnly={handleSetImpactOnly}
         selectedNodeId={selectedNodeId}
         onSelectNode={setSelectedNodeId}
         onClearSelection={() => setSelectedNodeId(null)}

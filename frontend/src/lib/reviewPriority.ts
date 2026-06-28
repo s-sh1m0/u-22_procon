@@ -1,4 +1,5 @@
 import type { Cycle, DiffStatus, GraphEdge } from '@/types/api'
+import { isChanged } from '@/lib/nodeChange'
 
 // レビュー優先度。レビュアーがどのノードを重点的に見るべきかの指標。
 export type ReviewPriority = 'high' | 'medium' | 'low'
@@ -35,8 +36,7 @@ export function computeReviewPriority(
   inNewCycle: boolean,
 ): ReviewPriority {
   if (inNewCycle) return 'high'
-  const touched = node.changed || node.diff_status !== 'existing'
-  if (!touched) return 'low'
+  if (!isChanged(node)) return 'low'
   if (inDegree >= HIGH_IN_DEGREE) return 'high'
   return 'medium'
 }

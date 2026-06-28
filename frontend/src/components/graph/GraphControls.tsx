@@ -5,6 +5,8 @@ import { Card, CardContent } from '@/components/ui/card'
 type Props = {
   clusterMode: ClusterMode
   onChangeClusterMode: (mode: ClusterMode) => void
+  impactOnly: boolean
+  onSetImpactOnly: (next: boolean) => void
   onFitChanged: () => void
   onExpandAll: () => void
   onCollapseAll: () => void
@@ -16,9 +18,16 @@ const CLUSTER_MODES: { value: ClusterMode; label: string }[] = [
   { value: 'file', label: 'ファイル' },
 ]
 
+const VIEW_MODES: { value: boolean; label: string }[] = [
+  { value: true, label: '変更影響のみ' },
+  { value: false, label: '全体' },
+]
+
 export default function GraphControls({
   clusterMode,
   onChangeClusterMode,
+  impactOnly,
+  onSetImpactOnly,
   onFitChanged,
   onExpandAll,
   onCollapseAll,
@@ -26,6 +35,23 @@ export default function GraphControls({
   return (
     <Card className="shadow-md border-stone-200 bg-white">
       <CardContent className="p-2 flex flex-col gap-2">
+        <div className="flex overflow-hidden rounded border border-stone-200 text-xs">
+          {VIEW_MODES.map((m, i) => (
+            <button
+              key={String(m.value)}
+              className={[
+                'flex-1 px-2 py-1.5 transition-colors',
+                i > 0 ? 'border-l border-stone-200' : '',
+                impactOnly === m.value
+                  ? 'bg-stone-900 text-white'
+                  : 'bg-white text-stone-600 hover:bg-stone-50',
+              ].join(' ')}
+              onClick={() => onSetImpactOnly(m.value)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <div className="flex overflow-hidden rounded border border-stone-200 text-xs">
           {CLUSTER_MODES.map((m, i) => (
             <button
