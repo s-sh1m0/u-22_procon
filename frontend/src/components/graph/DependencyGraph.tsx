@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   ReactFlow,
   Background,
@@ -16,7 +16,7 @@ import ClusterGroup from './ClusterGroup'
 import SuperClusterNode from './SuperClusterNode'
 import GraphControls from './GraphControls'
 import FocusLegend from './FocusLegend'
-import { layoutGraph } from '@/lib/graphLayout'
+import { layoutGraph, type LayoutResult } from '@/lib/graphLayout'
 import {
   computeFocus,
   focusEdgeStyle,
@@ -71,10 +71,36 @@ function GraphInner({
 }: Props) {
   const { fitView } = useReactFlow()
 
-  const { nodes: layoutNodes, edges: layoutEdges } = useMemo(
-    () => layoutGraph(data, expandedClusters),
-    [data, expandedClusters],
-  )
+  // ELK レイアウトは非同期。結果を state に持ち、どの data から算出したかを source で保持する
+  // （新しいグラフに対してだけ fitView するため）。再計算中は前回のレイアウトを表示し続ける。
+  const [layout, setLayout] = useState<LayoutResult & { source: GraphResponse | null }>({
+    nodes: [],
+    edges: [],
+    source: null,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+    layoutGraph(data, expandedClusters).then((res) => {
+      if (!cancelled) setLayout({ ...res, source: data })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [data, expandedClusters])
+
+  const { nodes: layoutNodes, edges: layoutEdges, source: layoutSource } = layout
+
+  // 新しいグラフ（data 変更）のレイアウトが整ったら一度だけ全体にフィットする。
+  // 展開/折りたたみ（expandedClusters 変更）では data 不変なので再フィットせず位置を保つ。
+  const fittedSourceRef = useRef<GraphResponse | null>(null)
+  useEffect(() => {
+    if (layoutSource !== data || layoutNodes.length === 0) return
+    if (fittedSourceRef.current === data) return
+    fittedSourceRef.current = data
+    const raf = requestAnimationFrame(() => fitView({ duration: 300 }))
+    return () => cancelAnimationFrame(raf)
+  }, [layoutSource, data, layoutNodes, fitView])
 
   // フォーカス: 選択ノードが現在のレイアウトに存在するときだけ有効化する
   // （クラスタ折りたたみ等で非表示になった選択は無視し、全体減光を避ける）。
