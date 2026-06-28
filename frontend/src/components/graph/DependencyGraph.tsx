@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   ReactFlow,
   Background,
@@ -16,7 +16,7 @@ import ClusterGroup from './ClusterGroup'
 import SuperClusterNode from './SuperClusterNode'
 import GraphControls from './GraphControls'
 import FocusLegend from './FocusLegend'
-import { layoutGraph } from '@/lib/graphLayout'
+import { layoutGraph, type LayoutResult } from '@/lib/graphLayout'
 import {
   computeFocus,
   focusEdgeStyle,
@@ -71,10 +71,42 @@ function GraphInner({
 }: Props) {
   const { fitView } = useReactFlow()
 
-  const { nodes: layoutNodes, edges: layoutEdges } = useMemo(
-    () => layoutGraph(data, expandedClusters),
-    [data, expandedClusters],
-  )
+  // ELK レイアウトは非同期。結果を state に持ち、どの data から算出したかを source で保持する
+  // （新しいグラフに対してだけ fitView するため）。再計算中は前回のレイアウトを表示し続ける。
+  // レイアウト結果と、それを算出した入力（data / expandedClusters）を保持する。
+  // 現在の入力と食い違っている間 = 再計算中、として isLayouting を導出する
+  // （effect 内で同期 setState せず派生値で表すため）。
+  const [layout, setLayout] = useState<
+    LayoutResult & { source: GraphResponse | null; expanded: Set<string> | null }
+  >({ nodes: [], edges: [], source: null, expanded: null })
+
+  useEffect(() => {
+    let cancelled = false
+    layoutGraph(data, expandedClusters)
+      .then((res) => {
+        if (!cancelled) setLayout({ ...res, source: data, expanded: expandedClusters })
+      })
+      .catch((err) => {
+        console.error('graph layout failed', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [data, expandedClusters])
+
+  const { nodes: layoutNodes, edges: layoutEdges, source: layoutSource } = layout
+  const isLayouting = layout.source !== data || layout.expanded !== expandedClusters
+
+  // 新しいグラフ（data 変更）のレイアウトが整ったら一度だけ全体にフィットする。
+  // 展開/折りたたみ（expandedClusters 変更）では data 不変なので再フィットせず位置を保つ。
+  const fittedSourceRef = useRef<GraphResponse | null>(null)
+  useEffect(() => {
+    if (layoutSource !== data || layoutNodes.length === 0) return
+    if (fittedSourceRef.current === data) return
+    fittedSourceRef.current = data
+    const raf = requestAnimationFrame(() => fitView({ duration: 300 }))
+    return () => cancelAnimationFrame(raf)
+  }, [layoutSource, data, layoutNodes, fitView])
 
   // フォーカス: 選択ノードが現在のレイアウトに存在するときだけ有効化する
   // （クラスタ折りたたみ等で非表示になった選択は無視し、全体減光を避ける）。
@@ -166,6 +198,24 @@ function GraphInner({
       proOptions={{ hideAttribution: false }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} color="#e7e5e4" />
+      {isLayouting && (
+        <Panel position="top-center">
+          <div className="flex items-center gap-2 rounded-full border border-stone-200 bg-white/90 px-3 py-1.5 text-xs text-stone-500 shadow-sm backdrop-blur">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              className="animate-spin"
+            >
+              <circle cx="10" cy="10" r="7" strokeDasharray="32" strokeDashoffset="8" />
+            </svg>
+            レイアウト計算中…
+          </div>
+        </Panel>
+      )}
       {focus && (
         <Panel position="top-left">
           <FocusLegend callerCount={focus.callerCount} calleeCount={focus.calleeCount} />

@@ -1,5 +1,7 @@
 import type { CSSProperties } from 'react'
 import { MarkerType, type Edge, type EdgeMarker } from '@xyflow/react'
+import ELKConstructor, { type ELK, type ElkNode } from 'elkjs/lib/elk-api.js'
+import elkWorkerUrl from 'elkjs/lib/elk-worker.min.js?url'
 import type { GraphResponse, Cluster, GraphEdge, DiffStatus } from '@/types/api'
 import type {
   AnyFlowNode,
@@ -11,20 +13,42 @@ import type {
 import { getClusterColor } from './clusterColors'
 import { inferLayer } from './layerInference'
 
-const LAYER_ORDER: LayerKind[] = ['ui', 'domain', 'data', 'infra', 'other']
-
 export const NODE_W = 200
 export const NODE_H = 60
-const COLS = 5
-const COL_STRIDE = 220
-const ROW_STRIDE = 140
-const PADDING = 24
-const CLUSTER_LABEL_H = 28
-const CLUSTER_GAP = 48
-const LAYER_GAP = 64
 
 const SUPER_W = 240
 const SUPER_H = 90
+
+// クラスタコンテナの内側余白。top はラベル表示分を広めに取る（ClusterGroup の
+// ヘッダがこの領域に乗る）。子ノードはこの余白の内側に ELK が配置する。
+const CLUSTER_PAD_TOP = 36
+const CLUSTER_PAD = 16
+
+// ELK レイヤードレイアウトのオプション。呼ぶ側→呼ばれる側を上→下に並べる。
+// hierarchyHandling=INCLUDE_CHILDREN でクラスタ枠を跨ぐエッジも階層化対象にする。
+// considerModelOrder / separateConnectedComponents は付けない（計算コストがほぼ倍増し、
+// 「すべて展開」時に体感できるレベルで重くなるため。実測で確認済み）。
+const ROOT_LAYOUT_OPTIONS: Record<string, string> = {
+  'elk.algorithm': 'layered',
+  'elk.direction': 'DOWN',
+  'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '64',
+  'elk.spacing.nodeNode': '40',
+  'elk.spacing.componentComponent': '64',
+}
+
+const CLUSTER_LAYOUT_OPTIONS: Record<string, string> = {
+  'elk.padding': `[top=${CLUSTER_PAD_TOP},left=${CLUSTER_PAD},bottom=${CLUSTER_PAD},right=${CLUSTER_PAD}]`,
+}
+
+// ELK は Web Worker で実行する（メインスレッドを塞がないため）。layered レイアウトは
+// ノード数に対して超線形に重く、メインスレッドだと大きなグラフの展開で UI がフリーズする。
+// elk-worker は Vite が別チャンクに分離するのでメインバンドルにも乗らない。
+let elkInstance: ELK | null = null
+function getElk(): ELK {
+  if (!elkInstance) elkInstance = new ELKConstructor({ workerUrl: elkWorkerUrl })
+  return elkInstance
+}
 
 type InputNode = {
   id: string
@@ -34,10 +58,6 @@ type InputNode = {
   line: number
   changed: boolean
   diffStatus: DiffStatus
-  functionCount: number
-  changedCount: number
-  addedCount: number
-  removedCount: number
 }
 
 export type LayoutResult = { nodes: AnyFlowNode[]; edges: Edge[] }
@@ -95,7 +115,25 @@ function cycleEdgeMarker(): EdgeMarker {
   return { type: MarkerType.ArrowClosed, color: CYCLE_EDGE_COLOR, width: 16, height: 16 }
 }
 
-export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>): LayoutResult {
+// 展開クラスタ（コンテナ + 子関数ノード）/ 折りたたみクラスタ（スーパーノード）を
+// 組み立てるための中間表現。ELK レイアウト後に位置を埋めて AnyFlowNode 化する。
+type PendingCluster = {
+  kind: 'cluster'
+  data: ClusterGroupData
+  children: { id: string; data: FunctionNodeData }[]
+}
+type PendingSuper = { kind: 'super'; data: SuperClusterNodeData }
+type Pending = PendingCluster | PendingSuper
+
+/**
+ * グラフ全体を ELK の layered アルゴリズムで階層配置する。ノード/エッジの集約・
+ * diff ステータス・循環強調のロジックはレイアウト非依存で、位置のみ ELK に委ねる。
+ * クラスタ枠を compound ノードとして扱い、枠を跨ぐ呼び出し連鎖も上→下で読める。
+ */
+export async function layoutGraph(
+  data: GraphResponse,
+  expandedClusters: Set<string>,
+): Promise<LayoutResult> {
   const inputNodes: InputNode[] = data.graph.nodes.map((n) => ({
     id: n.id,
     name: n.name,
@@ -104,20 +142,14 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
     line: n.line,
     changed: n.changed,
     diffStatus: n.diff_status,
-    functionCount: 1,
-    changedCount: n.changed ? 1 : 0,
-    addedCount: n.diff_status === 'added' ? 1 : 0,
-    removedCount: n.diff_status === 'removed' ? 1 : 0,
   }))
   const inputEdges: GraphEdge[] = data.graph.edges
   const clusters: Cluster[] = data.clusters
 
   // 新規循環参照（is_new）に属するノード集合と、同一循環内のノード対集合を作る。
-  // ノード強調用に集合、エッジ強調用に各循環のノードセットを持つ。
   const newCycleSets = data.cycles.filter((c) => c.is_new).map((c) => new Set(c.nodes))
   const cycleNodeIds = new Set<string>()
   for (const s of newCycleSets) for (const id of s) cycleNodeIds.add(id)
-  // エッジ (from→to) が同一の新規循環の内部辺なら true。
   const isCycleEdge = (from: string, to: string): boolean =>
     newCycleSets.some((s) => s.has(from) && s.has(to))
 
@@ -126,11 +158,10 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
     for (const nid of c.nodes) nodeToCluster.set(nid, c.id)
   }
 
-  // Build a quick lookup for nodes
   const nodeMap = new Map<string, InputNode>()
   for (const n of inputNodes) nodeMap.set(n.id, n)
 
-  // Group nodes by (layer, clusterId)
+  // (layer, clusterId) でノードをグルーピング
   const groups = new Map<string, InputNode[]>()
   for (const n of inputNodes) {
     const layer = inferLayer(n.package)
@@ -140,12 +171,10 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
     groups.get(key)!.push(n)
   }
 
-  const flowNodes: AnyFlowNode[] = []
-
-  // Build edges with cluster aggregation. DiffStatus は added > removed > existing で昇格。
+  // エッジを集約。クラスタ折りたたみ時は端点をスーパーノードに付け替える。
+  // DiffStatus は added > removed > existing で昇格。
   const edgeStatusMap = new Map<string, DiffStatus>()
   const edgeKeyToFromTo = new Map<string, { source: string; target: string }>()
-  // 集約後のエッジが新規循環の内部辺を1本でも含むなら強調する。
   const edgeCycleMap = new Map<string, boolean>()
 
   for (const e of inputEdges) {
@@ -186,130 +215,137 @@ export function layoutGraph(data: GraphResponse, expandedClusters: Set<string>):
     })
   }
 
-  let layerY = 0
+  // ELK 入力（compound ノード）と、レイアウト後に位置を流し込むための登録簿を作る。
+  const elkChildren: ElkNode[] = []
+  const pending = new Map<string, Pending>()
 
-  for (const layer of LAYER_ORDER) {
-    const layerGroups: Array<{ cid: number; nodes: InputNode[] }> = []
-    for (const [key, nodes] of groups.entries()) {
-      const colonIdx = key.indexOf(':')
-      const l = key.slice(0, colonIdx)
-      const cidStr = key.slice(colonIdx + 1)
-      if (l === layer) {
-        layerGroups.push({ cid: Number(cidStr), nodes })
+  for (const [key, nodes] of groups.entries()) {
+    const colonIdx = key.indexOf(':')
+    const layer = key.slice(0, colonIdx) as LayerKind
+    const cid = Number(key.slice(colonIdx + 1))
+    const color = getClusterColor(cid)
+    const clusterLabel = clusters.find((c) => c.id === cid)?.label ?? `Cluster ${cid}`
+
+    if (!expandedClusters.has(key)) {
+      // 折りたたみ: スーパーノード1個に集約
+      const changedCount = nodes.reduce((acc, n) => acc + (n.changed ? 1 : 0), 0)
+      const addedCount = nodes.reduce((acc, n) => acc + (n.diffStatus === 'added' ? 1 : 0), 0)
+      const removedCount = nodes.reduce((acc, n) => acc + (n.diffStatus === 'removed' ? 1 : 0), 0)
+      const superId = `super:${key}`
+
+      elkChildren.push({ id: superId, width: SUPER_W, height: SUPER_H })
+      pending.set(superId, {
+        kind: 'super',
+        data: {
+          label: clusterLabel,
+          clusterId: cid,
+          clusterKey: key,
+          clusterColorHex: color.hex,
+          clusterColorSoft: color.soft,
+          functionCount: nodes.length,
+          changedCount,
+          addedCount,
+          removedCount,
+          hasChanged: changedCount > 0 || addedCount > 0 || removedCount > 0,
+        },
+      })
+    } else {
+      // 展開: クラスタコンテナ + 子関数ノード
+      const clusterId = `cluster:${key}`
+      elkChildren.push({
+        id: clusterId,
+        layoutOptions: CLUSTER_LAYOUT_OPTIONS,
+        children: nodes.map((n) => ({ id: n.id, width: NODE_W, height: NODE_H })),
+      })
+      pending.set(clusterId, {
+        kind: 'cluster',
+        data: {
+          label: clusterLabel,
+          clusterId: cid,
+          clusterKey: key,
+          clusterColorHex: color.hex,
+          clusterColorSoft: color.soft,
+        },
+        children: nodes.map((n) => ({
+          id: n.id,
+          data: {
+            label: n.name,
+            packagePath: n.package,
+            file: n.file,
+            line: n.line,
+            changed: n.changed,
+            diffStatus: n.diffStatus,
+            inCycle: cycleNodeIds.has(n.id),
+            clusterId: cid,
+            clusterColorHex: color.hex,
+            layer,
+          },
+        })),
+      })
+    }
+  }
+
+  const elkGraph: ElkNode = {
+    id: 'root',
+    layoutOptions: ROOT_LAYOUT_OPTIONS,
+    children: elkChildren,
+    edges: flowEdges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] })),
+  }
+
+  const laidOut = await getElk().layout(elkGraph)
+
+  // ELK の結果から React Flow ノードを組み立てる。親（コンテナ）は子より先に push する。
+  const flowNodes: AnyFlowNode[] = []
+  for (const child of laidOut.children ?? []) {
+    const p = pending.get(child.id)
+    if (!p) continue
+    const x = child.x ?? 0
+    const y = child.y ?? 0
+
+    if (p.kind === 'super') {
+      flowNodes.push({
+        id: child.id,
+        type: 'supercluster',
+        position: { x, y },
+        width: SUPER_W,
+        height: SUPER_H,
+        style: { width: SUPER_W, height: SUPER_H },
+        data: p.data,
+      })
+    } else {
+      const w = child.width ?? NODE_W
+      const h = child.height ?? NODE_H
+      flowNodes.push({
+        id: child.id,
+        type: 'cluster',
+        position: { x, y },
+        width: w,
+        height: h,
+        // onlyRenderVisibleElements の交差判定はトップレベルの width/height を読む。
+        style: { width: w, height: h },
+        draggable: false,
+        selectable: true,
+        zIndex: 0,
+        data: p.data,
+      })
+
+      const childPos = new Map((child.children ?? []).map((c) => [c.id, c]))
+      for (const cn of p.children) {
+        const ec = childPos.get(cn.id)
+        flowNodes.push({
+          id: cn.id,
+          type: 'function',
+          parentId: child.id,
+          extent: 'parent',
+          // ELK の子座標は親コンテナの原点（左上）基準。React Flow の親子相対座標に一致。
+          position: { x: ec?.x ?? 0, y: ec?.y ?? 0 },
+          width: NODE_W,
+          height: NODE_H,
+          zIndex: 1,
+          data: cn.data,
+        })
       }
     }
-    if (layerGroups.length === 0) continue
-
-    let clusterX = 0
-    let maxClusterH = 0
-
-    for (const { cid, nodes } of layerGroups) {
-      const color = getClusterColor(cid)
-      const clusterLabel = clusters.find((c) => c.id === cid)?.label ?? `Cluster ${cid}`
-      const key = `${layer}:${cid}`
-      const isExpanded = expandedClusters.has(key)
-
-      if (!isExpanded) {
-        // Collapsed: render a single super node
-        const changedCount = nodes.reduce((acc, n) => acc + n.changedCount, 0)
-        const functionCount = nodes.reduce((acc, n) => acc + n.functionCount, 0)
-        const addedCount = nodes.reduce((acc, n) => acc + n.addedCount, 0)
-        const removedCount = nodes.reduce((acc, n) => acc + n.removedCount, 0)
-
-        flowNodes.push({
-          id: `super:${key}`,
-          type: 'supercluster',
-          position: { x: clusterX, y: layerY },
-          data: {
-            label: clusterLabel,
-            clusterId: cid,
-            clusterKey: key,
-            clusterColorHex: color.hex,
-            clusterColorSoft: color.soft,
-            functionCount,
-            changedCount,
-            addedCount,
-            removedCount,
-            hasChanged: changedCount > 0 || addedCount > 0 || removedCount > 0,
-          } as SuperClusterNodeData,
-          // onlyRenderVisibleElements の交差判定はトップレベルの width/height を読む
-          // （style は参照しない）。style と同値を渡して間引き対象に含める。
-          width: SUPER_W,
-          height: SUPER_H,
-          style: { width: SUPER_W, height: SUPER_H },
-        })
-
-        clusterX += SUPER_W + CLUSTER_GAP
-        maxClusterH = Math.max(maxClusterH, SUPER_H)
-      } else {
-        // Expanded: render cluster container + child nodes
-        const rows = Math.ceil(nodes.length / COLS)
-        const actualCols = Math.min(nodes.length, COLS)
-        const clusterW = PADDING * 2 + (actualCols - 1) * COL_STRIDE + NODE_W
-        const clusterH =
-          PADDING * 2 + CLUSTER_LABEL_H + rows * NODE_H + (rows - 1) * (ROW_STRIDE - NODE_H)
-
-        const clusterId = `cluster:${layer}:${cid}`
-
-        flowNodes.push({
-          id: clusterId,
-          type: 'cluster',
-          position: { x: clusterX, y: layerY },
-          data: {
-            label: clusterLabel,
-            clusterId: cid,
-            clusterKey: key,
-            clusterColorHex: color.hex,
-            clusterColorSoft: color.soft,
-          } as ClusterGroupData,
-          // onlyRenderVisibleElements の交差判定はトップレベルの width/height を読む
-          // （style は参照しない）。style と同値を渡して間引き対象に含める。
-          width: clusterW,
-          height: clusterH,
-          style: { width: clusterW, height: clusterH },
-          draggable: false,
-          selectable: true,
-          zIndex: 0,
-        })
-
-        nodes.forEach((n, i) => {
-          const col = i % COLS
-          const row = Math.floor(i / COLS)
-          const x = PADDING + col * COL_STRIDE
-          const y = PADDING + CLUSTER_LABEL_H + row * ROW_STRIDE
-
-          flowNodes.push({
-            id: n.id,
-            type: 'function',
-            parentId: clusterId,
-            extent: 'parent',
-            position: { x, y },
-            // onlyRenderVisibleElements がビューポート外ノードを描画前に間引くには
-            // 寸法が必要。レイアウトが前提とする固定サイズをそのまま渡す。
-            width: NODE_W,
-            height: NODE_H,
-            zIndex: 1,
-            data: {
-              label: n.name,
-              packagePath: n.package,
-              file: n.file,
-              line: n.line,
-              changed: n.changed,
-              diffStatus: n.diffStatus,
-              inCycle: cycleNodeIds.has(n.id),
-              clusterId: cid,
-              clusterColorHex: color.hex,
-              layer,
-            } as FunctionNodeData,
-          })
-        })
-
-        clusterX += clusterW + CLUSTER_GAP
-        maxClusterH = Math.max(maxClusterH, clusterH)
-      }
-    }
-
-    layerY += maxClusterH + LAYER_GAP
   }
 
   return { nodes: flowNodes, edges: flowEdges }
