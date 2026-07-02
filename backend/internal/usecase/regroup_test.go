@@ -72,9 +72,10 @@ func TestRegroupBy_File(t *testing.T) {
 
 func TestApplyClusterMode_LouvainLabelsClusters(t *testing.T) {
 	orig := &domain.ClusterResult{
-		Clusters: []domain.Cluster{{ID: 0, Label: "raw", Nodes: []domain.NodeID{"a", "b"}}},
-		Graph:    sampleGraph(),
-		Cycles:   []domain.Cycle{{ID: 3, Nodes: []domain.NodeID{"a", "b"}, IsNew: true}},
+		Clusters:        []domain.Cluster{{ID: 0, Label: "raw", Nodes: []domain.NodeID{"a", "b"}}},
+		Graph:           sampleGraph(),
+		Cycles:          []domain.Cycle{{ID: 3, Nodes: []domain.NodeID{"a", "b"}, IsNew: true}},
+		LayerViolations: []domain.LayerViolation{{From: "d", To: "a", FromLayer: "domain", ToLayer: "infra", IsNew: true}},
 	}
 	got := applyClusterMode(orig, domain.ClusterModeLouvain)
 	if got == nil {
@@ -94,6 +95,10 @@ func TestApplyClusterMode_LouvainLabelsClusters(t *testing.T) {
 	if len(got.Cycles) != 1 || got.Cycles[0].ID != 3 {
 		t.Errorf("Cycles not preserved: %+v", got.Cycles)
 	}
+	// LayerViolations も保持される（欠落すると /api/graph の violations が常に空になる回帰）。
+	if len(got.LayerViolations) != 1 || got.LayerViolations[0].From != "d" {
+		t.Errorf("LayerViolations not preserved: %+v", got.LayerViolations)
+	}
 }
 
 func TestApplyClusterMode_NilResult(t *testing.T) {
@@ -104,13 +109,18 @@ func TestApplyClusterMode_NilResult(t *testing.T) {
 
 func TestApplyClusterMode_PreservesCycles(t *testing.T) {
 	orig := &domain.ClusterResult{
-		Clusters: []domain.Cluster{{ID: 0, Label: "louvain-cluster", Nodes: []domain.NodeID{"a", "b"}}},
-		Graph:    sampleGraph(),
-		Cycles:   []domain.Cycle{{ID: 7, Nodes: []domain.NodeID{"a", "b"}, IsNew: true}},
+		Clusters:        []domain.Cluster{{ID: 0, Label: "louvain-cluster", Nodes: []domain.NodeID{"a", "b"}}},
+		Graph:           sampleGraph(),
+		Cycles:          []domain.Cycle{{ID: 7, Nodes: []domain.NodeID{"a", "b"}, IsNew: true}},
+		LayerViolations: []domain.LayerViolation{{From: "d", To: "a", FromLayer: "domain", ToLayer: "infra", IsNew: true}},
 	}
 	got := applyClusterMode(orig, domain.ClusterModePackage)
 	if len(got.Cycles) != 1 || got.Cycles[0].ID != 7 {
 		t.Errorf("Cycles not preserved: %+v", got.Cycles)
+	}
+	// Package/File モードでも LayerViolations は保持される。
+	if len(got.LayerViolations) != 1 || got.LayerViolations[0].From != "d" {
+		t.Errorf("LayerViolations not preserved: %+v", got.LayerViolations)
 	}
 	if got.Clusters[0].Label == "louvain-cluster" {
 		t.Error("Clusters should be regrouped, but kept Louvain label")
