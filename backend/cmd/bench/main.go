@@ -62,23 +62,31 @@ func main() {
 		fmt.Printf("    %s (%s)\n", f.Filename, f.Status)
 	}
 
+	// runBoth/runHeadOnly は clone した一時ディレクトリを defer で削除する。
+	// ここで直接 log.Fatalf すると os.Exit で defer が飛び一時ディレクトリが
+	// 残留するため、error を受け取ってから終了する（bench は A/B 計測で
+	// 繰り返し回すのでリークが溜まりやすい）。
 	if *both {
-		runBoth(ctx, *prInfo, *token, changed)
+		err = runBoth(ctx, *prInfo, *token, changed)
 	} else {
-		runHeadOnly(ctx, *prInfo, *token, changed)
+		err = runHeadOnly(ctx, *prInfo, *token, changed)
+	}
+	if err != nil {
+		log.Fatalf("bench failed: %v", err)
 	}
 
 	log.Printf("=== total: %s ===", time.Since(tTotal))
 }
 
 // runHeadOnly は head 側のみを clone → Build → Cluster する（従来の bench 挙動）。
-func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, changed []domain.ChangedFile) {
+// エラー時も defer した Cleanup が走るよう、log.Fatalf せず error を返す。
+func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, changed []domain.ChangedFile) error {
 	// 3. clone + FastLoad + 近傍Load
 	t0 := time.Now()
 	sourceTree := analyzer.NewSourceTree(analyzer.NewGitCloner(), analyzer.NewGoPackageLoader())
 	prepared, err := sourceTree.Prepare(ctx, prInfo, token, changed)
 	if err != nil {
-		log.Fatalf("Prepare: %v", err)
+		return fmt.Errorf("Prepare: %w", err)
 	}
 	defer func() { _ = prepared.Cleanup() }()
 	log.Printf("[3] Prepare (clone+load) took %s", time.Since(t0))
@@ -89,7 +97,7 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 	cgBuilder := analyzer.NewGoCallGraphBuilder()
 	graph, err := cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 	if err != nil {
-		log.Fatalf("Build: %v", err)
+		return fmt.Errorf("Build: %w", err)
 	}
 	log.Printf("[4] Build callgraph took %s (nodes=%d edges=%d)", time.Since(t1), len(graph.Nodes), len(graph.Edges))
 
@@ -97,7 +105,7 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 	t2 := time.Now()
 	clusterer := cluster.NewLouvainClusterer()
 	if _, err := clusterer.Cluster(ctx, graph); err != nil {
-		log.Fatalf("Cluster: %v", err)
+		return fmt.Errorf("Cluster: %w", err)
 	}
 	log.Printf("[5] Cluster took %s", time.Since(t2))
 
@@ -110,13 +118,16 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 	for pkg, cnt := range pkgCount {
 		fmt.Printf("  %s (%d nodes)\n", pkg, cnt)
 	}
+	return nil
 }
 
 // runBoth は worker と同じパイプライン（base+head 並列構築 → Merge → cycles/violations
 // 検出 → Cluster）を実行し、ノード/エッジ数のサマリを出力する。
 // PR-F（依存の export data 化 / #82）の A/B 比較ゲートとして、新旧実装で
 // このサマリのノード/エッジ数が完全一致することの確認に使う。
-func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []domain.ChangedFile) {
+// エラー時も defer した Cleanup（base/head 2つの一時ディレクトリ）が走るよう、
+// log.Fatalf せず error を返す。
+func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []domain.ChangedFile) error {
 	sourceTree := analyzer.NewSourceTree(analyzer.NewGitCloner(), analyzer.NewGoPackageLoader())
 	cgBuilder := analyzer.NewGoCallGraphBuilder()
 
@@ -169,7 +180,7 @@ func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []
 		return nil
 	})
 	if err := eg.Wait(); err != nil {
-		log.Fatalf("build base/head graphs: %v", err)
+		return fmt.Errorf("build base/head graphs: %w", err)
 	}
 	log.Printf("[3] parallel base+head build took %s", time.Since(t0))
 
@@ -185,7 +196,7 @@ func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []
 	clusterer := cluster.NewLouvainClusterer()
 	result, err := clusterer.Cluster(ctx, diffGraph)
 	if err != nil {
-		log.Fatalf("Cluster: %v", err)
+		return fmt.Errorf("Cluster: %w", err)
 	}
 	log.Printf("[5] Cluster took %s", time.Since(t2))
 
@@ -206,6 +217,7 @@ func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []
 	fmt.Printf("        edges=%d (existing=%d added=%d removed=%d)\n",
 		len(diffGraph.Edges), edgeCnt[domain.DiffStatusExisting], edgeCnt[domain.DiffStatusAdded], edgeCnt[domain.DiffStatusRemoved])
 	fmt.Printf("result: clusters=%d cycles=%d violations=%d\n", len(result.Clusters), len(cycles), len(violations))
+	return nil
 }
 
 // shortSHA は SHA の先頭8桁を返す（8桁未満ならそのまま）。
