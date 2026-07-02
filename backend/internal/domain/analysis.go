@@ -37,6 +37,29 @@ type ChangedFile struct {
 	Patch            string
 }
 
+// NormalizeChangedForBase は head 基準の changed リストを base 側のリポジトリで使える形に正規化する。
+//   - Status=added は base 側に存在しないため除外
+//   - Status=renamed は Filename を PreviousFilename に置き換える
+//   - その他（modified, removed）はそのまま
+func NormalizeChangedForBase(changed []ChangedFile) []ChangedFile {
+	out := make([]ChangedFile, 0, len(changed))
+	for _, f := range changed {
+		switch f.Status {
+		case FileStatusAdded:
+			continue
+		case FileStatusRenamed:
+			cp := f
+			if cp.PreviousFilename != "" {
+				cp.Filename = cp.PreviousFilename
+			}
+			out = append(out, cp)
+		default:
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // DiffFile はPRで変更されたファイルの before/after 全文を保持する。
 type DiffFile struct {
 	Filename      string // head 側のパス（removed は base 側のパス）

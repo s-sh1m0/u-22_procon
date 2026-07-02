@@ -278,7 +278,7 @@ func (w *Worker) buildBothGraphs(
 	})
 
 	eg.Go(func() error {
-		baseChanged := normalizeChangedForBase(changed)
+		baseChanged := domain.NormalizeChangedForBase(changed)
 		prepared, err := w.sourceTree.PrepareAtSHA(egCtx, pr, token, pr.BaseSHA, baseChanged)
 		if err != nil {
 			return fmt.Errorf("base prepare: %w", err)
@@ -297,29 +297,6 @@ func (w *Worker) buildBothGraphs(
 		return nil, nil, cleanups, err
 	}
 	return head, base, cleanups, nil
-}
-
-// normalizeChangedForBase は head 基準の changed リストを base 側のリポジトリで使える形に正規化する。
-//   - Status=added は base 側に存在しないため除外
-//   - Status=renamed は Filename を PreviousFilename に置き換える
-//   - その他（modified, removed）はそのまま
-func normalizeChangedForBase(changed []domain.ChangedFile) []domain.ChangedFile {
-	out := make([]domain.ChangedFile, 0, len(changed))
-	for _, f := range changed {
-		switch f.Status {
-		case domain.FileStatusAdded:
-			continue
-		case domain.FileStatusRenamed:
-			cp := f
-			if cp.PreviousFilename != "" {
-				cp.Filename = cp.PreviousFilename
-			}
-			out = append(out, cp)
-		default:
-			out = append(out, f)
-		}
-	}
-	return out
 }
 
 func workerRandomID() string {
