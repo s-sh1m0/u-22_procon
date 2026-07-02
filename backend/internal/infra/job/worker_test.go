@@ -170,7 +170,6 @@ func newWorkerWithFakes(
 // --- tests ---
 
 func TestWorker_HappyPath(t *testing.T) {
-	prInfo := &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "head-sha", BaseSHA: "base-sha"}
 	graph := &domain.Graph{
 		Nodes: []domain.Node{{ID: "fn:A", Name: "A"}},
 	}
@@ -183,7 +182,8 @@ func TestWorker_HappyPath(t *testing.T) {
 	jobs.jobs["job-1"] = &domain.Job{
 		ID:     "job-1",
 		Status: domain.JobStatusPending,
-		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+		// usecase.Execute が GetPR で解決した PR（SHA 込み）を永続化した状態を模す。
+		PR: domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "head-sha", BaseSHA: "base-sha"},
 	}
 	analyses := &fakeAnalysisRepo{}
 
@@ -196,7 +196,8 @@ func TestWorker_HappyPath(t *testing.T) {
 	w := newWorkerWithFakes(
 		jobs,
 		analyses,
-		&fakePRRepo{prInfo: prInfo, changed: []domain.ChangedFile{}},
+		// GetPR は worker から呼ばれない（j.PR を使う）ため prInfo は設定しない。
+		&fakePRRepo{changed: []domain.ChangedFile{}},
 		st,
 		&fakeCGBuilder{graph: graph},
 		&fakeClusterer{result: result},
@@ -248,7 +249,6 @@ func TestWorker_HappyPath(t *testing.T) {
 }
 
 func TestWorker_BaseSHA_RenameNormalized(t *testing.T) {
-	prInfo := &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "head", BaseSHA: "base"}
 	graph := &domain.Graph{}
 	result := &domain.ClusterResult{Graph: *graph}
 
@@ -256,7 +256,7 @@ func TestWorker_BaseSHA_RenameNormalized(t *testing.T) {
 	jobs.jobs["job-r"] = &domain.Job{
 		ID:     "job-r",
 		Status: domain.JobStatusPending,
-		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "head", BaseSHA: "base"},
 	}
 	analyses := &fakeAnalysisRepo{}
 
@@ -270,7 +270,7 @@ func TestWorker_BaseSHA_RenameNormalized(t *testing.T) {
 
 	w := newWorkerWithFakes(
 		jobs, analyses,
-		&fakePRRepo{prInfo: prInfo, changed: changed},
+		&fakePRRepo{changed: changed},
 		st,
 		&fakeCGBuilder{graph: graph},
 		&fakeClusterer{result: result},
@@ -361,18 +361,17 @@ func (s *blockingSourceTree) PrepareAtSHA(ctx context.Context, _ domain.PRInfo, 
 }
 
 func TestWorker_JobTimeout_MarksError(t *testing.T) {
-	prInfo := &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h", BaseSHA: "b"}
 	jobs := newFakeJobStore()
 	jobs.jobs["job-t"] = &domain.Job{
 		ID:     "job-t",
 		Status: domain.JobStatusPending,
-		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h", BaseSHA: "b"},
 	}
 	analyses := &fakeAnalysisRepo{}
 
 	q := NewQueue(1)
 	w := NewWorker(q, jobs, analyses,
-		&fakePRRepo{prInfo: prInfo, changed: []domain.ChangedFile{}},
+		&fakePRRepo{changed: []domain.ChangedFile{}},
 		&blockingSourceTree{},
 		&fakeCGBuilder{graph: &domain.Graph{}},
 		&fakeClusterer{result: &domain.ClusterResult{}},
