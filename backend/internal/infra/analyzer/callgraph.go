@@ -2,7 +2,9 @@ package analyzer
 
 import (
 	"context"
+	"log"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/callgraph/cha"
@@ -65,12 +67,16 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 	}
 
 	// 2. SSA プログラムを構築（プロジェクト内パッケージのみ）
+	tSSA := time.Now()
 	prog, _ := ssautil.AllPackages(projectPkgs, ssa.InstantiateGenerics)
 	prog.Build()
+	ssaTook := time.Since(tSSA)
 
 	// 3. CHA でコールグラフ構築（エントリポイント不要 → ライブラリにも適用可）
+	tCHA := time.Now()
 	cg := cha.CallGraph(prog)
 	cg.DeleteSyntheticNodes()
+	chaTook := time.Since(tCHA)
 
 	// 4. 変更パッケージ ID セット
 	changedSet := make(map[string]struct{}, len(changedPkgIDs))
@@ -85,6 +91,7 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 	}
 
 	// 5. 変更パッケージの関数を起点に BFS（双方向、maxDepth ホップ）
+	tBFS := time.Now()
 	type entry struct {
 		node  *callgraph.Node
 		depth int
@@ -139,10 +146,13 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		}
 	}
 
+	bfsTook := time.Since(tBFS)
+
 	// 6. 収集ノード・エッジを domain.Graph に変換
 	// 無名関数（クロージャ）は囲うトップレベル親関数に畳み込む。複数の callgraph
 	// ノード（親本体 + 各クロージャ）が同一 NodeID を指すため、ノードは重複排除し、
 	// エッジは親 NodeID へ付け替えたうえで自己ループ・重複を除去する。
+	tConv := time.Now()
 	nodeIDMap := make(map[*callgraph.Node]domain.NodeID, len(collected))
 	nodeSeen := make(map[domain.NodeID]struct{}, len(collected))
 	var nodes []domain.Node
@@ -195,6 +205,12 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 			edges = append(edges, domain.Edge{From: callerID, To: calleeID, Status: domain.DiffStatusExisting})
 		}
 	}
+
+	// 内訳計時ログ: #82 のボトルネック計測用。SSA/CHA が支配的か BFS/変換が
+	// 支配的かを 1 行で判別できるようにする。
+	log.Printf("analyzer: callgraph breakdown: ssa=%s cha=%s bfs=%s convert=%s (pkgs=%d, cha nodes=%d, collected=%d, out nodes=%d edges=%d)",
+		ssaTook, chaTook, bfsTook, time.Since(tConv),
+		len(projectPkgs), len(cg.Nodes), len(collected), len(nodes), len(edges))
 
 	return &domain.Graph{Nodes: nodes, Edges: edges}, nil
 }
