@@ -86,7 +86,7 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 	sourceTree := analyzer.NewSourceTree(analyzer.NewGitCloner(), analyzer.NewGoPackageLoader())
 	prepared, err := sourceTree.Prepare(ctx, prInfo, token, changed)
 	if err != nil {
-		return fmt.Errorf("Prepare: %w", err)
+		return fmt.Errorf("prepare: %w", err)
 	}
 	defer func() { _ = prepared.Cleanup() }()
 	log.Printf("[3] Prepare (clone+load) took %s", time.Since(t0))
@@ -97,7 +97,7 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 	cgBuilder := analyzer.NewGoCallGraphBuilder()
 	graph, err := cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 	if err != nil {
-		return fmt.Errorf("Build: %w", err)
+		return fmt.Errorf("build: %w", err)
 	}
 	log.Printf("[4] Build callgraph took %s (nodes=%d edges=%d)", time.Since(t1), len(graph.Nodes), len(graph.Edges))
 
@@ -105,7 +105,7 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 	t2 := time.Now()
 	clusterer := cluster.NewLouvainClusterer()
 	if _, err := clusterer.Cluster(ctx, graph); err != nil {
-		return fmt.Errorf("Cluster: %w", err)
+		return fmt.Errorf("cluster: %w", err)
 	}
 	log.Printf("[5] Cluster took %s", time.Since(t2))
 
@@ -196,7 +196,7 @@ func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []
 	clusterer := cluster.NewLouvainClusterer()
 	result, err := clusterer.Cluster(ctx, diffGraph)
 	if err != nil {
-		return fmt.Errorf("Cluster: %w", err)
+		return fmt.Errorf("cluster: %w", err)
 	}
 	log.Printf("[5] Cluster took %s", time.Since(t2))
 
