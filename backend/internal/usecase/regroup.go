@@ -19,15 +19,17 @@ func applyClusterMode(result *domain.ClusterResult, mode domain.ClusterMode) *do
 	switch mode {
 	case domain.ClusterModeLouvain:
 		return &domain.ClusterResult{
-			Clusters: labelClusters(result.Clusters, result.Graph),
-			Graph:    result.Graph,
-			Cycles:   result.Cycles,
+			Clusters:        labelClusters(result.Clusters, result.Graph),
+			Graph:           result.Graph,
+			Cycles:          result.Cycles,
+			LayerViolations: result.LayerViolations,
 		}
 	case domain.ClusterModePackage, domain.ClusterModeFile:
 		return &domain.ClusterResult{
-			Clusters: regroupBy(result.Graph, mode),
-			Graph:    result.Graph,
-			Cycles:   result.Cycles,
+			Clusters:        regroupBy(result.Graph, mode),
+			Graph:           result.Graph,
+			Cycles:          result.Cycles,
+			LayerViolations: result.LayerViolations,
 		}
 	default:
 		return result
