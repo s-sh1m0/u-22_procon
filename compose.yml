@@ -21,10 +21,18 @@ services:
       # 大規模リポジトリ解析時のメモリ枯渇でホストごと落とさないためのソフト上限。
       # 近傍パッケージ数の上限(defaultMaxNeighborhood)が主たる対策で、これは保険。
       GOMEMLIMIT: "4GiB"
+      # 解析時に clone したリポジトリを go/packages でビルドする際のビルド/モジュール
+      # キャッシュを named volume に永続化するためパスを明示固定する（下の volumes 参照）。
+      # develop.watch: rebuild でコンテナが作り直されてもキャッシュが残り、再解析が速い。
+      # GOTOOLCHAIN=auto の toolchain も GOMODCACHE 配下に落ちるため永続化される。
+      GOCACHE: /go/cache/go-build
+      GOMODCACHE: /go/pkg/mod
     # OOM 時にホスト(WSL)を巻き込まずコンテナ単体で完結させるためのハード上限。
     mem_limit: 5g
     volumes:
       - ./data:/app/data
+      - go-build-cache:/go/cache/go-build
+      - go-mod-cache:/go/pkg/mod
     develop:
       watch:
         - action: rebuild
@@ -46,3 +54,8 @@ services:
       watch:
         - action: rebuild
           path: ./frontend/package.json
+
+volumes:
+  # backend の解析ランタイムが使う Go ビルド/モジュールキャッシュ。
+  go-build-cache:
+  go-mod-cache:
