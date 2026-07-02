@@ -1,5 +1,8 @@
 // bench は解析パイプラインの各フェーズの所要時間を計測するCLIツール。
-// 使い方: bench -token <GitHub PAT> -pr <PR URL>
+// 使い方:
+//
+//	bench -token <GitHub PAT> -owner <owner> -repo <repo> -pr <PR番号>        # head 側のみ（従来）
+//	bench -token <GitHub PAT> -owner <owner> -repo <repo> -pr <PR番号> -both  # worker と同じ base+head 並列 → Merge → Cluster
 package main
 
 import (
@@ -9,6 +12,8 @@ import (
 	"log"
 	"os"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 	"github.com/s-sh1m0/u-22_procon/backend/internal/infra/analyzer"
@@ -21,6 +26,7 @@ func main() {
 	owner := flag.String("owner", "s-sh1m0", "repo owner")
 	repo := flag.String("repo", "u-22_procon", "repo name")
 	prNum := flag.Int("pr", 21, "PR number")
+	both := flag.Bool("both", false, "base+head を並列構築し Merge → Cluster まで実行する（worker と同じパイプライン）")
 	flag.Parse()
 
 	if *token == "" {
@@ -29,7 +35,11 @@ func main() {
 
 	ctx := context.Background()
 
-	log.Printf("=== bench start: %s/%s#%d ===", *owner, *repo, *prNum)
+	mode := "head-only"
+	if *both {
+		mode = "both"
+	}
+	log.Printf("=== bench start: %s/%s#%d (%s) ===", *owner, *repo, *prNum, mode)
 	tTotal := time.Now()
 
 	// 1. PR メタ情報取得
@@ -39,7 +49,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("GetPR: %v", err)
 	}
-	log.Printf("[1] GetPR took %s (head=%s)", time.Since(t0), prInfo.HeadSHA[:8])
+	log.Printf("[1] GetPR took %s (head=%s base=%s)", time.Since(t0), shortSHA(prInfo.HeadSHA), shortSHA(prInfo.BaseSHA))
 
 	// 2. 変更ファイル取得
 	t1 := time.Now()
@@ -52,36 +62,44 @@ func main() {
 		fmt.Printf("    %s (%s)\n", f.Filename, f.Status)
 	}
 
+	if *both {
+		runBoth(ctx, *prInfo, *token, changed)
+	} else {
+		runHeadOnly(ctx, *prInfo, *token, changed)
+	}
+
+	log.Printf("=== total: %s ===", time.Since(tTotal))
+}
+
+// runHeadOnly は head 側のみを clone → Build → Cluster する（従来の bench 挙動）。
+func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, changed []domain.ChangedFile) {
 	// 3. clone + FastLoad + 近傍Load
-	t2 := time.Now()
+	t0 := time.Now()
 	sourceTree := analyzer.NewSourceTree(analyzer.NewGitCloner(), analyzer.NewGoPackageLoader())
-	prepared, err := sourceTree.Prepare(ctx, *prInfo, *token, changed)
+	prepared, err := sourceTree.Prepare(ctx, prInfo, token, changed)
 	if err != nil {
 		log.Fatalf("Prepare: %v", err)
 	}
 	defer func() { _ = prepared.Cleanup() }()
-	log.Printf("[3] Prepare (clone+load) took %s", time.Since(t2))
+	log.Printf("[3] Prepare (clone+load) took %s", time.Since(t0))
 	log.Printf("    packages loaded: %d, changed pkgs: %v", len(prepared.Packages), prepared.ChangedPackages)
 
 	// 4. コールグラフ構築
-	t3 := time.Now()
+	t1 := time.Now()
 	cgBuilder := analyzer.NewGoCallGraphBuilder()
-	graph, err := cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RootDir)
+	graph, err := cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 	if err != nil {
 		log.Fatalf("Build: %v", err)
 	}
-	log.Printf("[4] Build callgraph took %s (nodes=%d edges=%d)", time.Since(t3), len(graph.Nodes), len(graph.Edges))
+	log.Printf("[4] Build callgraph took %s (nodes=%d edges=%d)", time.Since(t1), len(graph.Nodes), len(graph.Edges))
 
 	// 5. クラスタリング
-	t4 := time.Now()
+	t2 := time.Now()
 	clusterer := cluster.NewLouvainClusterer()
-	_, err = clusterer.Cluster(ctx, graph)
-	if err != nil {
+	if _, err := clusterer.Cluster(ctx, graph); err != nil {
 		log.Fatalf("Cluster: %v", err)
 	}
-	log.Printf("[5] Cluster took %s", time.Since(t4))
-
-	log.Printf("=== total: %s ===", time.Since(tTotal))
+	log.Printf("[5] Cluster took %s", time.Since(t2))
 
 	// 6. グラフの中身確認（外部パッケージが混じっていないかチェック）
 	fmt.Println("\n--- nodes (package) ---")
@@ -92,6 +110,108 @@ func main() {
 	for pkg, cnt := range pkgCount {
 		fmt.Printf("  %s (%d nodes)\n", pkg, cnt)
 	}
+}
 
-	_ = domain.PRInfo{}
+// runBoth は worker と同じパイプライン（base+head 並列構築 → Merge → cycles/violations
+// 検出 → Cluster）を実行し、ノード/エッジ数のサマリを出力する。
+// PR-F（依存の export data 化 / #82）の A/B 比較ゲートとして、新旧実装で
+// このサマリのノード/エッジ数が完全一致することの確認に使う。
+func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []domain.ChangedFile) {
+	sourceTree := analyzer.NewSourceTree(analyzer.NewGitCloner(), analyzer.NewGoPackageLoader())
+	cgBuilder := analyzer.NewGoCallGraphBuilder()
+
+	// 3. base+head を並列構築（worker.buildBothGraphs と同じ構成）
+	t0 := time.Now()
+	var headGraph, baseGraph *domain.Graph
+	cleanups := make([]func() error, 2)
+	defer func() {
+		for _, c := range cleanups {
+			if c != nil {
+				_ = c()
+			}
+		}
+	}()
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		t := time.Now()
+		prepared, err := sourceTree.Prepare(egCtx, prInfo, token, changed)
+		if err != nil {
+			return fmt.Errorf("head prepare: %w", err)
+		}
+		cleanups[0] = prepared.Cleanup
+		log.Printf("[head] Prepare took %s (pkgs=%d, changed pkgs=%d)", time.Since(t), len(prepared.Packages), len(prepared.ChangedPackages))
+		t = time.Now()
+		g, err := cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+		if err != nil {
+			return fmt.Errorf("head build: %w", err)
+		}
+		log.Printf("[head] Build took %s (nodes=%d edges=%d)", time.Since(t), len(g.Nodes), len(g.Edges))
+		headGraph = g
+		return nil
+	})
+	eg.Go(func() error {
+		t := time.Now()
+		baseChanged := domain.NormalizeChangedForBase(changed)
+		prepared, err := sourceTree.PrepareAtSHA(egCtx, prInfo, token, prInfo.BaseSHA, baseChanged)
+		if err != nil {
+			return fmt.Errorf("base prepare: %w", err)
+		}
+		cleanups[1] = prepared.Cleanup
+		log.Printf("[base] Prepare took %s (pkgs=%d, changed pkgs=%d)", time.Since(t), len(prepared.Packages), len(prepared.ChangedPackages))
+		t = time.Now()
+		g, err := cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+		if err != nil {
+			return fmt.Errorf("base build: %w", err)
+		}
+		log.Printf("[base] Build took %s (nodes=%d edges=%d)", time.Since(t), len(g.Nodes), len(g.Edges))
+		baseGraph = g
+		return nil
+	})
+	if err := eg.Wait(); err != nil {
+		log.Fatalf("build base/head graphs: %v", err)
+	}
+	log.Printf("[3] parallel base+head build took %s", time.Since(t0))
+
+	// 4. Merge + cycles/violations 検出
+	t1 := time.Now()
+	diffGraph := analyzer.MergeWithDiffStatus(baseGraph, headGraph)
+	cycles := analyzer.DetectNewCycles(baseGraph, headGraph)
+	violations := analyzer.DetectLayeringViolations(diffGraph)
+	log.Printf("[4] Merge+Detect took %s", time.Since(t1))
+
+	// 5. クラスタリング
+	t2 := time.Now()
+	clusterer := cluster.NewLouvainClusterer()
+	result, err := clusterer.Cluster(ctx, diffGraph)
+	if err != nil {
+		log.Fatalf("Cluster: %v", err)
+	}
+	log.Printf("[5] Cluster took %s", time.Since(t2))
+
+	// 6. ノード/エッジ数サマリ（A/B 比較で完全一致を確認する対象）
+	nodeCnt := map[domain.DiffStatus]int{}
+	for _, n := range diffGraph.Nodes {
+		nodeCnt[n.DiffStatus]++
+	}
+	edgeCnt := map[domain.DiffStatus]int{}
+	for _, e := range diffGraph.Edges {
+		edgeCnt[e.Status]++
+	}
+	fmt.Println("\n--- summary ---")
+	fmt.Printf("head  : nodes=%d edges=%d\n", len(headGraph.Nodes), len(headGraph.Edges))
+	fmt.Printf("base  : nodes=%d edges=%d\n", len(baseGraph.Nodes), len(baseGraph.Edges))
+	fmt.Printf("merged: nodes=%d (existing=%d added=%d removed=%d)\n",
+		len(diffGraph.Nodes), nodeCnt[domain.DiffStatusExisting], nodeCnt[domain.DiffStatusAdded], nodeCnt[domain.DiffStatusRemoved])
+	fmt.Printf("        edges=%d (existing=%d added=%d removed=%d)\n",
+		len(diffGraph.Edges), edgeCnt[domain.DiffStatusExisting], edgeCnt[domain.DiffStatusAdded], edgeCnt[domain.DiffStatusRemoved])
+	fmt.Printf("result: clusters=%d cycles=%d violations=%d\n", len(result.Clusters), len(cycles), len(violations))
+}
+
+// shortSHA は SHA の先頭8桁を返す（8桁未満ならそのまま）。
+func shortSHA(sha string) string {
+	if len(sha) >= 8 {
+		return sha[:8]
+	}
+	return sha
 }
