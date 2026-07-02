@@ -157,12 +157,8 @@ func (w *Worker) process(ctx context.Context, item Item) {
 
 	tStart := time.Now()
 
-	prInfo, err := w.prRepo.GetPR(ctx, item.Token, j.PR.Owner, j.PR.Repo, j.PR.Number)
-	if err != nil {
-		fail(fmt.Errorf("get PR: %w", err))
-		return
-	}
-
+	// PR のメタ情報（Title / refs / SHA）は usecase.Execute が GetPR で解決済みで
+	// jobs テーブルに永続化されているため、ここで再取得はせず j.PR をそのまま使う。
 	t0 := time.Now()
 	changed, err := w.prRepo.ListChangedGoFiles(ctx, item.Token, j.PR.Owner, j.PR.Repo, j.PR.Number)
 	if err != nil {
@@ -177,7 +173,7 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	onBuild := func() { buildOnce.Do(func() { setPhase(domain.JobPhaseBuildGraph) }) }
 
 	t1 := time.Now()
-	headGraph, baseGraph, cleanups, err := w.buildBothGraphs(ctx, *prInfo, item.Token, changed, onBuild)
+	headGraph, baseGraph, cleanups, err := w.buildBothGraphs(ctx, j.PR, item.Token, changed, onBuild)
 	defer func() {
 		for _, c := range cleanups {
 			if c != nil {
@@ -217,7 +213,7 @@ func (w *Worker) process(ctx context.Context, item Item) {
 
 	setPhase(domain.JobPhaseVisualize)
 	t4 := time.Now()
-	diffFiles, err := analyzer.CollectDiffFiles(ctx, w.prRepo, item.Token, *prInfo, changed)
+	diffFiles, err := analyzer.CollectDiffFiles(ctx, w.prRepo, item.Token, j.PR, changed)
 	if err != nil {
 		log.Printf("worker: CollectDiffFiles error (non-fatal): %v", err)
 		diffFiles = nil
@@ -228,7 +224,7 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	analysisID := domain.AnalysisID(w.newID())
 	a := &domain.Analysis{
 		ID:           analysisID,
-		PR:           *prInfo,
+		PR:           j.PR,
 		Result:       result,
 		ChangedFiles: diffFiles,
 		CreatedAt:    w.now().UTC(),
