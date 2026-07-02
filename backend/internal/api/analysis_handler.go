@@ -15,6 +15,11 @@ import (
 	"github.com/s-sh1m0/u-22_procon/backend/internal/usecase"
 )
 
+// snapshotCacheControl は jobId 単位で不変な解析結果（グラフ / diff）に付ける
+// Cache-Control。jobId は特定コミットのスナップショットで内容が変わらないため、
+// クライアント側で長めにキャッシュしてよい。private はユーザー個別の認証済み応答のため。
+const snapshotCacheControl = "private, max-age=86400"
+
 // analyzeUseCase は AnalysisHandler が使うユースケースインターフェース。
 type analyzeUseCase interface {
 	Execute(ctx context.Context, token string, pr domain.PRInfo) (domain.JobID, error)
@@ -99,6 +104,7 @@ func (h *AnalysisHandler) GetGraph(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("get graph: %v", err))
 	}
 
+	c.Response().Header().Set("Cache-Control", snapshotCacheControl)
 	return c.JSON(http.StatusOK, toGraphResponse(analysis))
 }
 
