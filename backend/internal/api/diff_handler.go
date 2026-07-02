@@ -39,5 +39,6 @@ func (h *DiffHandler) Get(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("get diff: %v", err))
 	}
 
+	c.Response().Header().Set("Cache-Control", snapshotCacheControl)
 	return c.JSON(http.StatusOK, toDiffResponse(analysis))
 }

@@ -30,6 +30,9 @@ func NewRouter(
 		},
 	}))
 	e.Use(middleware.Recover())
+	// レスポンス gzip 圧縮。グラフ / diff の JSON は ID の反復が多く圧縮率が高い。
+	// MinLength 未満（ジョブ状態ポーリング等の小さな応答）は圧縮せず CPU を無駄にしない。
+	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{MinLength: 1024}))
 
 	auth := e.Group("/auth")
 	auth.GET("/github", authHandler.Login)

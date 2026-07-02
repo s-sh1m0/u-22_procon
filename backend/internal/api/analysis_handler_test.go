@@ -205,6 +205,10 @@ func TestGetGraph_Success(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", rec.Code)
 	}
+	// jobId 単位で不変なスナップショットなので Cache-Control が付く。
+	if got := rec.Header().Get("Cache-Control"); got != snapshotCacheControl {
+		t.Errorf("Cache-Control=%q want %q", got, snapshotCacheControl)
+	}
 	var resp GraphResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -341,5 +345,9 @@ func TestGetGraph_NotReady(t *testing.T) {
 	err := h.GetGraph(c)
 	if he, ok := err.(*echo.HTTPError); !ok || he.Code != http.StatusConflict {
 		t.Errorf("expected 409, got %v", err)
+	}
+	// まだ done でない応答はキャッシュさせない。
+	if got := rec.Header().Get("Cache-Control"); got != "" {
+		t.Errorf("Cache-Control should be unset on not-ready, got %q", got)
 	}
 }
