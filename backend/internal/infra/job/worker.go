@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -26,9 +25,11 @@ type jobStore interface {
 }
 
 // sourceTreePreparer はワーカーが使うソースツリー準備インターフェース。
+// CloneBoth で head/base を1リポジトリ共有でcloneし、各worktreeを PrepareFromDir で
+// ロードする（cloneとload/buildを分離し、cloneのみ共有・load/buildは並列を維持する）。
 type sourceTreePreparer interface {
-	Prepare(ctx context.Context, pr domain.PRInfo, token string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error)
-	PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, sha string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error)
+	CloneBoth(ctx context.Context, pr domain.PRInfo, token string) (*analyzer.ClonedWorktrees, error)
+	PrepareFromDir(ctx context.Context, rootDir string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error)
 }
 
 // defaultJobTimeout は1ジョブの解析にかける時間の上限のデフォルト値。
@@ -167,18 +168,14 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	}
 	log.Printf("worker: ListChangedGoFiles took %s (%d files)", time.Since(t0), len(changed))
 
-	// クローン完了後、最初にグラフ構築へ入った時点で一度だけ build_graph フェーズへ移す
-	// (base/head が並列なため sync.Once で先着のみ反映する)。
-	var buildOnce sync.Once
-	onBuild := func() { buildOnce.Do(func() { setPhase(domain.JobPhaseBuildGraph) }) }
+	// clone（共有）完了後、グラフ構築フェーズへ移す。
+	onCloneDone := func() { setPhase(domain.JobPhaseBuildGraph) }
 
 	t1 := time.Now()
-	headGraph, baseGraph, cleanups, err := w.buildBothGraphs(ctx, j.PR, item.Token, changed, onBuild)
+	headGraph, baseGraph, cleanup, err := w.buildBothGraphs(ctx, j.PR, item.Token, changed, onCloneDone)
 	defer func() {
-		for _, c := range cleanups {
-			if c != nil {
-				_ = c()
-			}
+		if cleanup != nil {
+			_ = cleanup()
 		}
 	}()
 	if err != nil {
@@ -243,28 +240,43 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	}
 }
 
-// buildBothGraphs は head/base 両方の callgraph を errgroup で並列に構築する。
-// 戻り値の cleanups スライスには各 PreparedSource.Cleanup が入る（呼び出し元が defer で全部呼ぶこと）。
+// buildBothGraphs は head/base 両方の callgraph を構築する。
+// clone は CloneBoth で1リポジトリ共有（1回の fetch）にまとめ、その後の
+// load（PrepareFromDir）と Build は errgroup で base/head 並列に実行する。
+// 戻り値の cleanup は共有tmp dirを削除する単一のクロージャ（呼び出し元が defer で呼ぶこと）。
 // 一方が失敗した時点で他方の ctx もキャンセルされ、エラーが返る。
-// onBuild は各 Prepare（クローン）完了後・Build 開始前に呼ばれる進捗通知コールバック。
+// onCloneDone は clone 完了後・Build 開始前に一度だけ呼ばれる進捗通知コールバック。
 func (w *Worker) buildBothGraphs(
 	ctx context.Context,
 	pr domain.PRInfo,
 	token string,
 	changed []domain.ChangedFile,
-	onBuild func(),
-) (head, base *domain.Graph, cleanups []func() error, err error) {
-	cleanups = make([]func() error, 2)
+	onCloneDone func(),
+) (head, base *domain.Graph, cleanup func() error, err error) {
+	// base/head を1リポジトリ共有で clone（fetch/オブジェクトストアを共有）。
+	cw, err := w.sourceTree.CloneBoth(ctx, pr, token)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("clone base/head: %w", err)
+	}
+	cleanup = cw.Cleanup
+	onCloneDone()
+
+	headDir, ok := cw.Dirs[pr.HeadSHA]
+	if !ok {
+		return nil, nil, cleanup, fmt.Errorf("clone base/head: missing worktree for head %s", pr.HeadSHA)
+	}
+	baseDir, ok := cw.Dirs[pr.BaseSHA]
+	if !ok {
+		return nil, nil, cleanup, fmt.Errorf("clone base/head: missing worktree for base %s", pr.BaseSHA)
+	}
 
 	eg, egCtx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
-		prepared, err := w.sourceTree.Prepare(egCtx, pr, token, changed)
+		prepared, err := w.sourceTree.PrepareFromDir(egCtx, headDir, changed)
 		if err != nil {
 			return fmt.Errorf("head prepare: %w", err)
 		}
-		cleanups[0] = prepared.Cleanup
-		onBuild()
 		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 		if err != nil {
 			return fmt.Errorf("head build: %w", err)
@@ -275,12 +287,10 @@ func (w *Worker) buildBothGraphs(
 
 	eg.Go(func() error {
 		baseChanged := domain.NormalizeChangedForBase(changed)
-		prepared, err := w.sourceTree.PrepareAtSHA(egCtx, pr, token, pr.BaseSHA, baseChanged)
+		prepared, err := w.sourceTree.PrepareFromDir(egCtx, baseDir, baseChanged)
 		if err != nil {
 			return fmt.Errorf("base prepare: %w", err)
 		}
-		cleanups[1] = prepared.Cleanup
-		onBuild()
 		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 		if err != nil {
 			return fmt.Errorf("base build: %w", err)
@@ -290,9 +300,9 @@ func (w *Worker) buildBothGraphs(
 	})
 
 	if err = eg.Wait(); err != nil {
-		return nil, nil, cleanups, err
+		return nil, nil, cleanup, err
 	}
-	return head, base, cleanups, nil
+	return head, base, cleanup, nil
 }
 
 func workerRandomID() string {

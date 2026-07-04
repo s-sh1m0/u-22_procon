@@ -70,12 +70,48 @@ func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, 
 		return nil, fmt.Errorf("analyzer: clone %s/%s@%s: %w", pr.Owner, pr.Repo, sha, err)
 	}
 
-	// go.mod を持つサブディレクトリを特定し、そこを基点にパッケージをロードする。
-	// clonedRoot はリポジトリルート（GitHub API の相対パス基点）、loadDir は go.mod の親。
-	clonedRoot := cloned.RootDir
-	loadDir, err := findGoModRoot(clonedRoot)
+	ps, err := s.prepareFromDir(ctx, cloned.RootDir, changed)
 	if err != nil {
 		_ = cloned.Cleanup()
+		return nil, err
+	}
+	ps.Cleanup = cloned.Cleanup
+	return ps, nil
+}
+
+// CloneBoth は head/base の2SHAを1リポジトリ共有でcloneし、SHAごとのworktreeを返す。
+// fetchとオブジェクトストアを共有するため、base/headを別々にcloneするより高速・省ディスク
+// （変更のないblobは1度しかfetchしない）。返り値の Cleanup を呼び出し側がdeferで呼ぶ。
+func (s *SourceTree) CloneBoth(ctx context.Context, pr domain.PRInfo, token string) (*ClonedWorktrees, error) {
+	cw, err := s.Cloner.CloneWorktrees(ctx, WorktreesRequest{
+		Owner: pr.Owner,
+		Repo:  pr.Repo,
+		Token: token,
+		SHAs:  []string{pr.HeadSHA, pr.BaseSHA},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("analyzer: clone %s/%s (head=%s base=%s): %w", pr.Owner, pr.Repo, pr.HeadSHA, pr.BaseSHA, err)
+	}
+	return cw, nil
+}
+
+// PrepareFromDir はclone済みの作業ツリー（rootDir）に対して fast load →
+// 変更パッケージ特定 → 近傍フルロードを行う。cloneを行わない点だけが PrepareAtSHA と
+// 異なり、CloneBoth と組み合わせてcloneを共有する用途に使う。
+// 返す PreparedSource の Cleanup は nil（共有tmp dirの後始末は CloneBoth 側の Cleanup が担う）。
+func (s *SourceTree) PrepareFromDir(ctx context.Context, rootDir string, changed []domain.ChangedFile) (*PreparedSource, error) {
+	return s.prepareFromDir(ctx, rootDir, changed)
+}
+
+// prepareFromDir はclone済みディレクトリを起点に2フェーズロードを実行する共通処理。
+// clone/cleanupには関与しない（エラー時もcleanupを呼ばず、呼び出し側の責務とする）。
+// 返す PreparedSource の Cleanup は常に nil。
+func (s *SourceTree) prepareFromDir(ctx context.Context, rootDir string, changed []domain.ChangedFile) (*PreparedSource, error) {
+	// go.mod を持つサブディレクトリを特定し、そこを基点にパッケージをロードする。
+	// clonedRoot はリポジトリルート（GitHub API の相対パス基点）、loadDir は go.mod の親。
+	clonedRoot := rootDir
+	loadDir, err := findGoModRoot(clonedRoot)
+	if err != nil {
 		return nil, fmt.Errorf("analyzer: find go.mod in %s: %w", clonedRoot, err)
 	}
 
@@ -84,7 +120,6 @@ func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, 
 	t0 := time.Now()
 	fastPkgs, err := s.Loader.FastLoad(ctx, loadDir)
 	if err != nil {
-		_ = cloned.Cleanup()
 		return nil, fmt.Errorf("analyzer: fast-load packages at %s: %w", loadDir, err)
 	}
 	log.Printf("analyzer: phase1 FastLoad(%d pkgs) took %s", len(fastPkgs), time.Since(t0))
@@ -93,7 +128,6 @@ func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, 
 	// 進む前に reject する。型ロードやジョブタイムアウトが無言で発火するのを防ぎ、
 	// ユーザーに「大規模リポジトリは未対応」と明示するための入口側ガード。
 	if len(fastPkgs) > maxFastLoadPackages {
-		_ = cloned.Cleanup()
 		return nil, fmt.Errorf("%w: detected %d packages (limit %d)", ErrRepositoryTooLarge, len(fastPkgs), maxFastLoadPackages)
 	}
 
@@ -119,7 +153,6 @@ func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, 
 			RootDir:             loadDir,
 			ChangedPackages:     nil,
 			ChangedFileAbsPaths: changedFileAbsPaths,
-			Cleanup:             cloned.Cleanup,
 		}, nil
 	}
 
@@ -137,7 +170,6 @@ func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, 
 	t1 := time.Now()
 	result, err := s.Loader.Load(ctx, loadDir, neighborhood)
 	if err != nil {
-		_ = cloned.Cleanup()
 		return nil, fmt.Errorf("analyzer: load packages at %s: %w", loadDir, err)
 	}
 	log.Printf("analyzer: phase2 Load(%d pkgs) took %s", len(result.Packages), time.Since(t1))
@@ -149,7 +181,6 @@ func (s *SourceTree) PrepareAtSHA(ctx context.Context, pr domain.PRInfo, token, 
 		LoadErrors:          result.Errors,
 		ChangedPackages:     changedPkgs,
 		ChangedFileAbsPaths: changedFileAbsPaths,
-		Cleanup:             cloned.Cleanup,
 	}, nil
 }
 
