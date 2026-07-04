@@ -56,8 +56,9 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 	}
 
 	// 1. プロジェクト内パッケージのみを抽出する。
-	// NeedDeps によって pkgs には外部ライブラリも含まれるが、SSA 構築と
-	// loadedSet はプロジェクト内パッケージのみを対象にする。
+	// pkgs に外部ライブラリが含まれることがあるが（NeedDeps 有効時、または
+	// 変更パッケージ自体が依存として現れる場合）、SSA 構築と loadedSet は
+	// プロジェクト内パッケージのみを対象にする。
 	// pkg.Module.Main が true のパッケージが自リポジトリのパッケージ。
 	projectPkgs := make([]*packages.Package, 0, len(pkgs))
 	for _, pkg := range pkgs {
@@ -66,9 +67,18 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		}
 	}
 
-	// 2. SSA プログラムを構築（プロジェクト内パッケージのみ）
+	// 2. SSA プログラムを構築（プロジェクト内パッケージのみ）。
+	// ssautil.Packages は projectPkgs の関数本体のみ SSA 化し、依存パッケージの
+	// 本体は構築しない。CHA が対象にするのは本体を持つ関数だが、出力グラフは
+	// isInLoadedSet でプロジェクト内→内のエッジに限定するため、依存本体が無くても
+	// 結果は変わらない。escape hatch が立つときのみ依存も含む AllPackages を使う。
 	tSSA := time.Now()
-	prog, _ := ssautil.AllPackages(projectPkgs, ssa.InstantiateGenerics)
+	var prog *ssa.Program
+	if sourceDepsEnabled() {
+		prog, _ = ssautil.AllPackages(projectPkgs, ssa.InstantiateGenerics)
+	} else {
+		prog, _ = ssautil.Packages(projectPkgs, ssa.InstantiateGenerics)
+	}
 	prog.Build()
 	ssaTook := time.Since(tSSA)
 

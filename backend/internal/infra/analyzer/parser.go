@@ -41,16 +41,33 @@ var ErrRepositoryTooLarge = errors.New("analyzer: repository is too large to ana
 const maxFastLoadPackages = 1500
 
 // loadMode は callgraph (#5) と diff→AST マップ (#6) で必要なフラグを全て含む。
+//
+// NeedDeps は含めない。含めると要求パッケージの推移依存閉包全体をソースから
+// 型チェックしてしまい、巨大リポジトリで解析が遅く・メモリ消費が大きくなる。
+// 依存の型情報はビルドキャッシュ由来の export data から取得され（NeedTypes が
+// あれば go/packages が自動で読む）、プロジェクト内パッケージの型チェックには
+// これで十分。出力するコールグラフはプロジェクト内→内のエッジのみで、依存の
+// 関数本体（SSA）は元々除外しているため、export data 化しても結果は変わらない。
+// 旧挙動（依存をソースから型チェック）に戻したいときは環境変数
+// ANALYZER_SOURCE_DEPS=1 を設定する（sourceDepsEnabled を参照）。
 const loadMode = packages.NeedName |
 	packages.NeedFiles |
 	packages.NeedCompiledGoFiles |
 	packages.NeedImports |
-	packages.NeedDeps |
 	packages.NeedSyntax |
 	packages.NeedTypes |
 	packages.NeedTypesInfo |
 	packages.NeedTypesSizes |
 	packages.NeedModule
+
+// sourceDepsEnabled は依存パッケージをソースから型チェック・SSA 構築する
+// 旧挙動（NeedDeps + ssautil.AllPackages）を使うかを返す。
+// 既定は false（依存は export data から型のみ取得し、SSA はプロジェクト内
+// パッケージのみ構築する高速経路）。ANALYZER_SOURCE_DEPS=1 で旧挙動に戻せる
+// escape hatch。export data 経路で結果不整合が疑われたときの切り戻し用。
+func sourceDepsEnabled() bool {
+	return os.Getenv("ANALYZER_SOURCE_DEPS") == "1"
+}
 
 // fastLoadMode は型チェックなしでパッケージ構造だけを取得する高速フラグ。
 // NeedImports まで含めることで import グラフから近傍パッケージを特定できる。
@@ -204,8 +221,14 @@ func (l *GoPackageLoader) Load(ctx context.Context, rootDir string, patterns []s
 		return &LoadResult{}, nil
 	}
 
+	mode := loadMode
+	if sourceDepsEnabled() {
+		// escape hatch: 依存も含めてソースから型チェックする旧挙動に戻す。
+		mode |= packages.NeedDeps
+	}
+
 	cfg := &packages.Config{
-		Mode:    loadMode,
+		Mode:    mode,
 		Dir:     rootDir,
 		Context: ctx,
 		Tests:   false,

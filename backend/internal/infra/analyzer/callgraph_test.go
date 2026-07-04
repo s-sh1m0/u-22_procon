@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -284,6 +285,113 @@ func TestGoCallGraphBuilder_Build_SameMethodNameNotCollided(t *testing.T) {
 		if !found {
 			t.Errorf("edge %s->C not found (edges: %v)", mID, graph.Edges)
 		}
+	}
+}
+
+// setupCGFixtureExtDep は外部依存（stdlib）を含む Go モジュールを構築する。
+// export data 経路（NeedDeps なし + ssautil.Packages）で外部パッケージの本体 SSA を
+// 構築しなくても、プロジェクト内グラフが旧経路と一致することを検証するための fixture。
+//
+//	example.com/extfixture
+//	  pkg/a/a.go -- func A() string { return strings.ToUpper(b.B()) }  ← 外部(strings)+内部(b.B)呼び出し
+//	  pkg/b/b.go -- func B() string { return strings.TrimSpace("x") }  ← 外部(strings)呼び出し
+func setupCGFixtureExtDep(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	writeFile := func(rel, content string) {
+		t.Helper()
+		abs := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeFile("go.mod", "module example.com/extfixture\n\ngo 1.21\n")
+	writeFile("pkg/a/a.go", `package a
+
+import (
+	"strings"
+
+	"example.com/extfixture/pkg/b"
+)
+
+func A() string { return strings.ToUpper(b.B()) }
+`)
+	writeFile("pkg/b/b.go", `package b
+
+import "strings"
+
+func B() string { return strings.TrimSpace(" x ") }
+`)
+	return dir
+}
+
+// TestGoCallGraphBuilder_Build_ExportDataParity は PR-F（依存を export data 化）の
+// 計測ゲートに相当する回帰テスト。外部依存を持つ fixture を、
+//   - 既定（loadMode に NeedDeps なし + ssautil.Packages）
+//   - escape hatch（ANALYZER_SOURCE_DEPS=1 → NeedDeps + ssautil.AllPackages）
+//
+// の両経路で本番ローダ経由でロード→ Build し、プロジェクト内グラフのノード集合・
+// エッジ集合が完全一致することを確認する。依存の SSA 本体を構築しなくても出力が
+// 変わらないという PR-F の前提を CI で守る。
+func TestGoCallGraphBuilder_Build_ExportDataParity(t *testing.T) {
+	root := setupCGFixtureExtDep(t)
+	changedPkgs := []string{
+		"example.com/extfixture/pkg/a",
+		"example.com/extfixture/pkg/b",
+	}
+	changedFiles := []string{
+		filepath.Join(root, "pkg/a/a.go"),
+		filepath.Join(root, "pkg/b/b.go"),
+	}
+
+	build := func(sourceDeps bool) (map[string]struct{}, map[[2]string]struct{}) {
+		if sourceDeps {
+			t.Setenv("ANALYZER_SOURCE_DEPS", "1")
+		} else {
+			t.Setenv("ANALYZER_SOURCE_DEPS", "0")
+		}
+
+		res, err := NewGoPackageLoader().Load(context.Background(), root, changedPkgs)
+		if err != nil {
+			t.Fatalf("Load(sourceDeps=%v): %v", sourceDeps, err)
+		}
+		b := &GoCallGraphBuilder{MaxDepth: 3}
+		g, err := b.Build(context.Background(), res.Packages, changedPkgs, changedFiles, root)
+		if err != nil {
+			t.Fatalf("Build(sourceDeps=%v): %v", sourceDeps, err)
+		}
+
+		nodes := make(map[string]struct{}, len(g.Nodes))
+		for _, n := range g.Nodes {
+			// stdlib のパッケージがグラフに漏れていないことも同時に確認する。
+			if n.Package == "strings" || n.Package == "fmt" || n.Package == "runtime" {
+				t.Errorf("stdlib package %q leaked into graph (node %q, sourceDeps=%v)", n.Package, n.Name, sourceDeps)
+			}
+			nodes[string(n.ID)] = struct{}{}
+		}
+		edges := make(map[[2]string]struct{}, len(g.Edges))
+		for _, e := range g.Edges {
+			edges[[2]string{string(e.From), string(e.To)}] = struct{}{}
+		}
+		return nodes, edges
+	}
+
+	fastNodes, fastEdges := build(false)
+	slowNodes, slowEdges := build(true)
+
+	if len(fastNodes) == 0 {
+		t.Fatal("expected non-empty graph on export-data path")
+	}
+	if !reflect.DeepEqual(fastNodes, slowNodes) {
+		t.Errorf("node sets diverge between export-data and source-deps paths:\n export-data=%v\n source-deps=%v", fastNodes, slowNodes)
+	}
+	if !reflect.DeepEqual(fastEdges, slowEdges) {
+		t.Errorf("edge sets diverge between export-data and source-deps paths:\n export-data=%v\n source-deps=%v", fastEdges, slowEdges)
 	}
 }
 
