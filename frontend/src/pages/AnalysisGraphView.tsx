@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import type { LayerKind, AnyFlowNode } from '@/types/graph'
-import type { Cluster, ClusterMode, DiffFile } from '@/types/api'
+import type { Cluster, ClusterMode, DiffFile, GraphResponse } from '@/types/api'
 import { useGraph } from '@/hooks/useGraph'
 import { useDiff } from '@/hooks/useDiff'
 import { inferLayer } from '@/lib/layerInference'
@@ -18,6 +18,7 @@ import {
 import AppShell from '@/components/layout/AppShell'
 import PRMetaBar from '@/components/layout/PRMetaBar'
 import DependencyGraph from '@/components/graph/DependencyGraph'
+import type { SearchCandidate } from '@/components/graph/GraphSearch'
 import FunctionDetailsPanel from '@/components/graph/FunctionDetailsPanel'
 import CycleAlert from '@/components/graph/CycleAlert'
 import LayeringAlert from '@/components/graph/LayeringAlert'
@@ -40,6 +41,9 @@ export default function AnalysisGraphView({ jobId }: Props) {
   const [expandedClustersOverride, setExpandedClustersOverride] = useState<Set<string> | null>(null)
   // true = 変更影響のみ（diff 1-hop 近傍に絞り込み）、false = 全体グラフ
   const [impactOnly, setImpactOnly] = useState(true)
+  // 検索ジャンプで中央寄せしたいノード。nonce は同一ノードへの再ジャンプでも
+  // グラフ側の effect を再発火させるための世代番号。
+  const [centerTarget, setCenterTarget] = useState<{ nodeId: string; nonce: number } | null>(null)
 
   // 描画に使うグラフ。変更影響ビューでは diff 近傍だけに絞った部分グラフを渡す。
   // クラスタ集計・展開・レイアウトはすべてこの view を基準に行う。
@@ -130,13 +134,13 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setSelectedNodeId(null)
   }, [])
 
-  // CycleAlert からノードを選択された場合: 当該ノードのクラスタを展開し、選択 + フォーカス
-  const handleSelectCycleNode = useCallback(
-    (nodeId: string) => {
-      if (!data) return
-      const target = data.graph.nodes.find((n) => n.id === nodeId)
+  // 指定ノードを可視化する: 折りたたみ中なら親クラスタを展開し、そのノードを選択する。
+  // source は展開判定に使うグラフ（全体 = data / 影響ビュー = view）。
+  const revealNode = useCallback(
+    (source: GraphResponse, nodeId: string) => {
+      const target = source.graph.nodes.find((n) => n.id === nodeId)
       if (!target) return
-      const cluster = data.clusters.find((c) => c.nodes.includes(nodeId))
+      const cluster = source.clusters.find((c) => c.nodes.includes(nodeId))
       if (cluster) {
         const key = makeClusterKey(target.package, cluster.id)
         setExpandedClustersOverride((prev) => {
@@ -149,8 +153,32 @@ export default function AnalysisGraphView({ jobId }: Props) {
       }
       setSelectedNodeId(nodeId)
     },
-    [data, defaultExpandedClusters],
+    [defaultExpandedClusters],
   )
+
+  // CycleAlert / LayeringAlert からノードを選択された場合: 展開 + 選択 + フォーカス
+  const handleSelectCycleNode = useCallback(
+    (nodeId: string) => {
+      if (data) revealNode(data, nodeId)
+    },
+    [data, revealNode],
+  )
+
+  // 検索ボックスから関数を選択: 現在のビュー内で展開 + 選択し、中央へ寄せる。
+  const handleJumpToNode = useCallback(
+    (nodeId: string) => {
+      if (!view) return
+      revealNode(view, nodeId)
+      setCenterTarget((t) => ({ nodeId, nonce: (t?.nonce ?? 0) + 1 }))
+    },
+    [view, revealNode],
+  )
+
+  // 検索候補は現在描画しているビュー（影響のみ / 全体）の全関数ノード。
+  const searchCandidates = useMemo<SearchCandidate[]>(() => {
+    if (!view) return []
+    return view.graph.nodes.map((n) => ({ id: n.id, name: n.name, package: n.package }))
+  }, [view])
 
   // in-degree（被呼び出し数）と新規循環ノード集合はグラフ全体から一度だけ算出する。
   const { inDegree, cycleNodeIds } = useMemo(
@@ -272,6 +300,9 @@ export default function AnalysisGraphView({ jobId }: Props) {
         onToggleCluster={handleToggleCluster}
         onExpandAll={handleExpandAll}
         onCollapseAll={handleCollapseAll}
+        searchCandidates={searchCandidates}
+        onJump={handleJumpToNode}
+        centerTarget={centerTarget}
       />
     </AppShell>
   )
