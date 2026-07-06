@@ -29,10 +29,28 @@ func (f *fakeCloner) Clone(_ context.Context, _ CloneRequest) (*ClonedRepo, erro
 	}, nil
 }
 
+func (f *fakeCloner) CloneWorktrees(_ context.Context, req WorktreesRequest) (*ClonedWorktrees, error) {
+	dirs := make(map[string]string, len(req.SHAs))
+	for _, sha := range req.SHAs {
+		dirs[sha] = f.fixtureDir
+	}
+	return &ClonedWorktrees{
+		Dirs: dirs,
+		Cleanup: func() error {
+			f.cleanupCalled = true
+			return nil
+		},
+	}, nil
+}
+
 // errorCloner は常にエラーを返すCloner。
 type errorCloner struct{}
 
 func (e *errorCloner) Clone(_ context.Context, _ CloneRequest) (*ClonedRepo, error) {
+	return nil, ErrCloneFailed
+}
+
+func (e *errorCloner) CloneWorktrees(_ context.Context, _ WorktreesRequest) (*ClonedWorktrees, error) {
 	return nil, ErrCloneFailed
 }
 
@@ -118,6 +136,74 @@ func G() int { return 42 }
 
 	// Cleanup でdirが（fakeなので実際には消えないが）呼ばれることを確認
 	if err := ps.Cleanup(); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if !fc.cleanupCalled {
+		t.Error("expected fakeCloner.Cleanup to be called")
+	}
+}
+
+func TestSourceTree_CloneBoth_PrepareFromDir(t *testing.T) {
+	// fixture: 2パッケージ構成のGoモジュール
+	dir := writeFixture(t, map[string]string{
+		"go.mod": "module example.com/fixture\n\ngo 1.21\n",
+		"pkg/a/a.go": `package a
+
+import "example.com/fixture/pkg/b"
+
+func F() int { return b.G() }
+`,
+		"pkg/b/b.go": `package b
+
+func G() int { return 42 }
+`,
+	})
+
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fc := &fakeCloner{fixtureDir: resolvedDir}
+	st := NewSourceTree(fc, NewGoPackageLoader())
+
+	pr := domain.PRInfo{Owner: "owner", Repo: "repo", HeadSHA: "head-sha", BaseSHA: "base-sha"}
+	changed := []domain.ChangedFile{
+		{Filename: "pkg/a/a.go", Status: "modified"},
+	}
+
+	cw, err := st.CloneBoth(context.Background(), pr, "")
+	if err != nil {
+		t.Fatalf("CloneBoth: %v", err)
+	}
+	// head/base 両方の worktree が返ること（fake は同じ fixture を指す）
+	headDir, ok := cw.Dirs[pr.HeadSHA]
+	if !ok {
+		t.Fatalf("missing worktree for head %s", pr.HeadSHA)
+	}
+	if _, ok := cw.Dirs[pr.BaseSHA]; !ok {
+		t.Fatalf("missing worktree for base %s", pr.BaseSHA)
+	}
+
+	ps, err := st.PrepareFromDir(context.Background(), headDir, changed)
+	if err != nil {
+		t.Fatalf("PrepareFromDir: %v", err)
+	}
+	if ps.RepoRoot != resolvedDir {
+		t.Errorf("RepoRoot: got %q, want %q", ps.RepoRoot, resolvedDir)
+	}
+	if len(ps.Packages) == 0 {
+		t.Error("Packages should not be empty")
+	}
+	if len(ps.ChangedPackages) != 1 {
+		t.Errorf("ChangedPackages: got %v, want 1 entry", ps.ChangedPackages)
+	}
+	// PrepareFromDir は clone を持たないため Cleanup は nil（後始末は CloneBoth 側）
+	if ps.Cleanup != nil {
+		t.Error("PrepareFromDir should return PreparedSource with nil Cleanup")
+	}
+
+	if err := cw.Cleanup(); err != nil {
 		t.Fatalf("Cleanup: %v", err)
 	}
 	if !fc.cleanupCalled {

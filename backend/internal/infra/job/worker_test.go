@@ -111,22 +111,33 @@ type fakeSourceTree struct {
 	prepared *analyzer.PreparedSource
 	err      error
 
-	// 観測用: 何回呼ばれたか / どの SHA で呼ばれたか
-	prepareCalls      int
-	prepareAtSHACalls int
-	prepareAtSHAs     []string
-	baseChanged       []domain.ChangedFile
+	// 観測用: 何回呼ばれたか / どの worktree で呼ばれたか
+	cloneBothCalls      int
+	prepareFromDirCalls int
+	headDir, baseDir    string
+	changedByDir        map[string][]domain.ChangedFile
 }
 
-func (s *fakeSourceTree) Prepare(_ context.Context, _ domain.PRInfo, _ string, _ []domain.ChangedFile) (*analyzer.PreparedSource, error) {
-	s.prepareCalls++
-	return s.prepared, s.err
+func (s *fakeSourceTree) CloneBoth(_ context.Context, pr domain.PRInfo, _ string) (*analyzer.ClonedWorktrees, error) {
+	s.cloneBothCalls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	// SHA ごとに別ディレクトリを返し、head/base の PrepareFromDir を区別できるようにする。
+	s.headDir = "dir-" + pr.HeadSHA
+	s.baseDir = "dir-" + pr.BaseSHA
+	return &analyzer.ClonedWorktrees{
+		Dirs:    map[string]string{pr.HeadSHA: s.headDir, pr.BaseSHA: s.baseDir},
+		Cleanup: func() error { return nil },
+	}, nil
 }
 
-func (s *fakeSourceTree) PrepareAtSHA(_ context.Context, _ domain.PRInfo, _, sha string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error) {
-	s.prepareAtSHACalls++
-	s.prepareAtSHAs = append(s.prepareAtSHAs, sha)
-	s.baseChanged = changed
+func (s *fakeSourceTree) PrepareFromDir(_ context.Context, rootDir string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+	s.prepareFromDirCalls++
+	if s.changedByDir == nil {
+		s.changedByDir = make(map[string][]domain.ChangedFile)
+	}
+	s.changedByDir[rootDir] = changed
 	return s.prepared, s.err
 }
 
@@ -236,15 +247,18 @@ func TestWorker_HappyPath(t *testing.T) {
 			t.Errorf("phase[%d]: got %s want %s", i, jobs.phaseCalls[i], p)
 		}
 	}
-	// base/head が両方呼ばれたことを確認
-	if st.prepareCalls != 1 {
-		t.Errorf("Prepare (head) calls: got %d want 1", st.prepareCalls)
+	// clone は1回に共有され、head/base それぞれ PrepareFromDir が呼ばれたことを確認
+	if st.cloneBothCalls != 1 {
+		t.Errorf("CloneBoth calls: got %d want 1", st.cloneBothCalls)
 	}
-	if st.prepareAtSHACalls != 1 {
-		t.Errorf("PrepareAtSHA (base) calls: got %d want 1", st.prepareAtSHACalls)
+	if st.prepareFromDirCalls != 2 {
+		t.Errorf("PrepareFromDir calls: got %d want 2", st.prepareFromDirCalls)
 	}
-	if len(st.prepareAtSHAs) != 1 || st.prepareAtSHAs[0] != "base-sha" {
-		t.Errorf("PrepareAtSHA SHA: got %v want [base-sha]", st.prepareAtSHAs)
+	if _, ok := st.changedByDir[st.headDir]; !ok {
+		t.Errorf("PrepareFromDir not called for head worktree %q", st.headDir)
+	}
+	if _, ok := st.changedByDir[st.baseDir]; !ok {
+		t.Errorf("PrepareFromDir not called for base worktree %q", st.baseDir)
 	}
 }
 
@@ -278,12 +292,13 @@ func TestWorker_BaseSHA_RenameNormalized(t *testing.T) {
 
 	w.process(context.Background(), Item{JobID: "job-r", Token: "tok"})
 
-	if len(st.baseChanged) != 2 {
-		t.Fatalf("base changed len=%d want 2 (added 除外)", len(st.baseChanged))
+	baseChanged := st.changedByDir[st.baseDir]
+	if len(baseChanged) != 2 {
+		t.Fatalf("base changed len=%d want 2 (added 除外)", len(baseChanged))
 	}
 	// renamed が PreviousFilename に置換されているか
 	var found bool
-	for _, f := range st.baseChanged {
+	for _, f := range baseChanged {
 		if f.Status == domain.FileStatusRenamed && f.Filename == "pkg/a/old.go" {
 			found = true
 		}
@@ -347,15 +362,15 @@ func TestWorker_ContextCancel_StopsLoop(t *testing.T) {
 	}
 }
 
-// blockingSourceTree は ctx がキャンセル/タイムアウトされるまで Prepare をブロックする。
+// blockingSourceTree は ctx がキャンセル/タイムアウトされるまで CloneBoth をブロックする。
 type blockingSourceTree struct{}
 
-func (s *blockingSourceTree) Prepare(ctx context.Context, _ domain.PRInfo, _ string, _ []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+func (s *blockingSourceTree) CloneBoth(ctx context.Context, _ domain.PRInfo, _ string) (*analyzer.ClonedWorktrees, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
 
-func (s *blockingSourceTree) PrepareAtSHA(ctx context.Context, _ domain.PRInfo, _, _ string, _ []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+func (s *blockingSourceTree) PrepareFromDir(ctx context.Context, _ string, _ []domain.ChangedFile) (*analyzer.PreparedSource, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
 }

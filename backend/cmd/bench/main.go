@@ -125,33 +125,42 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 // 検出 → Cluster）を実行し、ノード/エッジ数のサマリを出力する。
 // PR-F（依存の export data 化 / #82）の A/B 比較ゲートとして、新旧実装で
 // このサマリのノード/エッジ数が完全一致することの確認に使う。
-// エラー時も defer した Cleanup（base/head 2つの一時ディレクトリ）が走るよう、
+// エラー時も defer した Cleanup（base/head 共有の一時ディレクトリ）が走るよう、
 // log.Fatalf せず error を返す。
 func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []domain.ChangedFile) error {
 	sourceTree := analyzer.NewSourceTree(analyzer.NewGitCloner(), analyzer.NewGoPackageLoader())
 	cgBuilder := analyzer.NewGoCallGraphBuilder()
 
-	// 3. base+head を並列構築（worker.buildBothGraphs と同じ構成）
+	// 3. base+head を並列構築（worker.buildBothGraphs と同じ構成）。
+	// clone は CloneBoth で1リポジトリ共有（1回の fetch）にまとめる。
 	t0 := time.Now()
 	var headGraph, baseGraph *domain.Graph
-	cleanups := make([]func() error, 2)
-	defer func() {
-		for _, c := range cleanups {
-			if c != nil {
-				_ = c()
-			}
-		}
-	}()
+
+	tc := time.Now()
+	cw, err := sourceTree.CloneBoth(ctx, prInfo, token)
+	if err != nil {
+		return fmt.Errorf("clone base/head: %w", err)
+	}
+	defer func() { _ = cw.Cleanup() }()
+	log.Printf("[3a] CloneBoth (shared clone) took %s", time.Since(tc))
+
+	headDir, ok := cw.Dirs[prInfo.HeadSHA]
+	if !ok {
+		return fmt.Errorf("clone base/head: missing worktree for head %s", prInfo.HeadSHA)
+	}
+	baseDir, ok := cw.Dirs[prInfo.BaseSHA]
+	if !ok {
+		return fmt.Errorf("clone base/head: missing worktree for base %s", prInfo.BaseSHA)
+	}
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.Go(func() error {
 		t := time.Now()
-		prepared, err := sourceTree.Prepare(egCtx, prInfo, token, changed)
+		prepared, err := sourceTree.PrepareFromDir(egCtx, headDir, changed)
 		if err != nil {
 			return fmt.Errorf("head prepare: %w", err)
 		}
-		cleanups[0] = prepared.Cleanup
-		log.Printf("[head] Prepare took %s (pkgs=%d, changed pkgs=%d)", time.Since(t), len(prepared.Packages), len(prepared.ChangedPackages))
+		log.Printf("[head] PrepareFromDir took %s (pkgs=%d, changed pkgs=%d)", time.Since(t), len(prepared.Packages), len(prepared.ChangedPackages))
 		t = time.Now()
 		g, err := cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 		if err != nil {
@@ -164,12 +173,11 @@ func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []
 	eg.Go(func() error {
 		t := time.Now()
 		baseChanged := domain.NormalizeChangedForBase(changed)
-		prepared, err := sourceTree.PrepareAtSHA(egCtx, prInfo, token, prInfo.BaseSHA, baseChanged)
+		prepared, err := sourceTree.PrepareFromDir(egCtx, baseDir, baseChanged)
 		if err != nil {
 			return fmt.Errorf("base prepare: %w", err)
 		}
-		cleanups[1] = prepared.Cleanup
-		log.Printf("[base] Prepare took %s (pkgs=%d, changed pkgs=%d)", time.Since(t), len(prepared.Packages), len(prepared.ChangedPackages))
+		log.Printf("[base] PrepareFromDir took %s (pkgs=%d, changed pkgs=%d)", time.Since(t), len(prepared.Packages), len(prepared.ChangedPackages))
 		t = time.Now()
 		g, err := cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
 		if err != nil {
