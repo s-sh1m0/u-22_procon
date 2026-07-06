@@ -32,6 +32,10 @@ func (r *fakeAnalysisRepo) FindByID(_ context.Context, id domain.AnalysisID) (*d
 	return r.byID[id], r.err
 }
 
+func (r *fakeAnalysisRepo) FindDiffByID(_ context.Context, id domain.AnalysisID) (*domain.Analysis, error) {
+	return r.byID[id], r.err
+}
+
 func (r *fakeAnalysisRepo) FindByPR(_ context.Context, _ domain.PRInfo) (*domain.Analysis, error) {
 	return r.byPR, r.err
 }

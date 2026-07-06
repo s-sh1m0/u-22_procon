@@ -31,6 +31,7 @@ type fakeReadUC struct {
 	analysis *domain.Analysis
 	jobErr   error
 	graphErr error
+	diffErr  error
 	lastMode domain.ClusterMode
 }
 
@@ -41,6 +42,10 @@ func (f *fakeReadUC) GetJob(_ context.Context, _ domain.JobID) (*domain.Job, err
 func (f *fakeReadUC) GetGraph(_ context.Context, _ domain.JobID, mode domain.ClusterMode) (*domain.Analysis, error) {
 	f.lastMode = mode
 	return f.analysis, f.graphErr
+}
+
+func (f *fakeReadUC) GetDiff(_ context.Context, _ domain.JobID) (*domain.Analysis, error) {
+	return f.analysis, f.diffErr
 }
 
 // --- helpers ---

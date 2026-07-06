@@ -85,6 +85,10 @@ func (r *fakeAnalysisRepo) FindByID(_ context.Context, _ domain.AnalysisID) (*do
 	return nil, nil
 }
 
+func (r *fakeAnalysisRepo) FindDiffByID(_ context.Context, _ domain.AnalysisID) (*domain.Analysis, error) {
+	return nil, nil
+}
+
 func (r *fakeAnalysisRepo) FindByPR(_ context.Context, _ domain.PRInfo) (*domain.Analysis, error) {
 	return nil, nil
 }
