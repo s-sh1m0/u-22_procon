@@ -35,7 +35,7 @@ type sourceTreePreparer interface {
 // defaultJobTimeout は1ジョブの解析にかける時間の上限のデフォルト値。
 // 巨大リポジトリ（k8s 等）の解析が暴走してワーカーを無限に占有し、
 // 後続ジョブ（＝他ユーザー）を巻き添えにするのを防ぐ安全弁。
-const defaultJobTimeout = 120 * time.Second
+const defaultJobTimeout = 180 * time.Second
 
 // Worker はキューからジョブを受け取り解析パイプラインを実行する。
 // Run は複数 goroutine から同時に呼び出して構わない（フィールドは不変、

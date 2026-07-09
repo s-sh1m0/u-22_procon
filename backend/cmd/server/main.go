@@ -61,7 +61,7 @@ func main() {
 	queue := job.NewQueue(queueBuf)
 
 	// 1ジョブの解析時間上限。暴走解析がワーカーを占有し続けるのを防ぐ安全弁。
-	jobTimeout := time.Duration(envIntOr("JOB_TIMEOUT_SECONDS", 120)) * time.Second
+	jobTimeout := time.Duration(envIntOr("JOB_TIMEOUT_SECONDS", 180)) * time.Second
 	worker := job.NewWorker(queue, jobRepo, analysisRepo, prRepo, sourceTree, cgBuilder, clusterer,
 		job.WithJobTimeout(jobTimeout))
 

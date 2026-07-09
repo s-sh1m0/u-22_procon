@@ -18,7 +18,13 @@ import (
 // defaultMaxNeighborhood は Phase 2 で型情報付きロードする近傍パッケージ数の上限。
 // これを超える近傍は近いホップ優先で打ち切る。k8s のようなハブパッケージを含む
 // 巨大リポジトリでフルロードがメモリ枯渇するのを防ぐためのガード。
-const defaultMaxNeighborhood = 500
+// terraform（178 pkgs）で170近傍→タイムアウトした実測値から 150 に設定。
+const defaultMaxNeighborhood = 150
+
+// defaultNeighborhoodDepth はパッケージ近傍を辿る import グラフ上のホップ数上限。
+// callgraph BFS の defaultMaxDepth（関数レベル）とは独立。ハブパッケージを含む
+// リポジトリでは depth=3 で全パッケージに到達してしまうため 2 に抑える。
+const defaultNeighborhoodDepth = 2
 
 // PreparedSource はclone・ロード・変更パッケージ特定の結果をまとめたもの。
 type PreparedSource struct {
@@ -161,7 +167,7 @@ func (s *SourceTree) prepareFromDir(ctx context.Context, rootDir string, changed
 	// 型チェックの依存として読まれるが返却パッケージには含まれない。
 	// 件数を上限で抑えるのは、ハブパッケージを含む PR（k8s 等）で近傍が数千件に
 	// 膨らみ、フルロード時にメモリ枯渇（OOM）するのを防ぐため。
-	neighborhood := FindNeighborhood(changedPkgs, fastPkgs, defaultMaxDepth, defaultMaxNeighborhood)
+	neighborhood := FindNeighborhood(changedPkgs, fastPkgs, defaultNeighborhoodDepth, defaultMaxNeighborhood)
 	if len(neighborhood) >= defaultMaxNeighborhood {
 		log.Printf("analyzer: neighborhood capped at %d pkgs (changed=%d) — graph may be partial", defaultMaxNeighborhood, len(changedPkgs))
 	}
