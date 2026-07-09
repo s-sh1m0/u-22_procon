@@ -34,7 +34,7 @@ func NewAnalysisRepo(db *sql.DB) *AnalysisRepo {
 // changed_files カラムに分離して保存する。これにより /api/graph の読み出しで
 // diff 本文を unmarshal せずに済む。
 func (r *AnalysisRepo) Save(ctx context.Context, a *domain.Analysis) error {
-	resultJSON, err := json.Marshal(*a.Result)
+	resultJSON, err := json.Marshal(a.Result)
 	if err != nil {
 		return fmt.Errorf("marshal cluster result: %w", err)
 	}
