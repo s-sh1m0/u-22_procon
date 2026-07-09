@@ -149,7 +149,8 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 | `ClusterGroup` | 展開中クラスタの背景コンテナ。子ノードを `parentId` で内包 |
 | `SuperClusterNode` | 折りたたみ中クラスタのスーパーノード。クリックで展開 |
 | `FunctionDetailsPanel` | 右パネル。クラスタラベル・レイヤー・GitHub 該当行リンク・diff |
-| `FocusLegend` | フォーカスモード中に左上に出る凡例（呼び出し元/先の方向色と件数） |
+| `GraphSearch` | グラフ左上の検索ボックス。関数名/パッケージをインクリメンタル検索→候補選択で展開+選択+中央寄せ（`fitView`）。折りたたみ中クラスタ内のノードも親を開いて到達する |
+| `FocusLegend` | フォーカスモード中に左上（検索ボックスの下）に出る凡例（呼び出し元/先の方向色と件数） |
 | `DiffViewer` | `@monaco-editor/react` で before/after 表示 |
 | `ClusterSidebar` | クラスタ一覧（実装位置: `layout/`） |
 

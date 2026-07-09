@@ -15,6 +15,7 @@ import FunctionNode from './FunctionNode'
 import ClusterGroup from './ClusterGroup'
 import SuperClusterNode from './SuperClusterNode'
 import GraphControls from './GraphControls'
+import GraphSearch, { type SearchCandidate } from './GraphSearch'
 import FocusLegend from './FocusLegend'
 import { layoutGraph, type LayoutResult } from '@/lib/graphLayout'
 import {
@@ -53,6 +54,11 @@ type Props = {
   onToggleCluster: (key: string) => void
   onExpandAll: () => void
   onCollapseAll: () => void
+  searchCandidates: SearchCandidate[]
+  onJump: (id: string) => void
+  // 検索ジャンプ等でこの target が変わったら、当該ノードが配置され次第そこへ中央寄せする。
+  // nonce は同一ノードへの再ジャンプでも再中央寄せするための世代番号。
+  centerTarget: { nodeId: string; nonce: number } | null
 }
 
 function GraphInner({
@@ -68,6 +74,9 @@ function GraphInner({
   onToggleCluster,
   onExpandAll,
   onCollapseAll,
+  searchCandidates,
+  onJump,
+  centerTarget,
 }: Props) {
   const { fitView } = useReactFlow()
 
@@ -107,6 +116,26 @@ function GraphInner({
     const raf = requestAnimationFrame(() => fitView({ duration: 300 }))
     return () => cancelAnimationFrame(raf)
   }, [layoutSource, data, layoutNodes, fitView])
+
+  // 検索ジャンプの中央寄せ。ジャンプ要求（centerTarget.nonce 変化）を pending に記録し、
+  // 対象ノードが現在のレイアウトに現れ次第そこへ寄せる。折りたたみクラスタ内のノードは
+  // 親展開 → 再レイアウト後に初めて layoutNodes に現れるため、layoutNodes 変化でも再評価する。
+  const pendingCenterRef = useRef<string | null>(null)
+  const processedNonceRef = useRef<number>(-1)
+  useEffect(() => {
+    if (centerTarget && centerTarget.nonce !== processedNonceRef.current) {
+      processedNonceRef.current = centerTarget.nonce
+      pendingCenterRef.current = centerTarget.nodeId
+    }
+    const targetId = pendingCenterRef.current
+    if (!targetId) return
+    if (!layoutNodes.some((n) => n.id === targetId)) return // まだ配置されていない（展開待ち）
+    pendingCenterRef.current = null
+    const raf = requestAnimationFrame(() =>
+      fitView({ nodes: [{ id: targetId }], duration: 500, maxZoom: 1.2, padding: 0.6 }),
+    )
+    return () => cancelAnimationFrame(raf)
+  }, [centerTarget, layoutNodes, fitView])
 
   // フォーカス: 選択ノードが現在のレイアウトに存在するときだけ有効化する
   // （クラスタ折りたたみ等で非表示になった選択は無視し、全体減光を避ける）。
@@ -216,11 +245,10 @@ function GraphInner({
           </div>
         </Panel>
       )}
-      {focus && (
-        <Panel position="top-left">
-          <FocusLegend callerCount={focus.callerCount} calleeCount={focus.calleeCount} />
-        </Panel>
-      )}
+      <Panel position="top-left" className="flex flex-col gap-2">
+        <GraphSearch candidates={searchCandidates} onJump={onJump} />
+        {focus && <FocusLegend callerCount={focus.callerCount} calleeCount={focus.calleeCount} />}
+      </Panel>
       <Controls position="bottom-left" />
       {nodes.length <= MINIMAP_HIDE_NODE_THRESHOLD && (
         <MiniMap
