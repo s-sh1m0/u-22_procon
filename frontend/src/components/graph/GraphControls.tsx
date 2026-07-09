@@ -38,6 +38,8 @@ function SegmentedControl<T extends string | boolean>({
       {items.map((m) => (
         <button
           key={String(m.value)}
+          type="button"
+          aria-pressed={value === m.value}
           className={[
             'flex-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all',
             value === m.value
@@ -56,17 +58,21 @@ function SegmentedControl<T extends string | boolean>({
 function IconButton({
   onClick,
   label,
+  disabled,
   children,
 }: {
   onClick: () => void
   label: string
+  disabled?: boolean
   children: React.ReactNode
 }) {
   return (
     <button
-      className="flex size-7 items-center justify-center rounded-md text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
+      type="button"
+      className="flex size-7 items-center justify-center rounded-md text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-stone-500"
       onClick={onClick}
       aria-label={label}
+      disabled={disabled}
     >
       {children}
     </button>
@@ -111,6 +117,7 @@ export default function GraphControls({
 
       <div className="flex gap-1">
         <button
+          type="button"
           className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md text-[11px] font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
           onClick={onExpandAll}
         >
@@ -131,6 +138,7 @@ export default function GraphControls({
         </button>
         <div className="w-px bg-stone-100" />
         <button
+          type="button"
           className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md text-[11px] font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
           onClick={onCollapseAll}
         >
