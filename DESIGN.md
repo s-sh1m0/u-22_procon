@@ -150,7 +150,7 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 | `SuperClusterNode` | 折りたたみ中クラスタのスーパーノード。クリックで展開 |
 | `FunctionDetailsPanel` | 右パネル。クラスタラベル・レイヤー・GitHub 該当行リンク・diff |
 | `GraphSearch` | グラフ左上の検索ボックス。関数名/パッケージをインクリメンタル検索→候補選択で展開+選択+中央寄せ（`fitView`）。折りたたみ中クラスタ内のノードも親を開いて到達する |
-| `GraphControls` | 右下コントロールパネル。表示モード切替・クラスタモード・展開/折りたたみ・変更ノードステップナビゲーター（`[←] 3/12 変更 [→]`）。ナビゲーターはレビュー優先度順に変更ノードを1つずつ巡回し、クラスタ自動展開+選択+中央寄せを行う |
+| `GraphControls` | 右下フローティングパネル（frosted glass: `bg-white/90 backdrop-blur-md`）。ラベル付きセクションに分割: 表示モード切替（変更影響/全体）・クラスタモード（Louvain/Package/File）・展開/折畳アクションボタン・変更ノードステップナビゲーター。セグメントコントロールは pill 型（active=`bg-white shadow-sm`、inactive=`text-stone-500`）。ナビゲーターはレビュー優先度順に変更ノードを1つずつ巡回し、クラスタ自動展開+選択+中央寄せを行う |
 | `FocusLegend` | フォーカスモード中に左上（検索ボックスの下）に出る凡例（呼び出し元/先の方向色と件数） |
 | `DiffViewer` | `@monaco-editor/react` で before/after 表示 |
 | `ClusterSidebar` | クラスタ一覧（実装位置: `layout/`） |
@@ -192,9 +192,13 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 
 - **認証で出し分け**: Hero と CTA strip は `useAuth()` を見て切替える。未ログイン → GitHub 連携ボタン（`/auth/github`）、ログイン済み → PR URL 入力フォーム（`PrInputForm`、`useAnalyzeMutation` + `parsePrUrl` に接続し `/analysis/:jobId` へ遷移）。
 - **ルート**: `/`=LP（公開） / `/analyze`=PR 入力 Home（要認証） / `/analysis/:jobId`=結果（要認証） / `/login`。`RequireAuth` から外れる公開ページは `/` のみ。
-- **実装**: Claude Design の handoff（`design/project/landing.jsx`）を Tailwind ユーティリティで再現。handoff の色は Tailwind 標準パレットにそのまま対応する（中立色=`stone`、ブランド=`teal`、4 クラスタ=`green`/`red`/`amber`/`violet` の 600/100/300）。ボタンと入力欄は shadcn/ui の `Button`（`asChild` でリンク化）/ `Input` を流用。中央寄せコンテナは `components/landing/Wrap.tsx` に共通化。レスポンシブは Tailwind の `sm:`/`lg:` と `clamp()`（見出し）で担保。装飾の radial-gradient/mask とグラフ系 SVG の配色のみ inline style / リテラル hex（グラフ意味色の慣習に準拠）。
+- **実装**: Claude Design の handoff（`design/project/landing.jsx`）を Tailwind ユーティリティで再現。handoff の色は Tailwind 標準パレットにそのまま対応する（中立色=`stone`、ブランド=`teal`）。ボタンと入力欄は shadcn/ui の `Button`（`asChild` でリンク化）/ `Input` を流用。中央寄せコンテナは `components/landing/Wrap.tsx` に共通化。レスポンシブは Tailwind の `sm:`/`lg:` と `clamp()`（見出し）で担保。装飾の radial-gradient/mask とグラフ系 SVG の配色のみ inline style / リテラル hex（グラフ意味色の慣習に準拠）。
 - **プロダクトマーク**: `components/branding/AppMark.tsx` が diffmap. のアプリアイコン（design "A4·4"：ノード群が 1 つの accent ノードへ V 字で収束する形）。`Brand.tsx` と `public/favicon.svg` もこれに統一。
-- **データ整合**: 「最近の解析」一覧は対応するバックエンド API が未実装のため、handoff のダミーは載せず省略している（4 状態原則・データ捏造回避）。実装後に追加する。Hero の統計値（解析数・短縮率など）は handoff のマーケコピーをそのまま採用。
+- **コンテンツ整合方針**: LP の記述は実装済み機能に限定する。未実装機能・架空の統計値・存在しないプラン/ページへのリンクは載せない。
+  - `ClusterShowcase`: 実際の 3 クラスタリングモード（Louvain / パッケージ / ファイル）を紹介
+  - `FeatureGrid`: 影響範囲 hop 可視化・AST diff・新規循環参照検出の 3 機能
+  - `HowItWorks`: PR 貼付 → 依存グラフ構築 → クラスタ構造把握の 3 ステップ
+  - Footer: 実リンクのみ（GitHub / README / ページ内アンカー）
 
 ---
 
