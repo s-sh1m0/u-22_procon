@@ -20,6 +20,9 @@ export default function LandingNav({ isAuthenticated, login }: Props) {
           <a className={`${navLink} hidden md:inline-flex`} href="#how">
             仕組み
           </a>
+          <a className={`${navLink} hidden md:inline-flex`} href="#showcase">
+            クラスタリング
+          </a>
           <a
             className={`${navLink} hidden md:inline-flex`}
             href={REPO_URL}

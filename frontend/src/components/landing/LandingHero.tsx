@@ -3,19 +3,6 @@ import GuestCta from './GuestCta'
 import PrInputForm from './PrInputForm'
 import HeroIllustration from './HeroIllustration'
 
-function Stat({ n, l }: { n: string; l: string }) {
-  return (
-    <div>
-      <div className="text-[22px] font-semibold tracking-[-0.02em] text-stone-900 tabular-nums">
-        {n}
-      </div>
-      <div className="mt-0.5 text-xs text-stone-500">{l}</div>
-    </div>
-  )
-}
-
-const Divider = () => <div className="h-8 w-px bg-stone-200" />
-
 export default function LandingHero({ isAuthenticated }: { isAuthenticated: boolean }) {
   return (
     <section className="relative overflow-hidden border-b border-stone-200">
@@ -41,19 +28,11 @@ export default function LandingHero({ isAuthenticated }: { isAuthenticated: bool
             <span className="text-teal-700">構造</span>として読む。
           </h1>
           <p className="m-0 mb-8 max-w-[500px] text-[17px] leading-relaxed text-stone-700">
-            変更ファイルの羅列ではなく、モジュールの依存関係として PR を可視化。100
-            ファイル超のレビューも、4 つの意味のあるクラスタに自動分割します。
+            変更ファイルの羅列ではなく、モジュールの依存関係として PR
+            を可視化。大規模レビューも、意味のあるクラスタに自動分割します。
           </p>
 
           {isAuthenticated ? <PrInputForm /> : <GuestCta />}
-
-          <div className="mt-10 flex flex-wrap items-center gap-7">
-            <Stat n="2,400+" l="解析された PR" />
-            <Divider />
-            <Stat n="38%" l="レビュー時間短縮" />
-            <Divider />
-            <Stat n="< 5s" l="平均解析時間" />
-          </div>
         </div>
 
         <HeroIllustration />

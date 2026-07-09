@@ -4,7 +4,6 @@ const { useState } = React;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "authState": "guest",
-  "showHistory": true,
   "ctaTone": "ink"
 }/*EDITMODE-END*/;
 
@@ -71,7 +70,7 @@ function Nav({ authState }) {
         <div style={{ display: "flex", alignItems: "center", gap: 28, fontSize: 13, color: "var(--ink-2)" }}>
           <a style={navLinkStyle}>機能</a>
           <a style={navLinkStyle}>仕組み</a>
-          <a style={navLinkStyle}>ドキュメント</a>
+          <a style={navLinkStyle}>クラスタリング</a>
           <a style={navLinkStyle} href="#"><GitHubGlyph size={13} /> GitHub</a>
           <div style={{ width: 1, height: 18, background: "var(--line)" }} />
           {authState === "guest" ? (
@@ -125,7 +124,7 @@ function Hero({ authState, ctaTone }) {
             プルリクを、<br/><span style={{ color: "var(--brand)" }}>構造</span>として読む。
           </h1>
           <p style={{ fontSize: 17, lineHeight: 1.6, color: "var(--ink-2)", margin: "0 0 32px", maxWidth: 500 }}>
-            変更ファイルの羅列ではなく、モジュールの依存関係として PR を可視化。100 ファイル超のレビューも、4 つの意味のあるクラスタに自動分割します。
+            変更ファイルの羅列ではなく、モジュールの依存関係として PR を可視化。大規模レビューも、意味のあるクラスタに自動分割します。
           </p>
 
           {/* === Auth-aware CTA === */}
@@ -134,15 +133,6 @@ function Hero({ authState, ctaTone }) {
           ) : (
             <PrInputCTA />
           )}
-
-          {/* social proof */}
-          <div style={{ marginTop: 40, display: "flex", gap: 28, alignItems: "center" }}>
-            <Stat n="2,400+" l="解析された PR" />
-            <div style={{ width: 1, height: 32, background: "var(--line)" }} />
-            <Stat n="38%" l="レビュー時間短縮" />
-            <div style={{ width: 1, height: 32, background: "var(--line)" }} />
-            <Stat n="< 5s" l="平均解析時間" />
-          </div>
         </div>
 
         <HeroIllustration />
@@ -152,15 +142,6 @@ function Hero({ authState, ctaTone }) {
 }
 
 const pillStyle = { display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 12px", background: "var(--brand-soft)", color: "var(--brand-ink)", borderRadius: 99, fontSize: 12, fontWeight: 500, border: "1px solid #99f6e4" };
-
-function Stat({ n, l }) {
-  return (
-    <div>
-      <div style={{ fontSize: 22, fontWeight: 600, color: "var(--ink)", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{n}</div>
-      <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>{l}</div>
-    </div>
-  );
-}
 
 // ──────────────────────────────────────────────────────────────────────
 // CTA — Guest (GitHub OAuth)
@@ -268,12 +249,6 @@ function PrInputCTA() {
           )}
         </form>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--ink-3)" }}>
-        <span>最近の解析:</span>
-        {["#1278", "#1262", "#1241"].map((p) => (
-          <a key={p} className="mono" style={{ color: "var(--ink-2)", textDecoration: "none", padding: "3px 8px", background: "white", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer" }}>kobold/checkout-service{p}</a>
-        ))}
-      </div>
     </div>
   );
 }
@@ -352,10 +327,10 @@ function HeroIllustration() {
         <div style={{ borderTop: "1px solid var(--line)", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-alt)" }}>
           <div style={{ display: "flex", gap: 14, fontSize: 11 }}>
             {[
-              ["#16a34a", "追加 3"],
-              ["#dc2626", "削除 1"],
-              ["#d97706", "修正 3"],
-              ["#7c3aed", "リファクタ 2"],
+              ["#16a34a", "Cluster A"],
+              ["#dc2626", "Cluster B"],
+              ["#d97706", "Cluster C"],
+              ["#7c3aed", "Cluster D"],
             ].map(([c, l]) => (
               <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--ink-2)" }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
@@ -366,37 +341,35 @@ function HeroIllustration() {
           <span className="mono" style={{ fontSize: 10, color: "var(--ink-3)" }}>2.4s</span>
         </div>
       </div>
-
-      {/* (annotation removed — graph + legend speak for themselves) */}
     </div>
   );
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Section · 4-way cluster
+// Section · Smart Clustering
 // ──────────────────────────────────────────────────────────────────────
 
 function ClusterSection() {
-  const clusters = [
-    { label: "追加",       desc: "新規モジュール",         c: "var(--added)",    bg: "var(--added-bg)",    bd: "var(--added-bd)",    icon: "+", n: 11 },
-    { label: "削除",       desc: "削除されたモジュール",   c: "var(--removed)",  bg: "var(--removed-bg)",  bd: "var(--removed-bd)",  icon: "−", n: 4 },
-    { label: "修正",       desc: "ロジック変更を含む",     c: "var(--modified)", bg: "var(--modified-bg)", bd: "var(--modified-bd)", icon: "~", n: 13 },
-    { label: "リファクタ", desc: "振る舞い保存・構造変更", c: "var(--refactor)", bg: "var(--refactor-bg)", bd: "var(--refactor-bd)", icon: "↻", n: 6 },
+  const modes = [
+    { label: "Louvain",       desc: "依存関係の密度からコミュニティを自動検出",   icon: "{}", badge: "既定" },
+    { label: "パッケージ",     desc: "Go パッケージ単位でグルーピング",         icon: "/",  badge: "" },
+    { label: "ファイル",       desc: "ソースファイル単位でグルーピング",         icon: "[]", badge: "" },
   ];
   return (
-    <section id="how" style={{ padding: "112px 0 88px", borderBottom: "1px solid var(--line)" }}>
+    <section id="showcase" style={{ padding: "112px 0 88px", borderBottom: "1px solid var(--line)" }}>
       <div className="wrap">
-        <SectionHead eyebrow="4-way auto cluster" title="変更の種類で、自動的に4つに分ける。" lead="ファイル名やパスではなく、AST と呼び出しグラフから「変更の意味」を抽出。レビュアーは色とまとまりで読み進められます。" />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginTop: 48 }}>
-          {clusters.map((k) => (
-            <div key={k.label} style={{ background: "white", border: "1px solid var(--line)", borderRadius: 14, padding: 22, position: "relative", overflow: "hidden" }}>
-              <div style={{ position: "absolute", inset: "0 auto 0 0", width: 3, background: k.c }} />
+        <SectionHead eyebrow="Smart clustering" title="依存関係から、自動でクラスタを生成。" lead="Louvain アルゴリズムが呼び出しグラフのコミュニティ構造を検出し、関連する関数群を意味のあるまとまりに自動分割。パッケージ・ファイル単位への切替もワンクリック。" />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 48 }}>
+          {modes.map((m) => (
+            <div key={m.label} style={{ background: "white", border: "1px solid var(--line)", borderRadius: 14, padding: 22, position: "relative", overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ width: 38, height: 38, borderRadius: 10, background: k.bg, border: `1px solid ${k.bd}`, display: "flex", alignItems: "center", justifyContent: "center", color: k.c, fontWeight: 600, fontSize: 18 }}>{k.icon}</div>
-                <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>n={k.n}</div>
+                <div className="mono" style={{ width: 38, height: 38, borderRadius: 10, background: "var(--brand-soft)", border: "1px solid #99f6e4", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--brand)", fontWeight: 600, fontSize: 14 }}>{m.icon}</div>
+                {m.badge && (
+                  <span style={{ fontSize: 10, fontWeight: 500, color: "var(--brand)", background: "var(--brand-soft)", padding: "2px 8px", borderRadius: 99 }}>{m.badge}</span>
+                )}
               </div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink)", marginTop: 16, letterSpacing: "-0.01em" }}>{k.label}</div>
-              <div style={{ fontSize: 13, color: "var(--ink-3)", marginTop: 4, lineHeight: 1.5 }}>{k.desc}</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink)", marginTop: 16, letterSpacing: "-0.01em" }}>{m.label}</div>
+              <div style={{ fontSize: 13, color: "var(--ink-3)", marginTop: 4, lineHeight: 1.5 }}>{m.desc}</div>
             </div>
           ))}
         </div>
@@ -425,8 +398,8 @@ function HowItWorks() {
     },
     {
       n: "03",
-      title: "クラスタごとに読む",
-      desc: "追加 → 修正 → リファクタ → 削除 の順に、レビュアーの認知に沿った読み方を提案します。",
+      title: "クラスタで構造を把握",
+      desc: "Louvain アルゴリズムが関連する関数群をクラスタに自動分割。変更ノードを優先度順にナビゲートして効率的にレビュー。",
       mock: <StepMock3 />,
     },
   ];
@@ -497,21 +470,27 @@ function StepMock2() {
 
 function StepMock3() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+    <svg viewBox="0 0 220 140" style={{ width: "100%" }}>
+      <rect x="14" y="10" width="92" height="52" rx="8" fill="#f0fdfa" stroke="#99f6e4" strokeDasharray="3 2"/>
+      <rect x="124" y="10" width="82" height="52" rx="8" fill="#f5f3ff" stroke="#c4b5fd" strokeDasharray="3 2"/>
+      <rect x="69" y="74" width="82" height="52" rx="8" fill="#fffbeb" stroke="#fcd34d" strokeDasharray="3 2"/>
       {[
-        ["追加", "var(--added)", "var(--added-bg)", "var(--added-bd)", 70],
-        ["修正", "var(--modified)", "var(--modified-bg)", "var(--modified-bd)", 90],
-        ["リファクタ", "var(--refactor)", "var(--refactor-bg)", "var(--refactor-bd)", 45],
-        ["削除", "var(--removed)", "var(--removed-bg)", "var(--removed-bd)", 30],
-      ].map(([lbl, c, bg, bd, w]) => (
-        <div key={lbl} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ width: 64, fontSize: 11, color: "var(--ink-2)" }}>{lbl}</span>
-          <div style={{ flex: 1, height: 10, background: bg, border: `1px solid ${bd}`, borderRadius: 99, overflow: "hidden" }}>
-            <div style={{ width: `${w}%`, height: "100%", background: c, opacity: 0.85 }} />
-          </div>
-        </div>
+        {x:20, y:16, label:"Cluster A", color:"#0f766e"},
+        {x:130, y:16, label:"Cluster B", color:"#7c3aed"},
+        {x:75, y:80, label:"Cluster C", color:"#d97706"},
+      ].map((n) => (
+        <g key={n.label}>
+          <circle cx={n.x+20} cy={n.y+22} r="6" fill={n.color}/>
+          <circle cx={n.x+38} cy={n.y+18} r="4" fill={n.color} opacity="0.6"/>
+          <circle cx={n.x+52} cy={n.y+26} r="5" fill={n.color} opacity="0.8"/>
+          <text x={n.x+36} y={n.y+44} textAnchor="middle" fontSize="8" fill="#78716c" fontFamily="Inter Tight">{n.label}</text>
+        </g>
       ))}
-    </div>
+      <g stroke="#d6d3d1" strokeWidth="1" fill="none">
+        <path d="M60 50 Q80 68 90 80"/>
+        <path d="M150 58 Q140 68 130 80"/>
+      </g>
+    </svg>
   );
 }
 
@@ -542,8 +521,8 @@ function Features() {
       art: <FeatureArt2 />,
     },
     {
-      title: "コメントは AST に紐づく",
-      desc: "rebase してもコメントが迷子にならない。ノード単位で議論を継続できます。",
+      title: "新規循環参照を自動検出",
+      desc: "PR で新たに生じた循環依存を赤でハイライト。構造リスクをレビュー前に把握できます。",
       art: <FeatureArt3 />,
     },
   ];
@@ -595,20 +574,23 @@ function FeatureArt2() {
 function FeatureArt3() {
   return (
     <svg viewBox="0 0 200 120" style={{ width: "100%", height: "100%" }}>
-      <rect x="20" y="20" width="100" height="80" rx="8" fill="white" stroke="var(--line-strong)"/>
-      <text x="30" y="38" fontSize="9" fill="var(--ink-3)" fontFamily="JetBrains Mono">func Charge()</text>
-      <rect x="30" y="46" width="80" height="2" fill="var(--ink-3)" opacity="0.2"/>
-      <rect x="30" y="52" width="60" height="2" fill="var(--ink-3)" opacity="0.2"/>
-      <rect x="30" y="58" width="70" height="2" fill="var(--ink-3)" opacity="0.2"/>
-      <path d="M120 60 L150 40" stroke="var(--brand)" strokeWidth="1.5"/>
-      <g>
-        <rect x="140" y="20" width="50" height="36" rx="8" fill="var(--brand)"/>
-        <circle cx="151" cy="32" r="3" fill="white"/>
-        <rect x="158" y="30" width="22" height="2" fill="white" opacity="0.7"/>
-        <rect x="158" y="34" width="18" height="2" fill="white" opacity="0.7"/>
-        <rect x="158" y="38" width="20" height="2" fill="white" opacity="0.7"/>
-        <text x="146" y="50" fontSize="7" fill="white" opacity="0.8" fontFamily="JetBrains Mono">@ shimo-dev</text>
+      <g stroke="#d6d3d1" strokeWidth="1" fill="none">
+        <path d="M60 30 L100 60"/>
+        <path d="M140 30 L100 60"/>
+        <path d="M100 60 L60 90"/>
+        <path d="M100 60 L140 90"/>
       </g>
+      <rect x="40" y="18" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1"/>
+      <text x="60" y="34" textAnchor="middle" fontSize="8" fill="#44403c" fontFamily="JetBrains Mono">funcA</text>
+      <rect x="120" y="18" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1"/>
+      <text x="140" y="34" textAnchor="middle" fontSize="8" fill="#44403c" fontFamily="JetBrains Mono">funcB</text>
+      <circle cx="100" cy="60" r="14" fill="#ef4444"/>
+      <text x="100" y="64" textAnchor="middle" fontSize="8" fill="white" fontFamily="JetBrains Mono" fontWeight="600">↻</text>
+      <rect x="40" y="78" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1"/>
+      <text x="60" y="94" textAnchor="middle" fontSize="8" fill="#44403c" fontFamily="JetBrains Mono">funcC</text>
+      <rect x="120" y="78" width="40" height="24" rx="4" fill="#fee2e2" stroke="#fca5a5"/>
+      <text x="140" y="94" textAnchor="middle" fontSize="8" fill="#dc2626" fontFamily="JetBrains Mono">funcD</text>
+      <path d="M140 78 L100 74" stroke="#ef4444" strokeWidth="2" fill="none"/>
     </svg>
   );
 }
@@ -628,7 +610,7 @@ function CTAStrip({ authState }) {
             <span style={{ color: "var(--brand-light)" }}>構造を読もう。</span>
           </h2>
           <p style={{ fontSize: 16, color: "rgba(255,255,255,0.65)", margin: "0 0 32px", maxWidth: 480, lineHeight: 1.6 }}>
-            GitHub と連携して 30 秒で開始。公開リポジトリは無料、Pro プラン招待ベータ受付中。
+            GitHub と連携するだけですぐに使えます。パブリックリポジトリは無料で解析可能。
           </p>
           {authState === "guest" ? (
             <a href="/auth/github" style={{ ...btn, background: "white", color: "var(--ink)", height: 52, padding: "0 22px", fontSize: 15, textDecoration: "none", boxShadow: "0 4px 14px rgba(0,0,0,0.25)" }}>
@@ -655,13 +637,12 @@ function CTAStrip({ authState }) {
 
 function Footer() {
   const cols = [
-    { title: "プロダクト", links: ["機能", "仕組み", "料金", "ロードマップ", "変更履歴"] },
-    { title: "ドキュメント", links: ["はじめに", "API リファレンス", "セルフホスト", "CLI"] },
-    { title: "会社", links: ["About", "ブログ", "お問い合わせ", "プレスキット"] },
+    { title: "プロダクト", links: [{ label: "機能", href: "#features" }, { label: "仕組み", href: "#how" }] },
+    { title: "リソース", links: [{ label: "GitHub" }, { label: "README" }] },
   ];
   return (
     <footer style={{ padding: "72px 0 40px", background: "white", borderTop: "1px solid var(--line)" }}>
-      <div className="wrap" style={{ display: "grid", gridTemplateColumns: "1.4fr repeat(3, 1fr)", gap: 48 }}>
+      <div className="wrap" style={{ display: "grid", gridTemplateColumns: "1.6fr repeat(2, 1fr)", gap: 48 }}>
         <div>
           <Brand size={16} />
           <p style={{ fontSize: 13, color: "var(--ink-3)", margin: "14px 0 20px", lineHeight: 1.6, maxWidth: 280 }}>
@@ -672,9 +653,6 @@ function Footer() {
               <GitHubGlyph size={12} />
               GitHub
             </a>
-            <a style={{ ...btnGhost, ...btn, height: 32, padding: "0 12px", fontSize: 12 }}>
-              ドキュメント
-            </a>
           </div>
         </div>
         {cols.map((c) => (
@@ -682,7 +660,7 @@ function Footer() {
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-2)", marginBottom: 12, letterSpacing: "-0.005em" }}>{c.title}</div>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
               {c.links.map((l) => (
-                <li key={l}><a style={{ fontSize: 13, color: "var(--ink-3)", textDecoration: "none", cursor: "pointer" }}>{l}</a></li>
+                <li key={l.label}><a href={l.href} style={{ fontSize: 13, color: "var(--ink-3)", textDecoration: "none", cursor: "pointer" }}>{l.label}</a></li>
               ))}
             </ul>
           </div>

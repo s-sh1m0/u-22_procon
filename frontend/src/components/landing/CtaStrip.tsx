@@ -21,7 +21,7 @@ export default function CtaStrip({ isAuthenticated }: { isAuthenticated: boolean
             <span className="text-teal-300">構造を読もう。</span>
           </h2>
           <p className="m-0 mb-8 max-w-[480px] text-base leading-relaxed text-white/65">
-            GitHub と連携して 30 秒で開始。公開リポジトリは無料、Pro プラン招待ベータ受付中。
+            GitHub と連携するだけですぐに使えます。パブリックリポジトリは無料で解析可能。
           </p>
           {isAuthenticated ? (
             <Button

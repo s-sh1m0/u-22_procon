@@ -13,27 +13,13 @@ const COLS: Col[] = [
     links: [
       { label: '機能', href: '#features' },
       { label: '仕組み', href: '#how' },
-      { label: '料金' },
-      { label: 'ロードマップ' },
-      { label: '変更履歴' },
     ],
   },
   {
-    title: 'ドキュメント',
+    title: 'リソース',
     links: [
-      { label: 'はじめに' },
-      { label: 'API リファレンス' },
-      { label: 'セルフホスト' },
-      { label: 'CLI' },
-    ],
-  },
-  {
-    title: '会社',
-    links: [
-      { label: 'About' },
-      { label: 'ブログ' },
-      { label: 'お問い合わせ' },
-      { label: 'プレスキット' },
+      { label: 'GitHub', href: REPO_URL },
+      { label: 'README', href: `${REPO_URL}#readme` },
     ],
   },
 ]
@@ -41,7 +27,11 @@ const COLS: Col[] = [
 function FooterLink({ link }: { link: Link }) {
   if (link.href) {
     return (
-      <a href={link.href} className="text-[13px] text-stone-500 hover:text-stone-700">
+      <a
+        href={link.href}
+        className="text-[13px] text-stone-500 hover:text-stone-700"
+        {...(link.href.startsWith('http') ? { target: '_blank', rel: 'noreferrer' } : {})}
+      >
         {link.label}
       </a>
     )
@@ -52,7 +42,7 @@ function FooterLink({ link }: { link: Link }) {
 export default function LandingFooter() {
   return (
     <footer className="border-t border-stone-200 bg-white pt-18 pb-10">
-      <Wrap className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_repeat(3,1fr)] lg:gap-12">
+      <Wrap className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-[1.6fr_repeat(2,1fr)] lg:gap-12">
         <div>
           <Brand size={16} />
           <p className="my-3.5 mb-5 max-w-[280px] text-[13px] leading-relaxed text-stone-500">
