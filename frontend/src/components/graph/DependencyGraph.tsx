@@ -56,9 +56,11 @@ type Props = {
   onCollapseAll: () => void
   searchCandidates: SearchCandidate[]
   onJump: (id: string) => void
-  // 検索ジャンプ等でこの target が変わったら、当該ノードが配置され次第そこへ中央寄せする。
-  // nonce は同一ノードへの再ジャンプでも再中央寄せするための世代番号。
   centerTarget: { nodeId: string; nonce: number } | null
+  changedCount: number
+  changedIndex: number | null
+  onNextChanged: () => void
+  onPrevChanged: () => void
 }
 
 function GraphInner({
@@ -77,6 +79,10 @@ function GraphInner({
   searchCandidates,
   onJump,
   centerTarget,
+  changedCount,
+  changedIndex,
+  onNextChanged,
+  onPrevChanged,
 }: Props) {
   const { fitView } = useReactFlow()
 
@@ -197,19 +203,6 @@ function GraphInner({
     [onSelectNode, onToggleCluster],
   )
 
-  const handleFitChanged = useCallback(() => {
-    const changedNodes = nodes.filter((n) => {
-      if (n.type !== 'function') return false
-      const d = n.data as { changed?: boolean; diffStatus?: string }
-      return d.changed || (d.diffStatus && d.diffStatus !== 'existing')
-    })
-    if (changedNodes.length > 0) {
-      fitView({ nodes: changedNodes.map((n) => ({ id: n.id })), duration: 400, padding: 0.3 })
-    } else {
-      fitView({ duration: 300 })
-    }
-  }, [fitView, nodes])
-
   return (
     <ReactFlow
       nodes={nodes}
@@ -264,7 +257,10 @@ function GraphInner({
           onChangeClusterMode={onChangeClusterMode}
           impactOnly={impactOnly}
           onSetImpactOnly={onSetImpactOnly}
-          onFitChanged={handleFitChanged}
+          changedCount={changedCount}
+          changedIndex={changedIndex}
+          onNextChanged={onNextChanged}
+          onPrevChanged={onPrevChanged}
           onExpandAll={onExpandAll}
           onCollapseAll={onCollapseAll}
         />

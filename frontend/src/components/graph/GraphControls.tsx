@@ -7,7 +7,10 @@ type Props = {
   onChangeClusterMode: (mode: ClusterMode) => void
   impactOnly: boolean
   onSetImpactOnly: (next: boolean) => void
-  onFitChanged: () => void
+  changedCount: number
+  changedIndex: number | null
+  onNextChanged: () => void
+  onPrevChanged: () => void
   onExpandAll: () => void
   onCollapseAll: () => void
 }
@@ -28,7 +31,10 @@ export default function GraphControls({
   onChangeClusterMode,
   impactOnly,
   onSetImpactOnly,
-  onFitChanged,
+  changedCount,
+  changedIndex,
+  onNextChanged,
+  onPrevChanged,
   onExpandAll,
   onCollapseAll,
 }: Props) {
@@ -82,9 +88,55 @@ export default function GraphControls({
             折りたたむ
           </Button>
         </div>
-        <Button variant="outline" size="sm" className="h-7 w-full text-xs" onClick={onFitChanged}>
-          変更ノードに寄せる
-        </Button>
+        {changedCount > 0 && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-7"
+              onClick={onPrevChanged}
+              aria-label="前の変更ノード"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M7.5 2.5L4 6l3.5 3.5" />
+              </svg>
+            </Button>
+            <span className="flex-1 text-center text-xs tabular-nums text-stone-600">
+              {changedIndex !== null ? changedIndex + 1 : '-'} / {changedCount} 変更
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-7"
+              onClick={onNextChanged}
+              aria-label="次の変更ノード"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M4.5 2.5L8 6l-3.5 3.5" />
+              </svg>
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
