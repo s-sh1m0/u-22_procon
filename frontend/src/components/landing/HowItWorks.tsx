@@ -72,23 +72,65 @@ function StepMock2() {
 }
 
 function StepMock3() {
-  const bars: [string, string, string, number][] = [
-    ['追加', 'bg-green-100 border-green-300', 'bg-green-600', 70],
-    ['修正', 'bg-amber-100 border-amber-300', 'bg-amber-600', 90],
-    ['リファクタ', 'bg-violet-100 border-violet-300', 'bg-violet-600', 45],
-    ['削除', 'bg-red-100 border-red-300', 'bg-red-600', 30],
+  const nodes: { x: number; y: number; label: string; color: string }[] = [
+    { x: 20, y: 16, label: 'Cluster A', color: '#0f766e' },
+    { x: 130, y: 16, label: 'Cluster B', color: '#7c3aed' },
+    { x: 75, y: 80, label: 'Cluster C', color: '#d97706' },
   ]
   return (
-    <div className="flex w-full flex-col gap-1.5">
-      {bars.map(([lbl, track, fill, w]) => (
-        <div key={lbl} className="flex items-center gap-2">
-          <span className="w-16 text-[11px] text-stone-700">{lbl}</span>
-          <div className={`h-2.5 flex-1 overflow-hidden rounded-full border ${track}`}>
-            <div className={`h-full opacity-85 ${fill}`} style={{ width: `${w}%` }} />
-          </div>
-        </div>
+    <svg viewBox="0 0 220 140" className="w-full" aria-hidden="true">
+      <rect
+        x="14"
+        y="10"
+        width="92"
+        height="52"
+        rx="8"
+        fill="#f0fdfa"
+        stroke="#99f6e4"
+        strokeDasharray="3 2"
+      />
+      <rect
+        x="124"
+        y="10"
+        width="82"
+        height="52"
+        rx="8"
+        fill="#f5f3ff"
+        stroke="#c4b5fd"
+        strokeDasharray="3 2"
+      />
+      <rect
+        x="69"
+        y="74"
+        width="82"
+        height="52"
+        rx="8"
+        fill="#fffbeb"
+        stroke="#fcd34d"
+        strokeDasharray="3 2"
+      />
+      {nodes.map((n) => (
+        <g key={n.label}>
+          <circle cx={n.x + 20} cy={n.y + 22} r="6" fill={n.color} />
+          <circle cx={n.x + 38} cy={n.y + 18} r="4" fill={n.color} opacity="0.6" />
+          <circle cx={n.x + 52} cy={n.y + 26} r="5" fill={n.color} opacity="0.8" />
+          <text
+            x={n.x + 36}
+            y={n.y + 44}
+            textAnchor="middle"
+            fontSize="8"
+            fill="#78716c"
+            fontFamily="Inter Tight"
+          >
+            {n.label}
+          </text>
+        </g>
       ))}
-    </div>
+      <g stroke="#d6d3d1" strokeWidth="1" fill="none">
+        <path d="M60 50 Q80 68 90 80" />
+        <path d="M150 58 Q140 68 130 80" />
+      </g>
+    </svg>
   )
 }
 
@@ -109,8 +151,8 @@ const STEPS: Step[] = [
   },
   {
     n: '03',
-    title: 'クラスタごとに読む',
-    desc: '追加 → 修正 → リファクタ → 削除 の順に、レビュアーの認知に沿った読み方を提案します。',
+    title: 'クラスタで構造を把握',
+    desc: 'Louvain アルゴリズムが関連する関数群をクラスタに自動分割。変更ノードを優先度順にナビゲートして効率的にレビュー。',
     mock: <StepMock3 />,
   },
 ]

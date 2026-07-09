@@ -81,24 +81,69 @@ function FeatureArt2() {
 function FeatureArt3() {
   return (
     <svg viewBox="0 0 200 120" className="h-full w-full" aria-hidden="true">
-      <rect x="20" y="20" width="100" height="80" rx="8" fill="white" stroke="#d6d3d1" />
-      <text x="30" y="38" fontSize="9" fill="#78716c" fontFamily="JetBrains Mono">
-        func Charge()
-      </text>
-      <rect x="30" y="46" width="80" height="2" fill="#78716c" opacity="0.2" />
-      <rect x="30" y="52" width="60" height="2" fill="#78716c" opacity="0.2" />
-      <rect x="30" y="58" width="70" height="2" fill="#78716c" opacity="0.2" />
-      <path d="M120 60 L150 40" stroke="#0f766e" strokeWidth="1.5" />
-      <g>
-        <rect x="140" y="20" width="50" height="36" rx="8" fill="#0f766e" />
-        <circle cx="151" cy="32" r="3" fill="white" />
-        <rect x="158" y="30" width="22" height="2" fill="white" opacity="0.7" />
-        <rect x="158" y="34" width="18" height="2" fill="white" opacity="0.7" />
-        <rect x="158" y="38" width="20" height="2" fill="white" opacity="0.7" />
-        <text x="146" y="50" fontSize="7" fill="white" opacity="0.8" fontFamily="JetBrains Mono">
-          @ shimo-dev
-        </text>
+      <g stroke="#d6d3d1" strokeWidth="1" fill="none">
+        <path d="M60 30 L100 60" />
+        <path d="M140 30 L100 60" />
+        <path d="M100 60 L60 90" />
+        <path d="M100 60 L140 90" />
       </g>
+      <rect x="40" y="18" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1" />
+      <text
+        x="60"
+        y="34"
+        textAnchor="middle"
+        fontSize="8"
+        fill="#44403c"
+        fontFamily="JetBrains Mono"
+      >
+        funcA
+      </text>
+      <rect x="120" y="18" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1" />
+      <text
+        x="140"
+        y="34"
+        textAnchor="middle"
+        fontSize="8"
+        fill="#44403c"
+        fontFamily="JetBrains Mono"
+      >
+        funcB
+      </text>
+      <circle cx="100" cy="60" r="14" fill="#ef4444" />
+      <text
+        x="100"
+        y="64"
+        textAnchor="middle"
+        fontSize="8"
+        fill="white"
+        fontFamily="JetBrains Mono"
+        fontWeight="600"
+      >
+        ↻
+      </text>
+      <rect x="40" y="78" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1" />
+      <text
+        x="60"
+        y="94"
+        textAnchor="middle"
+        fontSize="8"
+        fill="#44403c"
+        fontFamily="JetBrains Mono"
+      >
+        funcC
+      </text>
+      <rect x="120" y="78" width="40" height="24" rx="4" fill="#fee2e2" stroke="#fca5a5" />
+      <text
+        x="140"
+        y="94"
+        textAnchor="middle"
+        fontSize="8"
+        fill="#dc2626"
+        fontFamily="JetBrains Mono"
+      >
+        funcD
+      </text>
+      <path d="M140 78 L100 74" stroke="#ef4444" strokeWidth="2" fill="none" />
     </svg>
   )
 }
@@ -117,8 +162,8 @@ const FEATURES: Feature[] = [
     art: <FeatureArt2 />,
   },
   {
-    title: 'コメントは AST に紐づく',
-    desc: 'rebase してもコメントが迷子にならない。ノード単位で議論を継続できます。',
+    title: '新規循環参照を自動検出',
+    desc: 'PR で新たに生じた循環依存を赤でハイライト。構造リスクをレビュー前に把握できます。',
     art: <FeatureArt3 />,
   },
 ]
