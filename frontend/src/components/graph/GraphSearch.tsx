@@ -41,6 +41,14 @@ export default function GraphSearch({ candidates, onJump }: Props) {
     return { results: matched, total: count }
   }, [candidates, q])
 
+  const safeIndex = results.length === 0 ? 0 : activeIndex % results.length
+
+  useEffect(() => {
+    if (!open) return
+    const el = containerRef.current?.querySelector('[data-active="true"]')
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [safeIndex, open])
+
   // 外側クリックでドロップダウンを閉じる。
   useEffect(() => {
     if (!open) return
@@ -76,11 +84,11 @@ export default function GraphSearch({ candidates, onJump }: Props) {
         setActiveIndex((i) => (i - 1 + results.length) % results.length)
       } else if (e.key === 'Enter') {
         e.preventDefault()
-        const c = results[activeIndex]
+        const c = results[safeIndex]
         if (c) jump(c)
       }
     },
-    [results, activeIndex, jump],
+    [results, safeIndex, jump],
   )
 
   const showDropdown = open && q.length > 0
@@ -111,13 +119,14 @@ export default function GraphSearch({ candidates, onJump }: Props) {
                 <li key={c.id}>
                   <button
                     type="button"
+                    data-active={i === safeIndex}
                     // pointerdown による外側クリック判定より前に選択を確定させたいので
                     // クリックで確定する（onMouseDown だと input の blur と競合しにくい）。
                     onClick={() => jump(c)}
                     onMouseEnter={() => setActiveIndex(i)}
                     className={[
                       'flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left transition-colors',
-                      i === activeIndex ? 'bg-stone-100' : 'hover:bg-stone-50',
+                      i === safeIndex ? 'bg-stone-100' : 'hover:bg-stone-50',
                     ].join(' ')}
                   >
                     <span className="font-mono text-xs text-stone-800">{c.name}</span>
