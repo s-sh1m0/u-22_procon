@@ -189,6 +189,47 @@ export default function AnalysisGraphView({ jobId }: Props) {
     [data],
   )
 
+  // 変更ノードをレビュー優先度順にソートしたリスト。ステップナビゲーションの巡回対象。
+  const changedNodeIds = useMemo(() => {
+    if (!view) return []
+    const priorityOrder: Record<ReviewPriority, number> = { high: 0, medium: 1, low: 2 }
+    return view.graph.nodes
+      .filter((n) => isChanged(n))
+      .map((n) => ({
+        id: n.id,
+        pkg: n.package,
+        priority: computeReviewPriority(n, inDegree.get(n.id) ?? 0, cycleNodeIds.has(n.id)),
+      }))
+      .sort(
+        (a, b) =>
+          priorityOrder[a.priority] - priorityOrder[b.priority] || a.pkg.localeCompare(b.pkg),
+      )
+      .map((n) => n.id)
+  }, [view, inDegree, cycleNodeIds])
+
+  const changedNodeIndex = useMemo(() => {
+    if (!selectedNodeId) return null
+    const idx = changedNodeIds.indexOf(selectedNodeId)
+    return idx !== -1 ? idx : null
+  }, [selectedNodeId, changedNodeIds])
+
+  const handleNextChanged = useCallback(() => {
+    if (changedNodeIds.length === 0 || !view) return
+    const next = changedNodeIndex === null ? 0 : (changedNodeIndex + 1) % changedNodeIds.length
+    revealNode(view, changedNodeIds[next])
+    setCenterTarget((t) => ({ nodeId: changedNodeIds[next], nonce: (t?.nonce ?? 0) + 1 }))
+  }, [changedNodeIds, changedNodeIndex, view, revealNode])
+
+  const handlePrevChanged = useCallback(() => {
+    if (changedNodeIds.length === 0 || !view) return
+    const prev =
+      changedNodeIndex === null
+        ? changedNodeIds.length - 1
+        : (changedNodeIndex - 1 + changedNodeIds.length) % changedNodeIds.length
+    revealNode(view, changedNodeIds[prev])
+    setCenterTarget((t) => ({ nodeId: changedNodeIds[prev], nonce: (t?.nonce ?? 0) + 1 }))
+  }, [changedNodeIds, changedNodeIndex, view, revealNode])
+
   const { panelNode, selectedCluster, selectedLayer, panelDiff, panelPriority } = useMemo(() => {
     const empty = {
       panelNode: null,
@@ -303,6 +344,10 @@ export default function AnalysisGraphView({ jobId }: Props) {
         searchCandidates={searchCandidates}
         onJump={handleJumpToNode}
         centerTarget={centerTarget}
+        changedCount={changedNodeIds.length}
+        changedIndex={changedNodeIndex}
+        onNextChanged={handleNextChanged}
+        onPrevChanged={handlePrevChanged}
       />
     </AppShell>
   )
