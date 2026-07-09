@@ -44,7 +44,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
   // 検索ジャンプで中央寄せしたいノード。nonce は同一ノードへの再ジャンプでも
   // グラフ側の effect を再発火させるための世代番号。
   const [centerTarget, setCenterTarget] = useState<{ nodeId: string; nonce: number } | null>(null)
-  const [changedNodeIndex, setChangedNodeIndex] = useState<number | null>(null)
 
   // 描画に使うグラフ。変更影響ビューでは diff 近傍だけに絞った部分グラフを渡す。
   // クラスタ集計・展開・レイアウトはすべてこの view を基準に行う。
@@ -59,7 +58,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setClusterMode(mode)
     setSelectedNodeId(null)
     setExpandedClustersOverride(null)
-    setChangedNodeIndex(null)
   }, [])
 
   // 影響ビューの切替もクラスタ構成が変わるため、選択 / 展開セットをリセットする。
@@ -69,7 +67,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
       setImpactOnly(next)
       setSelectedNodeId(null)
       setExpandedClustersOverride(null)
-      setChangedNodeIndex(null)
     },
     [impactOnly],
   )
@@ -210,10 +207,15 @@ export default function AnalysisGraphView({ jobId }: Props) {
       .map((n) => n.id)
   }, [view, inDegree, cycleNodeIds])
 
+  const changedNodeIndex = useMemo(() => {
+    if (!selectedNodeId) return null
+    const idx = changedNodeIds.indexOf(selectedNodeId)
+    return idx !== -1 ? idx : null
+  }, [selectedNodeId, changedNodeIds])
+
   const handleNextChanged = useCallback(() => {
     if (changedNodeIds.length === 0 || !view) return
     const next = changedNodeIndex === null ? 0 : (changedNodeIndex + 1) % changedNodeIds.length
-    setChangedNodeIndex(next)
     revealNode(view, changedNodeIds[next])
     setCenterTarget((t) => ({ nodeId: changedNodeIds[next], nonce: (t?.nonce ?? 0) + 1 }))
   }, [changedNodeIds, changedNodeIndex, view, revealNode])
@@ -224,7 +226,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
       changedNodeIndex === null
         ? changedNodeIds.length - 1
         : (changedNodeIndex - 1 + changedNodeIds.length) % changedNodeIds.length
-    setChangedNodeIndex(prev)
     revealNode(view, changedNodeIds[prev])
     setCenterTarget((t) => ({ nodeId: changedNodeIds[prev], nonce: (t?.nonce ?? 0) + 1 }))
   }, [changedNodeIds, changedNodeIndex, view, revealNode])
