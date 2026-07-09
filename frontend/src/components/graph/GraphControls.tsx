@@ -1,6 +1,4 @@
 import type { ClusterMode } from '@/types/api'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 
 type Props = {
   clusterMode: ClusterMode
@@ -17,14 +15,63 @@ type Props = {
 
 const CLUSTER_MODES: { value: ClusterMode; label: string }[] = [
   { value: 'louvain', label: 'Louvain' },
-  { value: 'package', label: 'パッケージ' },
-  { value: 'file', label: 'ファイル' },
+  { value: 'package', label: 'Package' },
+  { value: 'file', label: 'File' },
 ]
 
 const VIEW_MODES: { value: boolean; label: string }[] = [
-  { value: true, label: '変更影響のみ' },
+  { value: true, label: '変更影響' },
   { value: false, label: '全体' },
 ]
+
+function SegmentedControl<T extends string | boolean>({
+  items,
+  value,
+  onChange,
+}: {
+  items: { value: T; label: string }[]
+  value: T
+  onChange: (v: T) => void
+}) {
+  return (
+    <div className="flex rounded-lg bg-stone-100 p-0.5">
+      {items.map((m) => (
+        <button
+          key={String(m.value)}
+          className={[
+            'flex-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all',
+            value === m.value
+              ? 'bg-white text-stone-900 shadow-sm'
+              : 'text-stone-500 hover:text-stone-700',
+          ].join(' ')}
+          onClick={() => onChange(m.value)}
+        >
+          {m.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function IconButton({
+  onClick,
+  label,
+  children,
+}: {
+  onClick: () => void
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      className="flex size-7 items-center justify-center rounded-md text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
+      onClick={onClick}
+      aria-label={label}
+    >
+      {children}
+    </button>
+  )
+}
 
 export default function GraphControls({
   clusterMode,
@@ -39,105 +86,116 @@ export default function GraphControls({
   onCollapseAll,
 }: Props) {
   return (
-    <Card className="shadow-md border-stone-200 bg-white">
-      <CardContent className="p-2 flex flex-col gap-2">
-        <div className="flex overflow-hidden rounded border border-stone-200 text-xs">
-          {VIEW_MODES.map((m, i) => (
-            <button
-              key={String(m.value)}
-              className={[
-                'flex-1 px-2 py-1.5 transition-colors',
-                i > 0 ? 'border-l border-stone-200' : '',
-                impactOnly === m.value
-                  ? 'bg-stone-900 text-white'
-                  : 'bg-white text-stone-600 hover:bg-stone-50',
-              ].join(' ')}
-              onClick={() => onSetImpactOnly(m.value)}
-            >
-              {m.label}
-            </button>
-          ))}
+    <div className="flex flex-col gap-2.5 rounded-xl border border-stone-200/60 bg-white/90 p-2.5 shadow-lg shadow-stone-950/[.06] backdrop-blur-md">
+      <div>
+        <div className="mb-1 px-0.5 text-[10px] font-medium tracking-wider text-stone-400">
+          表示
         </div>
-        <div className="flex overflow-hidden rounded border border-stone-200 text-xs">
-          {CLUSTER_MODES.map((m, i) => (
-            <button
-              key={m.value}
-              className={[
-                'flex-1 px-2 py-1.5 transition-colors',
-                i > 0 ? 'border-l border-stone-200' : '',
-                clusterMode === m.value
-                  ? 'bg-stone-900 text-white'
-                  : 'bg-white text-stone-600 hover:bg-stone-50',
-              ].join(' ')}
-              onClick={() => onChangeClusterMode(m.value)}
-            >
-              {m.label}
-            </button>
-          ))}
+        <SegmentedControl items={VIEW_MODES} value={impactOnly} onChange={onSetImpactOnly} />
+      </div>
+
+      <div className="h-px bg-stone-100" />
+
+      <div>
+        <div className="mb-1 px-0.5 text-[10px] font-medium tracking-wider text-stone-400">
+          クラスタ
         </div>
-        <div className="flex gap-1">
-          <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={onExpandAll}>
-            すべて展開
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 flex-1 text-xs"
-            onClick={onCollapseAll}
+        <SegmentedControl
+          items={CLUSTER_MODES}
+          value={clusterMode}
+          onChange={onChangeClusterMode}
+        />
+      </div>
+
+      <div className="h-px bg-stone-100" />
+
+      <div className="flex gap-1">
+        <button
+          className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md text-[11px] font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+          onClick={onExpandAll}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            aria-hidden="true"
           >
-            折りたたむ
-          </Button>
-        </div>
-        {changedCount > 0 && (
+            <path d="M2 4.5L6 1.5L10 4.5" />
+            <path d="M2 7.5L6 10.5L10 7.5" />
+          </svg>
+          展開
+        </button>
+        <div className="w-px bg-stone-100" />
+        <button
+          className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md text-[11px] font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+          onClick={onCollapseAll}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M2 2L6 5L10 2" />
+            <path d="M2 10L6 7L10 10" />
+          </svg>
+          折畳
+        </button>
+      </div>
+
+      {changedCount > 0 && (
+        <>
+          <div className="h-px bg-stone-100" />
           <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-7"
-              onClick={onPrevChanged}
-              aria-label="前の変更ノード"
-            >
+            <IconButton onClick={onPrevChanged} label="前の変更ノード">
               <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 aria-hidden="true"
               >
-                <path d="M7.5 2.5L4 6l3.5 3.5" />
+                <path d="M6.5 1.5L3 5l3.5 3.5" />
               </svg>
-            </Button>
-            <span className="flex-1 text-center text-xs tabular-nums text-stone-600">
-              {changedIndex !== null ? changedIndex + 1 : '-'} / {changedCount} 変更
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-7"
-              onClick={onNextChanged}
-              aria-label="次の変更ノード"
-            >
+            </IconButton>
+            <div className="flex flex-1 items-center justify-center gap-1.5">
+              <span className="text-[11px] tabular-nums text-stone-900">
+                {changedIndex !== null ? changedIndex + 1 : '-'}
+              </span>
+              <span className="text-[10px] text-stone-400">/</span>
+              <span className="text-[11px] tabular-nums text-stone-500">{changedCount}</span>
+              <span className="text-[10px] text-stone-400">変更</span>
+            </div>
+            <IconButton onClick={onNextChanged} label="次の変更ノード">
               <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 aria-hidden="true"
               >
-                <path d="M4.5 2.5L8 6l-3.5 3.5" />
+                <path d="M3.5 1.5L7 5l-3.5 3.5" />
               </svg>
-            </Button>
+            </IconButton>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      )}
+    </div>
   )
 }
