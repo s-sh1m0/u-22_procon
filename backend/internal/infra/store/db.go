@@ -57,6 +57,12 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	// diff 本文（changed_files）を result から別カラムに分離する。
+	// グラフ読み経路（/api/graph）で diff 本文を unmarshal しないための最適化。
+	// 分離前に保存された行はこのカラムが NULL のまま残り、読み出し側で result 埋め込みへフォールバックする。
+	if err := addColumnIfNotExists(db, "analyses", "changed_files", "TEXT"); err != nil {
+		return err
+	}
 	return nil
 }
 

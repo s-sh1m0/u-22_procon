@@ -48,7 +48,7 @@ func TestDiffGet_Success(t *testing.T) {
 }
 
 func TestDiffGet_NotReady(t *testing.T) {
-	h := NewDiffHandler(&fakeReadUC{graphErr: usecase.ErrJobNotReady})
+	h := NewDiffHandler(&fakeReadUC{diffErr: usecase.ErrJobNotReady})
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/api/diff/pending-job", nil)

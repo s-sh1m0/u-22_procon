@@ -53,6 +53,13 @@ func (r *fakeGetAnalysisRepo) FindByID(_ context.Context, id domain.AnalysisID) 
 	return r.analyses[id], nil
 }
 
+func (r *fakeGetAnalysisRepo) FindDiffByID(_ context.Context, id domain.AnalysisID) (*domain.Analysis, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.analyses[id], nil
+}
+
 func (r *fakeGetAnalysisRepo) FindByPR(_ context.Context, _ domain.PRInfo) (*domain.Analysis, error) {
 	return nil, r.err
 }
@@ -178,6 +185,67 @@ func TestGetGraph_IntegrityError(t *testing.T) {
 	uc := NewGetAnalysisUseCase(analyses, jobs)
 
 	_, err := uc.GetGraph(context.Background(), "j4", domain.ClusterModeLouvain)
+	if err == nil {
+		t.Error("expected error for missing analysis, got nil")
+	}
+}
+
+func TestGetDiff_NotFound(t *testing.T) {
+	jobs := &fakeGetJobRepo{jobs: make(map[domain.JobID]*domain.Job)}
+	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
+	uc := NewGetAnalysisUseCase(analyses, jobs)
+
+	_, err := uc.GetDiff(context.Background(), "nonexistent")
+	if !errors.Is(err, ErrJobNotFound) {
+		t.Errorf("expected ErrJobNotFound, got %v", err)
+	}
+}
+
+func TestGetDiff_NotReady_Pending(t *testing.T) {
+	jobs := &fakeGetJobRepo{jobs: map[domain.JobID]*domain.Job{
+		"j1": {ID: "j1", Status: domain.JobStatusPending},
+	}}
+	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
+	uc := NewGetAnalysisUseCase(analyses, jobs)
+
+	_, err := uc.GetDiff(context.Background(), "j1")
+	if !errors.Is(err, ErrJobNotReady) {
+		t.Errorf("expected ErrJobNotReady, got %v", err)
+	}
+}
+
+func TestGetDiff_Success(t *testing.T) {
+	analysis := &domain.Analysis{
+		ID: "a1",
+		ChangedFiles: []domain.DiffFile{
+			{Filename: "pkg/a.go", Status: domain.FileStatusAdded, Additions: 3},
+		},
+	}
+	jobs := &fakeGetJobRepo{jobs: map[domain.JobID]*domain.Job{
+		"j3": {ID: "j3", Status: domain.JobStatusDone, AnalysisID: "a1"},
+	}}
+	analyses := &fakeGetAnalysisRepo{analyses: map[domain.AnalysisID]*domain.Analysis{
+		"a1": analysis,
+	}}
+	uc := NewGetAnalysisUseCase(analyses, jobs)
+
+	got, err := uc.GetDiff(context.Background(), "j3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == nil || len(got.ChangedFiles) != 1 || got.ChangedFiles[0].Filename != "pkg/a.go" {
+		t.Errorf("unexpected diff: %+v", got)
+	}
+}
+
+func TestGetDiff_IntegrityError(t *testing.T) {
+	jobs := &fakeGetJobRepo{jobs: map[domain.JobID]*domain.Job{
+		"j4": {ID: "j4", Status: domain.JobStatusDone, AnalysisID: "missing-analysis"},
+	}}
+	analyses := &fakeGetAnalysisRepo{analyses: make(map[domain.AnalysisID]*domain.Analysis)}
+	uc := NewGetAnalysisUseCase(analyses, jobs)
+
+	_, err := uc.GetDiff(context.Background(), "j4")
 	if err == nil {
 		t.Error("expected error for missing analysis, got nil")
 	}

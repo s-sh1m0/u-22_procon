@@ -62,3 +62,28 @@ func (uc *GetAnalysisUseCase) GetGraph(ctx context.Context, id domain.JobID, mod
 	out.Result = applyClusterMode(a.Result, mode)
 	return &out, nil
 }
+
+// GetDiff はジョブに紐づく解析の変更ファイル（diff 本文）を返す。
+// グラフ本体は読み込まない（diff 表示のための軽量経路）。
+// ジョブが存在しない場合は ErrJobNotFound、まだ完了していない場合は ErrJobNotReady を返す。
+func (uc *GetAnalysisUseCase) GetDiff(ctx context.Context, id domain.JobID) (*domain.Analysis, error) {
+	j, err := uc.jobs.FindByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("find job: %w", err)
+	}
+	if j == nil {
+		return nil, ErrJobNotFound
+	}
+	if j.Status != domain.JobStatusDone || j.AnalysisID == "" {
+		return nil, ErrJobNotReady
+	}
+
+	a, err := uc.analyses.FindDiffByID(ctx, j.AnalysisID)
+	if err != nil {
+		return nil, fmt.Errorf("find analysis diff: %w", err)
+	}
+	if a == nil {
+		return nil, fmt.Errorf("data integrity error: job %s is done but analysis %s not found", id, j.AnalysisID)
+	}
+	return a, nil
+}

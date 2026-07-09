@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -180,6 +181,167 @@ func TestAnalysisRepo_FindByPR_ReturnsLatest(t *testing.T) {
 	// 永続化された PR メタ情報（SHA）が引数 pr ではなく DB の値で復元されること。
 	if got.PR.HeadSHA != "head789" {
 		t.Errorf("expected persisted HeadSHA, got %q", got.PR.HeadSHA)
+	}
+}
+
+// changed_files を別カラムに分離した現行形式で、Save→FindDiffByID が diff 本文を
+// round-trip すること。かつ FindByID（グラフ経路）は diff 本文を読み込まないこと。
+func TestAnalysisRepo_ChangedFilesRoundTrip(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	repo := NewAnalysisRepo(db)
+	ctx := context.Background()
+
+	a := &domain.Analysis{
+		ID:     "a1",
+		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1},
+		Result: &domain.ClusterResult{Graph: domain.Graph{Nodes: []domain.Node{{ID: "fn:A"}}}},
+		ChangedFiles: []domain.DiffFile{
+			{Filename: "pkg/a.go", Status: domain.FileStatusAdded, Additions: 3, AfterContent: "package a"},
+		},
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+	}
+	if err := repo.Save(ctx, a); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// diff 経路: changed_files が返る
+	diff, err := repo.FindDiffByID(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("FindDiffByID: %v", err)
+	}
+	if diff == nil || len(diff.ChangedFiles) != 1 || diff.ChangedFiles[0].Filename != "pkg/a.go" ||
+		diff.ChangedFiles[0].AfterContent != "package a" {
+		t.Errorf("unexpected diff: %+v", diff)
+	}
+
+	// グラフ経路: Result は返るが diff 本文は読み込まない
+	graph, err := repo.FindByID(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if graph == nil || len(graph.Result.Graph.Nodes) != 1 {
+		t.Errorf("unexpected graph result: %+v", graph)
+	}
+	if graph.ChangedFiles != nil {
+		t.Errorf("FindByID must not load diff bodies, got %+v", graph.ChangedFiles)
+	}
+}
+
+func TestAnalysisRepo_FindDiffByID_NotFound(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	repo := NewAnalysisRepo(db)
+	got, err := repo.FindDiffByID(context.Background(), "nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil, got %+v", got)
+	}
+}
+
+// PR-E 世代の行（result に {cluster_result, changed_files} を埋め込み・changed_files
+// カラムは NULL）でも、FindDiffByID が result 埋め込みへフォールバックして diff を返し、
+// FindByID / FindByPR がグラフを正しく復元すること。
+func TestAnalysisRepo_LegacyEmbeddedFormat(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	embedded := analysisResultJSON{
+		ClusterResult: domain.ClusterResult{Graph: domain.Graph{Nodes: []domain.Node{{ID: "fn:A"}}}},
+		ChangedFiles:  []domain.DiffFile{{Filename: "old.go", Status: domain.FileStatusModified}},
+	}
+	raw, err := json.Marshal(embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// changed_files カラムを省いた（NULL の）レガシー行を直接挿入する。
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO analyses (id, owner, repo, pr_number, result, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"legacy", "o", "r", 1, string(raw), time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+
+	repo := NewAnalysisRepo(db)
+
+	diff, err := repo.FindDiffByID(ctx, "legacy")
+	if err != nil {
+		t.Fatalf("FindDiffByID: %v", err)
+	}
+	if diff == nil || len(diff.ChangedFiles) != 1 || diff.ChangedFiles[0].Filename != "old.go" {
+		t.Errorf("legacy diff fallback failed: %+v", diff)
+	}
+
+	graph, err := repo.FindByID(ctx, "legacy")
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if graph == nil || len(graph.Result.Graph.Nodes) != 1 || graph.Result.Graph.Nodes[0].ID != "fn:A" {
+		t.Errorf("legacy graph decode failed: %+v", graph)
+	}
+
+	cached, err := repo.FindByPR(ctx, domain.PRInfo{Owner: "o", Repo: "r", Number: 1})
+	if err != nil {
+		t.Fatalf("FindByPR: %v", err)
+	}
+	if cached == nil || len(cached.ChangedFiles) != 1 {
+		t.Errorf("legacy FindByPR must recover changed files: %+v", cached)
+	}
+}
+
+// 旧々形式（result が ClusterResult ベタ・diff 情報なし）でも graph が復元でき、
+// diff は空で返ること。
+func TestAnalysisRepo_LegacyBareFormat(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	raw, err := json.Marshal(domain.ClusterResult{Graph: domain.Graph{Nodes: []domain.Node{{ID: "fn:A"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO analyses (id, owner, repo, pr_number, result, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"bare", "o", "r", 1, string(raw), time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("insert bare row: %v", err)
+	}
+
+	repo := NewAnalysisRepo(db)
+
+	graph, err := repo.FindByID(ctx, "bare")
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if graph == nil || len(graph.Result.Graph.Nodes) != 1 {
+		t.Errorf("bare graph decode failed: %+v", graph)
+	}
+
+	diff, err := repo.FindDiffByID(ctx, "bare")
+	if err != nil {
+		t.Fatalf("FindDiffByID: %v", err)
+	}
+	if diff == nil || diff.ChangedFiles != nil {
+		t.Errorf("bare diff should be empty, got %+v", diff)
 	}
 }
 

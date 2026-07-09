@@ -5,7 +5,10 @@ import "context"
 // AnalysisRepository は解析結果の永続化インターフェース
 type AnalysisRepository interface {
 	Save(ctx context.Context, a *Analysis) error
+	// FindByID はグラフ結果を返す。diff 本文（ChangedFiles）は読み込まない。
 	FindByID(ctx context.Context, id AnalysisID) (*Analysis, error)
+	// FindDiffByID は diff 本文（ChangedFiles）のみを返す。グラフ本体は読み込まない。
+	FindDiffByID(ctx context.Context, id AnalysisID) (*Analysis, error)
 	FindByPR(ctx context.Context, pr PRInfo) (*Analysis, error)
 }
 

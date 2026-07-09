@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS analyses (
     pr_head_ref TEXT NOT NULL DEFAULT '',
     pr_base_sha TEXT NOT NULL DEFAULT '',
     pr_head_sha TEXT NOT NULL DEFAULT '',
-    result      TEXT,    -- JSON
+    result      TEXT,    -- ClusterResult の JSON（グラフ本体。diff 本文は含まない）
+    changed_files TEXT,  -- []DiffFile の JSON（diff 本文。グラフ読み経路で unmarshal しないよう別カラムに分離）
     created_at  DATETIME NOT NULL
 );
 
