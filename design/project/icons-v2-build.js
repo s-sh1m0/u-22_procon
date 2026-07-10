@@ -1,4 +1,4 @@
-// diffmap. — icon deep-dive (A1 / A4 / B1 / B3)
+// DiffGraph. — icon deep-dive (A1 / A4 / B1 / B3)
 // Each function returns SVG inner content (no <svg> wrapper, no bg rect).
 // The card wrapper supplies the background.
 
@@ -375,7 +375,7 @@ const ROWS = {
     ['B1·3', 'badges', '丸バッジ内に + / −。GitHub 風。', B1.v3],
     ['B1·4', 'split block', '矩形 2 枚で diff を象徴。', B1.v4],
     ['B1·5', 'fused', '+ と − が連結。ひと筆のサイン感。', B1.v5],
-    ['B1·6', '+ − .', 'ピリオド付き。ブランド名「diffmap.」に呼応。', B1.v6],
+    ['B1·6', '+ − .', 'ピリオド付き。ブランド名「DiffGraph.」に呼応。', B1.v6],
   ],
   'row-b3': [
     ['B3·1', 'baseline', '元案。', B3.v1],

@@ -1,4 +1,4 @@
-// diffmap. icon explorations
+// DiffGraph. icon explorations
 // Each icon is a 192x192 SVG. The visible "glyph" lives in ~120x120 centered.
 
 const TEAL = '#0f766e';

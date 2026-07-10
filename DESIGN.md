@@ -193,7 +193,7 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 - **認証で出し分け**: Hero と CTA strip は `useAuth()` を見て切替える。未ログイン → GitHub 連携ボタン（`/auth/github`）、ログイン済み → PR URL 入力フォーム（`PrInputForm`、`useAnalyzeMutation` + `parsePrUrl` に接続し `/analysis/:jobId` へ遷移）。
 - **ルート**: `/`=LP（公開） / `/analyze`=PR 入力 Home（要認証） / `/analysis/:jobId`=結果（要認証） / `/login`。`RequireAuth` から外れる公開ページは `/` のみ。
 - **実装**: Claude Design の handoff（`design/project/landing.jsx`）を Tailwind ユーティリティで再現。handoff の色は Tailwind 標準パレットにそのまま対応する（中立色=`stone`、ブランド=`teal`）。ボタンと入力欄は shadcn/ui の `Button`（`asChild` でリンク化）/ `Input` を流用。中央寄せコンテナは `components/landing/Wrap.tsx` に共通化。レスポンシブは Tailwind の `sm:`/`lg:` と `clamp()`（見出し）で担保。装飾の radial-gradient/mask とグラフ系 SVG の配色のみ inline style / リテラル hex（グラフ意味色の慣習に準拠）。
-- **プロダクトマーク**: `components/branding/AppMark.tsx` が diffmap. のアプリアイコン（design "A4·4"：ノード群が 1 つの accent ノードへ V 字で収束する形）。`Brand.tsx` と `public/favicon.svg` もこれに統一。
+- **プロダクトマーク**: `components/branding/AppMark.tsx` が DiffGraph. のアプリアイコン（design "A4·4"：ノード群が 1 つの accent ノードへ V 字で収束する形）。`Brand.tsx` と `public/favicon.svg` もこれに統一。
 - **コンテンツ整合方針**: LP の記述は実装済み機能に限定する。未実装機能・架空の統計値・存在しないプラン/ページへのリンクは載せない。
   - `ClusterShowcase`: 実際の 3 クラスタリングモード（Louvain / パッケージ / ファイル）を紹介
   - `FeatureGrid`: 影響範囲 hop 可視化・AST diff・新規循環参照検出の 3 機能
