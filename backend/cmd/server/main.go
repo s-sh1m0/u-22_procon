@@ -27,6 +27,7 @@ func main() {
 	clientSecret := mustEnv("GITHUB_CLIENT_SECRET")
 	callbackURL := mustEnv("GITHUB_CALLBACK_URL")
 	sessionSecret := mustEnv("SESSION_SECRET")
+	frontendURL := envOr("FRONTEND_URL", "")
 	port := envOr("PORT", "8080")
 	dbPath := envOr("DB_PATH", "/app/data/reviewarena.db")
 
@@ -78,11 +79,11 @@ func main() {
 	getUC := usecase.NewGetAnalysisUseCase(analysisRepo, jobRepo)
 
 	oauth := githubinfra.NewOAuthConfig(clientID, clientSecret, callbackURL)
-	authHandler := api.NewAuthHandler(oauth, sessions)
+	authHandler := api.NewAuthHandler(oauth, sessions, frontendURL)
 	analysisHandler := api.NewAnalysisHandler(analyzeUC, getUC)
 	jobHandler := api.NewJobHandler(getUC)
 	diffHandler := api.NewDiffHandler(getUC)
-	router := api.NewRouter(authHandler, analysisHandler, jobHandler, diffHandler, sessions)
+	router := api.NewRouter(authHandler, analysisHandler, jobHandler, diffHandler, sessions, frontendURL)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

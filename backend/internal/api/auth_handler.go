@@ -22,12 +22,13 @@ const (
 
 // AuthHandler は /auth/* エンドポイントのハンドラ。
 type AuthHandler struct {
-	oauth    *github.OAuthConfig
-	sessions domain.SessionRepository
+	oauth       *github.OAuthConfig
+	sessions    domain.SessionRepository
+	frontendURL string
 }
 
-func NewAuthHandler(oauth *github.OAuthConfig, sessions domain.SessionRepository) *AuthHandler {
-	return &AuthHandler{oauth: oauth, sessions: sessions}
+func NewAuthHandler(oauth *github.OAuthConfig, sessions domain.SessionRepository, frontendURL string) *AuthHandler {
+	return &AuthHandler{oauth: oauth, sessions: sessions, frontendURL: frontendURL}
 }
 
 // Login は GET /auth/github。state を生成して Cookie にセットし、GitHub に Redirect する。
@@ -42,6 +43,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		Path:     "/",
 		MaxAge:   oauthStateMaxAge,
 		HttpOnly: true,
+		Secure:   h.crossOrigin(),
 		SameSite: http.SameSiteLaxMode,
 	})
 	return c.Redirect(http.StatusFound, h.oauth.AuthCodeURL(state))
@@ -57,7 +59,7 @@ func (h *AuthHandler) Callback(c echo.Context) error {
 	if subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(queryState)) != 1 {
 		return echo.NewHTTPError(http.StatusBadRequest, "state mismatch")
 	}
-	clearCookie(c, cookieOAuthState)
+	h.clearCookie(c, cookieOAuthState)
 
 	code := c.QueryParam("code")
 	if code == "" {
@@ -94,9 +96,10 @@ func (h *AuthHandler) Callback(c echo.Context) error {
 		Path:     "/",
 		MaxAge:   sessionMaxAge,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   h.crossOrigin(),
+		SameSite: h.sameSite(),
 	})
-	return c.Redirect(http.StatusFound, "/")
+	return c.Redirect(http.StatusFound, h.postLoginRedirect())
 }
 
 // Logout は POST /auth/logout。セッションを DB から削除し、Cookie を期限切れにする。
@@ -104,7 +107,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	if cookie, err := c.Cookie(cookieSession); err == nil {
 		_ = h.sessions.Delete(c.Request().Context(), domain.SessionID(cookie.Value))
 	}
-	clearCookie(c, cookieSession)
+	h.clearCookie(c, cookieSession)
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -125,13 +128,32 @@ func randomToken(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-func clearCookie(c echo.Context, name string) {
+func (h *AuthHandler) crossOrigin() bool {
+	return h.frontendURL != ""
+}
+
+func (h *AuthHandler) sameSite() http.SameSite {
+	if h.crossOrigin() {
+		return http.SameSiteNoneMode
+	}
+	return http.SameSiteLaxMode
+}
+
+func (h *AuthHandler) postLoginRedirect() string {
+	if h.frontendURL != "" {
+		return h.frontendURL + "/"
+	}
+	return "/"
+}
+
+func (h *AuthHandler) clearCookie(c echo.Context, name string) {
 	c.SetCookie(&http.Cookie{
 		Name:     name,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   h.crossOrigin(),
+		SameSite: h.sameSite(),
 	})
 }

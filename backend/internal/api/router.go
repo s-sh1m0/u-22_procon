@@ -2,6 +2,7 @@ package api
 
 import (
 	"log"
+	"net/http"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -17,6 +18,7 @@ func NewRouter(
 	jobHandler *JobHandler,
 	diffHandler *DiffHandler,
 	sessions domain.SessionRepository,
+	frontendURL string,
 ) *echo.Echo {
 	e := echo.New()
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
@@ -33,6 +35,19 @@ func NewRouter(
 	// レスポンス gzip 圧縮。グラフ / diff の JSON は ID の反復が多く圧縮率が高い。
 	// MinLength 未満（ジョブ状態ポーリング等の小さな応答）は圧縮せず CPU を無駄にしない。
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{MinLength: 1024}))
+
+	if frontendURL != "" {
+		e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins:     []string{frontendURL},
+			AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+			AllowHeaders:     []string{echo.HeaderContentType, echo.HeaderAccept},
+			AllowCredentials: true,
+		}))
+	}
+
+	e.GET("/health", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	})
 
 	auth := e.Group("/auth")
 	auth.GET("/github", authHandler.Login)
