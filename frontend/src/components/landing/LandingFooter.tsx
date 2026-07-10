@@ -69,8 +69,8 @@ export default function LandingFooter() {
         ))}
       </Wrap>
       <Wrap className="mt-14 flex flex-wrap justify-between gap-3 border-t border-stone-200 pt-6 text-xs text-stone-500">
-        <span>© 2026 diffmap. — u-22 プログラミングコンテスト</span>
-        <span className="font-mono">v0.4.2-beta</span>
+        <span>© 2026 DiffGraph.</span>
+        <span className="font-mono">v0.1.0-beta</span>
       </Wrap>
     </footer>
   )

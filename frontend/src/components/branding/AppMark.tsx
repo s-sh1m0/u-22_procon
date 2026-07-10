@@ -14,7 +14,7 @@ type Props = {
 }
 
 /**
- * AppMark renders the diffmap. product mark (design "A4·4"): a small
+ * AppMark renders the DiffGraph. product mark (design "A4·4"): a small
  * dependency cluster of nodes converging via V-edges into one accent node.
  * Geometry mirrors the Claude Design handoff (`design/project/landing.jsx`).
  */

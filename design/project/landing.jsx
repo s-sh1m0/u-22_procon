@@ -1,4 +1,4 @@
-// diffmap. — landing page
+// DiffGraph. — landing page
 
 const { useState } = React;
 
@@ -44,7 +44,7 @@ function Brand({ size = 18, color = "var(--ink)" }) {
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
       <AppMark size={size + 12} />
       <span style={{ fontSize: size, fontWeight: 600, letterSpacing: "-0.025em", color }}>
-        diffmap<span style={{ color: "var(--brand)" }}>.</span>
+        DiffGraph<span style={{ color: "var(--brand)" }}>.</span>
       </span>
     </div>
   );
@@ -667,7 +667,7 @@ function Footer() {
         ))}
       </div>
       <div className="wrap" style={{ marginTop: 56, paddingTop: 24, borderTop: "1px solid var(--line)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--ink-3)" }}>
-        <span>© 2026 diffmap. — u-22 プログラミングコンテスト</span>
+        <span>© 2026 DiffGraph. — u-22 プログラミングコンテスト</span>
         <span className="mono">v0.4.2-beta</span>
       </div>
     </footer>

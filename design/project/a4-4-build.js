@@ -1,4 +1,4 @@
-// diffmap. — A4·4 production set
+// DiffGraph. — A4·4 production set
 
 const INK = '#1c1917';
 const CREAM = '#fafaf9';

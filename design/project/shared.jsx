@@ -39,7 +39,7 @@ function Brand({ size = 18 }) {
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <Logo size={size + 8} />
       <span style={{ fontSize: size, fontWeight: 600, letterSpacing: -0.4, color: T.ink, fontFamily: T.font }}>
-        diffmap<span style={{ color: T.brand }}>.</span>
+        DiffGraph<span style={{ color: T.brand }}>.</span>
       </span>
     </div>
   );
