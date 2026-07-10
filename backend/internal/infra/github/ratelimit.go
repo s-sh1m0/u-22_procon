@@ -172,16 +172,20 @@ func rateLimitWait(resp *http.Response, maxWait time.Duration) time.Duration {
 		}
 	}
 
-	if reset := resp.Header.Get("X-RateLimit-Reset"); reset != "" {
-		if resetUnix, err := strconv.ParseInt(reset, 10, 64); err == nil {
-			wait := time.Until(time.Unix(resetUnix, 0))
-			if wait > 0 && wait <= maxWait {
-				return wait
-			}
-			if wait > maxWait {
-				return maxWait
-			}
-		}
+	reset := resp.Header.Get("X-RateLimit-Reset")
+	if reset == "" {
+		return 60 * time.Second
+	}
+	resetUnix, err := strconv.ParseInt(reset, 10, 64)
+	if err != nil {
+		return 60 * time.Second
+	}
+	wait := time.Until(time.Unix(resetUnix, 0))
+	if wait > maxWait {
+		return maxWait
+	}
+	if wait > 0 {
+		return wait
 	}
 
 	return 60 * time.Second
