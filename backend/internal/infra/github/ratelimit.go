@@ -2,6 +2,7 @@ package github
 
 import (
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"sync"
@@ -43,6 +44,13 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 		r := req
 		if attempt > 0 {
 			r = req.Clone(req.Context())
+			if req.GetBody != nil {
+				body, err := req.GetBody()
+				if err != nil {
+					return nil, err
+				}
+				r.Body = body
+			}
 		}
 
 		resp, err := t.base.RoundTrip(r)
@@ -53,6 +61,10 @@ func (t *rateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 		t.updateRateLimit(resp)
 
 		if !isRetryableStatus(resp) || attempt == maxRetries {
+			return resp, nil
+		}
+
+		if req.Body != nil && req.GetBody == nil {
 			return resp, nil
 		}
 
@@ -93,10 +105,10 @@ func (t *rateLimitTransport) waitIfExhausted(req *http.Request) {
 
 	log.Printf("github: rate limit exhausted, waiting %s", wait)
 	timer := time.NewTimer(wait)
+	defer timer.Stop()
 	select {
 	case <-timer.C:
 	case <-req.Context().Done():
-		timer.Stop()
 	}
 }
 
@@ -137,32 +149,40 @@ func retryWait(resp *http.Response, attempt int) time.Duration {
 	const maxWait = 120 * time.Second
 
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden {
-		if ra := resp.Header.Get("Retry-After"); ra != "" {
-			if seconds, err := strconv.Atoi(ra); err == nil && seconds > 0 {
-				d := time.Duration(seconds) * time.Second
-				if d > maxWait {
-					return maxWait
-				}
-				return d
-			}
-		}
-		if reset := resp.Header.Get("X-RateLimit-Reset"); reset != "" {
-			if resetUnix, err := strconv.ParseInt(reset, 10, 64); err == nil {
-				wait := time.Until(time.Unix(resetUnix, 0))
-				if wait > 0 {
-					if wait > maxWait {
-						return maxWait
-					}
-					return wait
-				}
-			}
-		}
-		return 60 * time.Second
+		return rateLimitWait(resp, maxWait)
 	}
 
 	d := time.Duration(1<<uint(attempt)) * time.Second
+	jitter := time.Duration(rand.IntN(1000)) * time.Millisecond
+	d += jitter
 	if d > maxWait {
 		return maxWait
 	}
 	return d
+}
+
+func rateLimitWait(resp *http.Response, maxWait time.Duration) time.Duration {
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		if seconds, err := strconv.Atoi(ra); err == nil && seconds > 0 {
+			d := time.Duration(seconds) * time.Second
+			if d > maxWait {
+				return maxWait
+			}
+			return d
+		}
+	}
+
+	if reset := resp.Header.Get("X-RateLimit-Reset"); reset != "" {
+		if resetUnix, err := strconv.ParseInt(reset, 10, 64); err == nil {
+			wait := time.Until(time.Unix(resetUnix, 0))
+			if wait > 0 && wait <= maxWait {
+				return wait
+			}
+			if wait > maxWait {
+				return maxWait
+			}
+		}
+	}
+
+	return 60 * time.Second
 }

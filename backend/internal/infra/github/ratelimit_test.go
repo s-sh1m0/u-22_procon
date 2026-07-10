@@ -191,7 +191,7 @@ func TestRetryWait_RetryAfterHeader(t *testing.T) {
 func TestRetryWait_5xxExponentialBackoff(t *testing.T) {
 	tests := []struct {
 		attempt int
-		want    time.Duration
+		base    time.Duration
 	}{
 		{0, 1 * time.Second},
 		{1, 2 * time.Second},
@@ -200,8 +200,8 @@ func TestRetryWait_5xxExponentialBackoff(t *testing.T) {
 	for _, tt := range tests {
 		resp := &http.Response{StatusCode: 500, Header: http.Header{}}
 		got := retryWait(resp, tt.attempt)
-		if got != tt.want {
-			t.Errorf("attempt %d: got %s, want %s", tt.attempt, got, tt.want)
+		if got < tt.base || got > tt.base+time.Second {
+			t.Errorf("attempt %d: got %s, want [%s, %s]", tt.attempt, got, tt.base, tt.base+time.Second)
 		}
 	}
 }
