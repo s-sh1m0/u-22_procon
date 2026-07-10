@@ -22,8 +22,9 @@ type PRRepo struct {
 }
 
 // NewPRRepo は本番用の PRRepo を返す。
+// レート制限対応・クライアントキャッシュ付きの ClientFactory を使う。
 func NewPRRepo() *PRRepo {
-	return &PRRepo{newClient: NewClient}
+	return &PRRepo{newClient: NewClientFactory()}
 }
 
 // GetPR は PR のメタデータ（タイトル・base/head ref・head SHA）を取得する。

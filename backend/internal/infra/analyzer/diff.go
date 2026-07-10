@@ -3,11 +3,14 @@ package analyzer
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
+
+const maxDiffFiles = 100
 
 // diffCollector は CollectDiffFiles が依存する PRRepository の最小インターフェース。
 type diffCollector interface {
@@ -17,6 +20,11 @@ type diffCollector interface {
 // CollectDiffFiles は変更ファイル一覧に対して GitHub Contents API で before/after 全文を取得する。
 // 並列度は 8 に制限する。
 func CollectDiffFiles(ctx context.Context, repo diffCollector, token string, pr domain.PRInfo, changed []domain.ChangedFile) ([]domain.DiffFile, error) {
+	if len(changed) > maxDiffFiles {
+		log.Printf("analyzer: diff collection limited to %d/%d files", maxDiffFiles, len(changed))
+		changed = changed[:maxDiffFiles]
+	}
+
 	type result struct {
 		idx  int
 		file domain.DiffFile
