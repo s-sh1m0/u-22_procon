@@ -1,3 +1,5 @@
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? ''
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -19,8 +21,9 @@ async function extractErrorMessage(res: Response): Promise<string> {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(API_BASE_URL + path, {
     ...init,
+    credentials: 'include',
     headers: { Accept: 'application/json', ...init?.headers },
   })
   if (!res.ok) {
@@ -31,8 +34,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 }
 
 export async function apiFetchVoid(path: string, init?: RequestInit): Promise<void> {
-  const res = await fetch(path, {
+  const res = await fetch(API_BASE_URL + path, {
     ...init,
+    credentials: 'include',
     headers: { Accept: 'application/json', ...init?.headers },
   })
   if (!res.ok) {
