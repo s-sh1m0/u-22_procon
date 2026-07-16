@@ -3,6 +3,8 @@ package api
 import (
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -19,6 +21,7 @@ func NewRouter(
 	diffHandler *DiffHandler,
 	sessions domain.SessionRepository,
 	frontendURL string,
+	staticDir string,
 ) *echo.Echo {
 	e := echo.New()
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
@@ -60,6 +63,16 @@ func NewRouter(
 	apiG.GET("/jobs/:id", jobHandler.Get)
 	apiG.GET("/graph/:jobId", analysisHandler.GetGraph)
 	apiG.GET("/diff/:jobId", diffHandler.Get)
+
+	if staticDir != "" {
+		e.GET("/*", func(c echo.Context) error {
+			p := filepath.Join(staticDir, c.Request().URL.Path)
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				return c.File(p)
+			}
+			return c.File(filepath.Join(staticDir, "index.html"))
+		})
+	}
 
 	return e
 }
