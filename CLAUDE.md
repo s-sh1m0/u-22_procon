@@ -1,101 +1,93 @@
-# ReviewArena(仮) - プロジェクト仕様書
+# CLAUDE.md - AI 運用ルール
 
-このドキュメントは Claude Code 向けのプロジェクト全体仕様書です。実装中はこのドキュメントを正として動作してください。
-
----
-
-## 1. プロジェクト概要
-
-### 1.1 一行説明
-
-**Go プロジェクト向けの GitHub PR レビュー支援ツール。大規模 PR を自動的に論理的なクラスタへ分割し、レビュアーが構造を保ったまま読み進められるようにする。**
-
-### 1.2 解決する問題
-
-GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり、以下の問題がある：
-
-- 100 ファイル超の大規模 PR では、レビュアーがコードの構造を頭の中で再構築しないといけない
-- ファイル間の依存関係が見えず、「この変更がどこに影響するか」を手動で調べる必要がある
-- どこから読み始めるべきかの指針がない
-- 結果として大規模 PR は形式的にしかレビューされない、または分割が要求されて開発フローが滞る
-
-### 1.3 ターゲットユーザー
-
-- Go プロジェクトを GitHub で開発しているチーム
-- 特に「中〜大規模 PR をレビューする立場」のシニア開発者・テックリード
-- OSS メンテナ
-
-### 1.4 コアバリュー
-
-「**100 ファイルの PR を、4 つの意味のあるクラスタに自動分割する**」これに尽きる。他の機能はすべてこのコア体験の補強。
-
-### 1.5 非ゴール（コンテスト期間中）
-
-以下は明示的にやらない。実装途中で誘惑されても手を出さない。
-
-- 多言語対応（Go 以外は対応しない）※コンテスト後の拡張候補
-- リアルタイムコラボレーション（複数レビュアーの同時編集、CRDT 同期）※コンテスト後の拡張候補
-- AST ノードベースのコメント永続化（rebase 耐性）
-- セルフホスト用の本格的な認証・マルチテナント
-- VSCode 拡張、ブラウザ拡張
-- モバイル対応
-- LLM による意味的解析（クラスタの命名のみ将来的にオプション）
+このファイルは Claude Code（および類似 AI エージェント）向けの作業ルールです。
+**プロジェクト仕様（概要・技術スタック・機能）は [`README.md`](./README.md) を参照してください。**
 
 ---
 
-## 2. 技術スタック
+## 0. 大原則
 
-### 2.1 バックエンド
-
-| 領域 | パッケージ | バージョン | 理由 |
-|---|---|---|---|
-| 言語 | Go | **1.25.3** | AST 解析が公式ライブラリで強力 |
-| AST 解析・呼び出しグラフ | `golang.org/x/tools` | **v0.44.0** | `go/packages`, `go/ast`, `go/callgraph` を含む |
-| グラフ処理・クラスタリング | `gonum.org/v1/gonum` | **v0.17.0** | `graph/community` の Louvain 法を使用 |
-| HTTP サーバー | `github.com/labstack/echo/v4` | **v4.15.1** | ミドルウェアが充実、使いやすい |
-| GitHub API | `github.com/google/go-github/v69` | **v69.2.0** | 公式維持 |
-| DB / キャッシュ | `modernc.org/sqlite` | **v1.49.1** | CGO 不要、デプロイが楽 |
-
-### 2.2 フロントエンド
-
-| 領域 | パッケージ | バージョン | 理由 |
-|---|---|---|---|
-| UI ライブラリ | `react` | **19.2.5** | - |
-| ビルドツール | `vite` | **8.0.10** | 高速、SPA に最適 |
-| 言語 | `typescript` | **6.0.3** | - |
-| ルーティング | `react-router-dom` | **v7.14.2** | 標準的な SPA ルーティング |
-| UI コンポーネント | `shadcn/ui` + `tailwindcss` | **tailwind v4.2.4** | コード生成型、独自デザイン不要 |
-| グラフ可視化 | `@xyflow/react` | **v12.10.2** | React Flow v12、ノードグラフに最適 |
-| エディタ表示 | `@monaco-editor/react` | **v4.7.0** | VSCode と同じ diff 表示 |
-| API 通信 | `@tanstack/react-query` | **v5.100.1** | キャッシュとローディング状態管理 |
-
-### 2.3 選定理由メモ
-
-- **Next.js ではなく React + Vite**: このアプリは実質 SPA（ログイン→PR入力→グラフ表示）。SEO・SSR 不要のため Next.js の恩恵がない。OAuth は Go バックエンドで完結させる。
-- **Go バックエンド**: `go/ast`, `go/callgraph` は Go ネイティブで他言語に代替手段がない。将来の多言語対応は LSP ベースに移行する設計にしておく。
-- **@xyflow/react**: reactflow v12 から改名。v11（`reactflow` パッケージ）は使わない。
-
-## 3. ブランチ戦略
-
-- `main` ブランチは本番環境に対応する。
-- `develop` ブランチが統合用のブランチ。機能ブランチはここにマージする。
-- 作業は各 Issue に対応したブランチを `develop` から作成し、そこで行う。
-- ブランチ命名規則: `{種類}_{issue番号}_{概要}` （例: `feature_1_project-structure`, `fix_12_analysis-timeout`）
-  - 種類: `feature`（新機能）, `fix`（バグ修正）, `chore`（設定・環境整備）, `docs`（ドキュメント）
-- `main`・`develop` への直接コミットは禁止。必ず Pull Request を出してマージする。
+- **プロジェクト仕様は `README.md` が正**。仕様が衝突したら README を優先する
+- 詳細ルールは [`.claude/rules/`](./.claude/rules/) に分割している。該当領域を触る前に読むこと
+- スキル（再利用可能な手順書）は [`.claude/skills/`](./.claude/skills/) に置く
 
 ---
 
-## 4. 機能
-- 機能を3層に分解
-- Layer 1: AST + 依存解析エンジン（バックエンド）
-  - PR前後のコードを tree-sitter でパース
-  - 関数・型・変数の定義と参照を抽出
-  - 変更された関数から「呼び出しグラフ」を双方向に辿る（caller/callee）
-  - diff のヒットした行が、どの関数/型のどこに当たるかをマッピング
-  - 出力: 「変更ノード」「影響を受ける可能性があるノード」のグラフ
-- Layer 2: コラボレーション層（リアルタイム）
-  - 複数レビュアーが同時に同じPRを見ている状態の同期（カーソル位置、開いているノード、コメント）
-  - コメントは行ではなくASTノードにぶら下がる（rebase してもコメントが迷子にならない）
-  - スレッド機能、解決済みフラグ、絵文字リアクション
-- Layer 3: ビジュアライゼーション（フロントエンド）
+## 1. 回答時のルール
+- 挨拶・前置き・絵文字禁止。結論をシンプルに伝える。
+- 指摘すべきことは率直に指摘する。
+
+## 2. ブランチ・コミット・PR
+
+- `main` / `develop` への直接コミット禁止
+- 作業ブランチは **`develop` から** 切る（`main` からではない）
+- タスクを一つ終わらせるごとにコミットする。
+- **コミット前にリンター・フォーマッター・テストを必ず通す**
+  - バックエンド（フォーマット + lint）: `docker run --rm -v $(pwd)/backend:/app -w /app golang:1.26 sh -c 'gofmt -w . && go vet ./...'`
+  - バックエンド（テスト）: `docker compose run --build --rm backend go test ./...`
+    - `backend` はソースを bind mount せず `compose.yml` の `build:` でイメージに焼き込む。`docker compose run` は `--build` を付けないとキャッシュ済みイメージを使い回し、変更したコードが反映されず**古いコードをテストしてしまう**（新規テストが `no tests to run` になる等で気づきにくい）。テスト時は必ず `--build` を付ける
+  - フロントエンド: `docker compose run --rm frontend sh -c 'npm run lint && npx tsc -b && npx prettier --write .'`
+- ブランチ名: `{種類}_{issue番号}_{概要}`
+  - 種類: `feature` / `fix` / `chore` / `docs`
+  - 例: `feature_1_project-structure`, `chore_22_claude-config`
+- コミットメッセージ規約: [`.claude/rules/commit-style.md`](./.claude/rules/commit-style.md)
+- PR は `develop` 宛に作成し、`main` へは `develop` からマージする
+
+---
+
+## 3. 作業フロー（標準）
+
+1. ユーザーから依頼を受ける
+2. 関連 issue がなければ起票（`gh issue create`）
+3. `develop` から作業ブランチを切る
+4. 実装 → ローカル動作確認
+   - **UI / 画面に影響する変更を含む場合は dev server を起動し、実機ブラウザで動作確認する**
+     - 確認対象: 変更画面の golden path + 関連画面のリグレッション
+     - lint / 型チェック / テストが通っても「機能として正しく動く」ことの保証にはならないため必須
+     - AI エージェントは CLI 環境では実機確認できないので、PR の Test plan にチェック項目として明示し、ユーザー側で確認してもらう
+   - **バックエンドのコードを変更したら dev server に反映するため再ビルドが必要**
+     - `backend` コンテナはソースを bind mount せず `compose.yml` の `build:` でイメージに焼き込むため、`docker compose up` だけでは古いバイナリのまま動く（フロントは bind mount なので即反映され、挙動が食い違う）
+     - 反映コマンド: `docker compose up -d --build backend`（または `docker compose watch`）
+     - `docker compose run --rm backend ...`（lint / test）は実行ごとにビルドされるのでこの影響は受けない
+5. コミット（[`.claude/rules/commit-style.md`](./.claude/rules/commit-style.md) に従う）
+6. push して PR を作成（`develop` 宛）
+7. ユーザーにレビュー依頼
+
+---
+
+## 4. 言語・領域別ルール
+
+- Go コード（コーディング規約）: [`.claude/rules/go-style.md`](./.claude/rules/go-style.md)
+- バックエンド アーキテクチャ（オニオン + リポジトリ DIP）: [`.claude/rules/backend-architecture.md`](./.claude/rules/backend-architecture.md)
+- TypeScript / React コード規約: [`.claude/rules/frontend-style.md`](./.claude/rules/frontend-style.md)
+- **UI / UX デザイン指針**: コンポーネント追加・スタイル変更・新画面作成の **作業前に必ず** [`DESIGN.md`](./DESIGN.md) を参照する（実装と食い違ったら DESIGN.md を更新）
+
+---
+
+## 5. パッケージ管理
+
+- **フロントエンドの `npm install` / `npx <CLI>` は必ず Docker コンテナ内で実行する**（ホスト直接実行禁止）
+  ```bash
+  docker compose run --rm frontend npm install <パッケージ>
+  docker compose run --rm frontend npx shadcn@latest add button
+  ```
+- 理由: 環境一貫性のため（コンテナ側を「正」とする）。`Dockerfile.dev` は `node` ユーザ (UID 1000) で動作し、`compose.yml` の bind mount で結果がホストにも反映される
+- 詳細は [`.claude/rules/frontend-style.md`](./.claude/rules/frontend-style.md) の「パッケージ管理」節を参照
+
+---
+
+## 6. 環境変数
+
+ローカル起動時は `.env.example` をコピーして `.env` を作成する。必須変数は以下の通り（詳細は [`.env.example`](./.env.example) を参照）:
+
+- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_CALLBACK_URL` — GitHub OAuth 必須
+- `SESSION_SECRET` — セッション署名キー（必須・ランダム文字列を設定する）
+- `DB_PATH` / `PORT` — 省略可（デフォルトあり）
+
+---
+
+## 7. 困ったとき
+
+- 仕様が曖昧 → ユーザーに質問する（推測で実装しない）
+- ルールが矛盾 → README > CLAUDE.md > `.claude/rules/` の優先順
+- ルールに無いケース → ユーザーに確認 → 合意後に該当ルールへ追記

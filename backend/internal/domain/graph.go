@@ -1,0 +1,103 @@
+package domain
+
+import "fmt"
+
+// NodeID はグラフノードの一意識別子
+type NodeID string
+
+// ClusterMode はクラスタリング戦略を表す。
+type ClusterMode string
+
+const (
+	// ClusterModeLouvain は Louvain 法によるコミュニティ検出（デフォルト）。
+	ClusterModeLouvain ClusterMode = "louvain"
+	// ClusterModePackage はノードのパッケージパスでグルーピングする。
+	ClusterModePackage ClusterMode = "package"
+	// ClusterModeFile はノードのファイルパスでグルーピングする。
+	ClusterModeFile ClusterMode = "file"
+)
+
+// ParseClusterMode は文字列から ClusterMode を返す。
+// 空文字列は ClusterModeLouvain にフォールバックする。
+func ParseClusterMode(s string) (ClusterMode, error) {
+	switch s {
+	case "", string(ClusterModeLouvain):
+		return ClusterModeLouvain, nil
+	case string(ClusterModePackage):
+		return ClusterModePackage, nil
+	case string(ClusterModeFile):
+		return ClusterModeFile, nil
+	default:
+		return "", fmt.Errorf("invalid cluster mode %q", s)
+	}
+}
+
+// DiffStatus はPR差分におけるノード/エッジの状態を表す。
+type DiffStatus string
+
+const (
+	// DiffStatusExisting は base/head 両方に存在する。
+	DiffStatusExisting DiffStatus = "existing"
+	// DiffStatusAdded は head にのみ存在する（PRで追加された）。
+	DiffStatusAdded DiffStatus = "added"
+	// DiffStatusRemoved は base にのみ存在する（PRで削除された）。
+	DiffStatusRemoved DiffStatus = "removed"
+)
+
+// Node は関数・メソッドをグラフノードとして表す
+type Node struct {
+	ID         NodeID
+	Name       string     // 関数名
+	Package    string     // パッケージパス
+	File       string     // ファイルパス
+	Line       int        // 定義行
+	Changed    bool       // このPRで変更されたか（ファイル単位）
+	DiffStatus DiffStatus // PR差分におけるノードの状態
+}
+
+// Edge はノード間の呼び出し関係を表す
+type Edge struct {
+	From   NodeID
+	To     NodeID
+	Status DiffStatus // PR差分におけるエッジの状態
+}
+
+// Graph は呼び出しグラフ全体
+type Graph struct {
+	Nodes []Node
+	Edges []Edge
+}
+
+// Cluster はLouvainによって検出されたノードのグループ
+type Cluster struct {
+	ID    int
+	Label string
+	Nodes []NodeID
+}
+
+// Cycle はコールグラフ上の循環参照（強連結成分）を表す。
+// IsNew が true の場合、Base には存在せず Head で新たに導入された循環。
+type Cycle struct {
+	ID    int      // 循環の連番
+	Nodes []NodeID // 循環を構成するノード（最低 2 件、ID 昇順でソート済み）
+	IsNew bool     // PR で新規に発生した循環か
+}
+
+// LayerViolation はレイヤー依存方向の逆転（クリーンアーキテクチャ違反）を表す。
+// 内側のレイヤー（domain/usecase）が外側（infra/ui）の関数を呼び出している依存。
+// 例: domain → infra は DIP に反するアンチパターン。
+type LayerViolation struct {
+	From      NodeID // 呼び出し元（内側レイヤー）
+	To        NodeID // 呼び出し先（外側レイヤー）
+	FromLayer string // 呼び出し元のレイヤー名（"domain" 等）
+	ToLayer   string // 呼び出し先のレイヤー名（"infra" 等）
+	IsNew     bool   // PR で新規に追加された依存か
+}
+
+// ClusterResult はクラスタリング結果
+type ClusterResult struct {
+	Clusters        []Cluster
+	Graph           Graph
+	Cycles          []Cycle          // 検出された循環参照（IsNew で新規/既存を区別）
+	LayerViolations []LayerViolation // 依存方向の逆転（IsNew で新規/既存を区別）
+}

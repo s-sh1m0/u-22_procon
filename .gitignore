@@ -1,0 +1,19 @@
+# env
+.env
+
+# Go
+backend/tmp/
+backend/*.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Data
+data/
+
+# Vercel
+.vercel/
+
+# OS
+.DS_Store

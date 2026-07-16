@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>DiffGraph. — Icon v2 (deep-dive)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafaf9;
+    --bg2: #f5f5f4;
+    --line: #e7e5e4;
+    --line2: #d6d3d1;
+    --ink: #1c1917;
+    --ink2: #44403c;
+    --ink3: #78716c;
+    --teal: #0f766e;
+    --teal-tint: #ccfbf1;
+    --teal-light: #5eead4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Inter Tight', system-ui, sans-serif; }
+  body { padding: 56px 64px 96px; }
+  header { margin-bottom: 56px; max-width: 720px; }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; }
+  header p { margin: 0; color: var(--ink3); font-size: 14px; line-height: 1.7; }
+  header code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--bg2); padding: 1px 6px; border-radius: 4px; color: var(--ink2); }
+  .section { margin-bottom: 72px; }
+  .section-head { margin-bottom: 28px; display: flex; align-items: baseline; gap: 16px; }
+  .section-head h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .section-head .id { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 3px 8px; background: var(--ink); color: var(--bg); border-radius: 99px; letter-spacing: 0.04em; }
+  .section-head p { font-size: 13px; color: var(--ink3); margin: 0; max-width: 540px; }
+  .section-head::after { content: ''; flex: 1; height: 1px; background: var(--line); align-self: center; }
+
+  .row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 18px; }
+  .card { display: flex; flex-direction: column; gap: 12px; }
+  .stage { background: white; border: 1px solid var(--line); border-radius: 22px; padding: 22px; display: flex; align-items: center; justify-content: center; aspect-ratio: 1 / 1; position: relative; }
+  .stage.dark { background: var(--ink); border-color: var(--ink); }
+  .stage.teal { background: var(--teal); border-color: var(--teal); }
+
+  .icon { width: 100%; height: 100%; max-width: 140px; }
+
+  /* contextual previews (3 in a row) */
+  .ctx { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .ctx .mini { aspect-ratio: 1 / 1; border-radius: 12px; padding: 8px; display: flex; align-items: center; justify-content: center; }
+  .ctx .mini.light { background: white; border: 1px solid var(--line); }
+  .ctx .mini.dark { background: var(--ink); }
+  .ctx .mini.teal { background: var(--teal); }
+  .ctx .mini svg { width: 100%; height: 100%; }
+
+  .meta { padding: 0 2px; }
+  .meta .label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ink3); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; }
+  .meta .name { font-size: 13px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.3; }
+  .meta .desc { font-size: 11px; color: var(--ink3); margin-top: 4px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>DiffGraph. — Icon Deep-Dive</h1>
+    <p>前回好評だった 4 案（<code>A1</code> / <code>A4</code> / <code>B1</code> / <code>B3</code>）をそれぞれ 6 バリエーションに展開。線幅・配置・accent 位置・余白を振って比較。各カード下に <code>ライト / ダーク / teal</code> 3 文脈でのスケール感を併記。</p>
+  </header>
+
+  <section class="section">
+    <div class="section-head">
+      <span class="id">A1</span>
+      <h2>Triangle node</h2>
+      <p>3 モジュール / 起点強調。最小単位のグラフ。</p>
+    </div>
+    <div class="row" id="row-a1"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <span class="id">A4</span>
+      <h2>Bridged clusters</h2>
+      <p>PR 間の橋渡し。diff の意味に最も近い。</p>
+    </div>
+    <div class="row" id="row-a4"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <span class="id">B1</span>
+      <h2>Plus / Minus</h2>
+      <p>差分そのもの。最もミニマル。</p>
+    </div>
+    <div class="row" id="row-b1"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <span class="id">B3</span>
+      <h2>Branch &amp; merge</h2>
+      <p>合流／リファクタの動きを記号化。</p>
+    </div>
+    <div class="row" id="row-b3"></div>
+  </section>
+
+<script src="icons-v2-build.js"></script>
+</body>
+</html>

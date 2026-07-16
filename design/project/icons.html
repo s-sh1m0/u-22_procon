@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>DiffGraph. — App Icons</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafaf9;
+    --bg2: #f5f5f4;
+    --line: #e7e5e4;
+    --line2: #d6d3d1;
+    --ink: #1c1917;
+    --ink2: #44403c;
+    --ink3: #78716c;
+    --teal: #0f766e;
+    --teal-bg: #ccfbf1;
+    --add: #16a34a;
+    --del: #dc2626;
+    --mod: #d97706;
+    --ref: #7c3aed;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Inter Tight', system-ui, sans-serif; }
+  body { padding: 56px 64px 96px; }
+  header { margin-bottom: 48px; max-width: 720px; }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; }
+  header p { margin: 0; color: var(--ink3); font-size: 14px; line-height: 1.6; }
+  header code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--bg2); padding: 1px 6px; border-radius: 4px; color: var(--ink2); }
+  .section { margin-bottom: 56px; }
+  .section-title { display: flex; align-items: baseline; gap: 12px; margin-bottom: 24px; }
+  .section-title h2 { font-size: 13px; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink2); }
+  .section-title span { font-size: 12px; color: var(--ink3); font-family: 'JetBrains Mono', monospace; }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+  .card { display: flex; flex-direction: column; gap: 16px; }
+  .stage { background: white; border: 1px solid var(--line); border-radius: 18px; padding: 32px; display: flex; align-items: center; justify-content: center; aspect-ratio: 1 / 1; position: relative; }
+  .mini { display: flex; gap: 10px; align-items: center; padding: 0 4px; }
+  .mini .swatch { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; }
+  .mini .swatch.dark { background: var(--ink); }
+  .mini .swatch.teal { background: var(--teal); }
+  .mini .swatch.light { background: white; border: 1px solid var(--line); }
+  .meta { padding: 0 4px; }
+  .meta .name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .meta .desc { font-size: 12px; color: var(--ink3); margin-top: 3px; line-height: 1.5; }
+  .icon { width: 160px; height: 160px; }
+  .dark-stage { background: var(--ink); border-color: var(--ink); }
+  .teal-stage { background: var(--teal); border-color: var(--teal); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>DiffGraph. — App Icon Exploration</h1>
+    <p>PR 依存関係可視化ツール「<code>DiffGraph.</code>」のプロダクトアイコン案。3 つの方向性 × 各 4 案。すべて teal（<code>#0f766e</code>）と neutral を基調に、ノード／エッジ／差分（+/-）の語彙から構成。</p>
+  </header>
+
+  <!-- SECTION 1: Node graph metaphor -->
+  <section class="section">
+    <div class="section-title"><h2>A · Node + Edge</h2><span>graph as identity</span></div>
+    <div class="row" id="row-a"></div>
+  </section>
+
+  <!-- SECTION 2: Diff metaphor -->
+  <section class="section">
+    <div class="section-title"><h2>B · Diff Mark</h2><span>add / remove as glyph</span></div>
+    <div class="row" id="row-b"></div>
+  </section>
+
+  <!-- SECTION 3: Map / cluster metaphor -->
+  <section class="section">
+    <div class="section-title"><h2>C · Map / Cluster</h2><span>territory + period</span></div>
+    <div class="row" id="row-c"></div>
+  </section>
+
+<script src="icons-build.js"></script>
+</body>
+</html>
