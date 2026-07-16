@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: diffgraph
+    runtime: docker
+    dockerfilePath: ./Dockerfile.prod
+    dockerContext: .
+    repo: https://github.com/s-sh1m0/u-22_procon
+    branch: main
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CALLBACK_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: PORT
+        value: "8080"
+      - key: DB_PATH
+        value: /app/data/reviewarena.db
