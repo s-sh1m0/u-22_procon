@@ -25,10 +25,11 @@ type AuthHandler struct {
 	oauth       *github.OAuthConfig
 	sessions    domain.SessionRepository
 	frontendURL string
+	secure      bool
 }
 
-func NewAuthHandler(oauth *github.OAuthConfig, sessions domain.SessionRepository, frontendURL string) *AuthHandler {
-	return &AuthHandler{oauth: oauth, sessions: sessions, frontendURL: frontendURL}
+func NewAuthHandler(oauth *github.OAuthConfig, sessions domain.SessionRepository, frontendURL string, secure bool) *AuthHandler {
+	return &AuthHandler{oauth: oauth, sessions: sessions, frontendURL: frontendURL, secure: secure}
 }
 
 // Login は GET /auth/github。state を生成して Cookie にセットし、GitHub に Redirect する。
@@ -43,7 +44,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		Path:     "/",
 		MaxAge:   oauthStateMaxAge,
 		HttpOnly: true,
-		Secure:   h.crossOrigin(),
+		Secure:   h.isSecure(),
 		SameSite: http.SameSiteLaxMode,
 	})
 	return c.Redirect(http.StatusFound, h.oauth.AuthCodeURL(state))
@@ -96,7 +97,7 @@ func (h *AuthHandler) Callback(c echo.Context) error {
 		Path:     "/",
 		MaxAge:   sessionMaxAge,
 		HttpOnly: true,
-		Secure:   h.crossOrigin(),
+		Secure:   h.isSecure(),
 		SameSite: h.sameSite(),
 	})
 	return c.Redirect(http.StatusFound, h.postLoginRedirect())
@@ -132,6 +133,10 @@ func (h *AuthHandler) crossOrigin() bool {
 	return h.frontendURL != ""
 }
 
+func (h *AuthHandler) isSecure() bool {
+	return h.secure || h.crossOrigin()
+}
+
 func (h *AuthHandler) sameSite() http.SameSite {
 	if h.crossOrigin() {
 		return http.SameSiteNoneMode
@@ -153,7 +158,7 @@ func (h *AuthHandler) clearCookie(c echo.Context, name string) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   h.crossOrigin(),
+		Secure:   h.isSecure(),
 		SameSite: h.sameSite(),
 	})
 }

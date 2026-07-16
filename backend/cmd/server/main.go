@@ -80,7 +80,7 @@ func main() {
 	getUC := usecase.NewGetAnalysisUseCase(analysisRepo, jobRepo)
 
 	oauth := githubinfra.NewOAuthConfig(clientID, clientSecret, callbackURL)
-	authHandler := api.NewAuthHandler(oauth, sessions, frontendURL)
+	authHandler := api.NewAuthHandler(oauth, sessions, frontendURL, staticDir != "")
 	analysisHandler := api.NewAnalysisHandler(analyzeUC, getUC)
 	jobHandler := api.NewJobHandler(getUC)
 	diffHandler := api.NewDiffHandler(getUC)

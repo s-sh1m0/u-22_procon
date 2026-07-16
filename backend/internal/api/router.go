@@ -66,7 +66,8 @@ func NewRouter(
 
 	if staticDir != "" {
 		e.GET("/*", func(c echo.Context) error {
-			p := filepath.Join(staticDir, c.Request().URL.Path)
+			clean := filepath.Clean("/" + c.Request().URL.Path)
+			p := filepath.Join(staticDir, clean)
 			if info, err := os.Stat(p); err == nil && !info.IsDir() {
 				return c.File(p)
 			}
