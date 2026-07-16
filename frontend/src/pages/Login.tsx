@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { buttonVariants } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
+import { API_BASE_URL } from '@/lib/api'
 
 export default function Login() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -18,7 +19,7 @@ export default function Login() {
           <p className="text-sm text-muted-foreground">ログインして PR 依存グラフを可視化</p>
         </div>
         <a
-          href="/auth/github"
+          href={`${API_BASE_URL}/auth/github`}
           className={buttonVariants({ variant: 'default', size: 'lg' }) + ' w-full justify-center'}
         >
           GitHub でログイン

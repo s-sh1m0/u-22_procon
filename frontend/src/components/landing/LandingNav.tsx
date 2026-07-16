@@ -1,5 +1,6 @@
 import Brand from '@/components/branding/Brand'
 import { Button } from '@/components/ui/button'
+import { API_BASE_URL } from '@/lib/api'
 import Wrap from './Wrap'
 import { GitHubGlyph } from './glyphs'
 import { REPO_URL } from './constants'
@@ -41,7 +42,7 @@ export default function LandingNav({ isAuthenticated, login }: Props) {
             </div>
           ) : (
             <Button asChild className="h-[34px] bg-stone-900 px-3.5 text-[13px] hover:bg-stone-800">
-              <a href="/auth/github">ログイン</a>
+              <a href={`${API_BASE_URL}/auth/github`}>ログイン</a>
             </Button>
           )}
         </div>

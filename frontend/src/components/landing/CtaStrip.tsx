@@ -1,5 +1,6 @@
 import AppMark from '@/components/branding/AppMark'
 import { Button } from '@/components/ui/button'
+import { API_BASE_URL } from '@/lib/api'
 import Wrap from './Wrap'
 import { GitHubGlyph } from './glyphs'
 
@@ -35,7 +36,7 @@ export default function CtaStrip({ isAuthenticated }: { isAuthenticated: boolean
               asChild
               className="h-13 gap-2 bg-white px-[22px] text-[15px] text-stone-900 shadow-[0_4px_14px_rgba(0,0,0,0.25)] hover:bg-white/90"
             >
-              <a href="/auth/github">
+              <a href={`${API_BASE_URL}/auth/github`}>
                 <GitHubGlyph size={16} />
                 GitHub で始める
               </a>

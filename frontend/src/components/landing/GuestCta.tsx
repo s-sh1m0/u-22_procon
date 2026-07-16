@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { API_BASE_URL } from '@/lib/api'
 import { CheckGlyph, GitHubGlyph } from './glyphs'
 
 export default function GuestCta() {
@@ -9,7 +10,7 @@ export default function GuestCta() {
           asChild
           className="h-13 gap-2 bg-stone-900 px-[22px] text-[15px] text-white shadow-[0_4px_14px_rgba(28,25,23,0.18),inset_0_1px_0_rgba(255,255,255,0.08)] hover:bg-stone-800"
         >
-          <a href="/auth/github">
+          <a href={`${API_BASE_URL}/auth/github`}>
             <GitHubGlyph size={16} />
             GitHub で始める
             <span className="ml-1 opacity-50">→</span>
