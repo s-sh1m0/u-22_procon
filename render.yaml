@@ -4,8 +4,6 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile.prod
     dockerContext: .
-    repo: https://github.com/s-sh1m0/u-22_procon
-    branch: main
     disk:
       name: data
       mountPath: /app/data
