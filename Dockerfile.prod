@@ -25,5 +25,8 @@ COPY --from=backend-builder /usr/local/go /usr/local/go
 COPY --from=frontend-builder /app/dist ./frontend
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV STATIC_DIR=/app/frontend
-EXPOSE 8080
+ENV PORT=28080
+ENV GOCACHE=/go/cache/go-build
+ENV GOMODCACHE=/go/pkg/mod
+EXPOSE 28080
 CMD ["./server"]
