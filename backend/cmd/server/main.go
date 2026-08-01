@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
@@ -79,8 +80,14 @@ func main() {
 	analyzeUC := usecase.NewAnalyzePRUseCase(analysisRepo, jobRepo, prRepo, queue)
 	getUC := usecase.NewGetAnalysisUseCase(analysisRepo, jobRepo)
 
+	parsedCallback, err := url.Parse(callbackURL)
+	if err != nil {
+		log.Fatalf("invalid GITHUB_CALLBACK_URL: %v", err)
+	}
+	secureCookies := parsedCallback.Scheme == "https"
+
 	oauth := githubinfra.NewOAuthConfig(clientID, clientSecret, callbackURL)
-	authHandler := api.NewAuthHandler(oauth, sessions, frontendURL, staticDir != "")
+	authHandler := api.NewAuthHandler(oauth, sessions, frontendURL, secureCookies)
 	analysisHandler := api.NewAnalysisHandler(analyzeUC, getUC)
 	jobHandler := api.NewJobHandler(getUC)
 	diffHandler := api.NewDiffHandler(getUC)
