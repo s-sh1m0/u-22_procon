@@ -76,7 +76,7 @@ func (c *GitCloner) Clone(ctx context.Context, req CloneRequest) (*ClonedRepo, e
 		tmpDir = os.TempDir()
 	}
 
-	dir, err := os.MkdirTemp(tmpDir, "reviewarena-clone-*")
+	dir, err := os.MkdirTemp(tmpDir, "diffgraph-clone-*")
 	if err != nil {
 		return nil, fmt.Errorf("analyzer: create tempdir: %w", err)
 	}
@@ -151,7 +151,7 @@ func (c *GitCloner) CloneWorktrees(ctx context.Context, req WorktreesRequest) (*
 		tmpDir = os.TempDir()
 	}
 
-	parent, err := os.MkdirTemp(tmpDir, "reviewarena-clone-*")
+	parent, err := os.MkdirTemp(tmpDir, "diffgraph-clone-*")
 	if err != nil {
 		return nil, fmt.Errorf("analyzer: create tempdir: %w", err)
 	}

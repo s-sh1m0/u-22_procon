@@ -1,22 +1,86 @@
-# u-22_procon
+# DiffGraph
 
-u-22 プログラミングコンテスト提出用リポジトリ。
+Go プロジェクト向けの GitHub PR レビュー支援ツール。大規模 PR を自動的に論理的なクラスタへ分割し、レビュアーが構造を保ったまま読み進められるようにする。
 
-> このドキュメントはプロジェクト仕様書を兼ねたバックアップです。
-> AI（Claude Code）向けの運用ルールは [`CLAUDE.md`](./CLAUDE.md) を、
-> 詳細ルールは [`.claude/rules/`](./.claude/rules/) を参照してください。
+> AI（Claude Code）向けの運用ルールは [`CLAUDE.md`](./CLAUDE.md) を参照してください。
 
 ---
 
-## 1. プロジェクト概要
+## クイックスタート（5 分で起動）
 
-### 1.1 一行説明
+### 前提条件
 
-**Go プロジェクト向けの GitHub PR レビュー支援ツール。大規模 PR を自動的に論理的なクラスタへ分割し、レビュアーが構造を保ったまま読み進められるようにする。**
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) がインストール済みであること
+  - メモリ割当を **6 GB 以上** に設定しておく（Settings → Resources → Memory）
+- GitHub アカウントを持っていること
 
-開発コードネーム: **ReviewArena（仮）**
+### 1. リポジトリをクローン
 
-### 1.2 解決する問題
+```bash
+git clone https://github.com/s-sh1m0/u-22_procon.git
+cd u-22_procon
+```
+
+### 2. GitHub OAuth App を作成
+
+1. <https://github.com/settings/developers> を開く
+2. **OAuth Apps** → **New OAuth App** をクリック
+3. 以下を入力して **Register application** をクリック:
+
+   | 項目 | 値 |
+   |---|---|
+   | Application name | `DiffGraph`（任意） |
+   | Homepage URL | `http://localhost:20080` |
+   | Authorization callback URL | `http://localhost:20080/auth/github/callback` |
+
+4. 作成後の画面で **Client ID** をコピーする
+5. **Generate a new client secret** をクリックし、表示された **Client Secret** をコピーする
+
+### 3. セットアップスクリプトを実行
+
+```bash
+./setup.sh
+```
+
+対話形式で Client ID / Client Secret を入力すると `.env` が生成される。
+
+### 4. 起動
+
+```bash
+docker compose -f compose.prod.yml up -d
+```
+
+初回はビルドに数分かかる。完了したら **<http://localhost:20080>** を開く。
+
+### 5. 停止 / データ削除
+
+```bash
+# 停止
+docker compose -f compose.prod.yml down
+
+# データも含めて完全削除（DB・キャッシュすべて消える）
+docker compose -f compose.prod.yml down -v
+```
+
+---
+
+## トラブルシューティング
+
+| 症状 | 対処 |
+|---|---|
+| ログインできない / OAuth エラーが出る | GitHub OAuth App の **Authorization callback URL** が `http://localhost:20080/auth/github/callback` になっているか確認する。`.env` の `GITHUB_CALLBACK_URL` も同じ値にする |
+| 解析が終わらない / OOM で落ちる | Docker Desktop のメモリ割当を **6 GB 以上** に増やす（Settings → Resources → Memory） |
+| ポート 20080 が競合する | `.env` に `PORT=<別のポート>` を追加し、OAuth App の Homepage URL / Callback URL のポートも合わせて変更する |
+| `./setup.sh` が Permission denied | `chmod +x setup.sh` を実行してから再度試す |
+
+---
+
+<details>
+<summary>プロジェクト仕様（開発者向け）</summary>
+
+## プロジェクト概要
+
+### 解決する問題
 
 GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり、以下の問題がある:
 
@@ -25,17 +89,17 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 - どこから読み始めるべきかの指針がない
 - 結果として大規模 PR は形式的にしかレビューされない、または分割が要求されて開発フローが滞る
 
-### 1.3 ターゲットユーザー
+### ターゲットユーザー
 
 - Go プロジェクトを GitHub で開発しているチーム
 - 特に「中〜大規模 PR をレビューする立場」のシニア開発者・テックリード
 - OSS メンテナ
 
-### 1.4 コアバリュー
+### コアバリュー
 
 「**100 ファイルの PR を、4 つの意味のあるクラスタに自動分割する**」これに尽きる。他の機能はすべてこのコア体験の補強。
 
-### 1.5 非ゴール（コンテスト期間中）
+### 非ゴール（コンテスト期間中）
 
 以下は明示的にやらない。実装途中で誘惑されても手を出さない。
 
@@ -49,9 +113,9 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 
 ---
 
-## 2. 技術スタック
+## 技術スタック
 
-### 2.1 バックエンド
+### バックエンド
 
 | 領域 | パッケージ | バージョン | 理由 |
 |---|---|---|---|
@@ -62,7 +126,7 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 | GitHub API | `github.com/google/go-github/v69` | **v69.2.0** | 公式維持 |
 | DB / キャッシュ | `modernc.org/sqlite` | **v1.49.1** | CGO 不要、デプロイが楽 |
 
-### 2.2 フロントエンド
+### フロントエンド
 
 | 領域 | パッケージ | バージョン | 理由 |
 |---|---|---|---|
@@ -75,7 +139,7 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 | エディタ表示 | `@monaco-editor/react` | **v4.7.0** | VSCode と同じ diff 表示 |
 | API 通信 | `@tanstack/react-query` | **v5.100.1** | キャッシュとローディング状態管理 |
 
-### 2.3 選定理由メモ
+### 選定理由メモ
 
 - **Next.js ではなく React + Vite**: このアプリは実質 SPA（ログイン → PR 入力 → グラフ表示）。SEO・SSR 不要のため Next.js の恩恵がない。OAuth は Go バックエンドで完結させる。
 - **Go バックエンド**: `go/ast`, `go/callgraph` は Go ネイティブで他言語に代替手段がない。将来の多言語対応は LSP ベースに移行する設計にしておく。
@@ -83,7 +147,7 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 
 ---
 
-## 3. ブランチ戦略
+## ブランチ戦略
 
 - `main` ブランチは本番環境に対応する
 - `develop` ブランチが統合用のブランチ。機能ブランチはここにマージする
@@ -94,7 +158,7 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 
 ---
 
-## 4. 機能（3層アーキテクチャ）
+## 機能（3 層アーキテクチャ）
 
 ### Layer 1: AST + 依存解析エンジン（バックエンド）
 
@@ -117,5 +181,8 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 
 ---
 
-## 5. デザイン
+## デザイン
+
 - [こちら](https://raw.githack.com/s-sh1m0/u-22_procon/develop/design/preview.html)から確認可能
+
+</details>

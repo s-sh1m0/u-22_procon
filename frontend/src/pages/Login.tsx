@@ -15,7 +15,7 @@ export default function Login() {
     <div className="flex min-h-svh items-center justify-center">
       <div className="w-full max-w-sm space-y-6 rounded-xl border bg-card p-8 shadow-sm">
         <div className="space-y-1 text-center">
-          <h1 className="text-2xl font-bold">ReviewArena</h1>
+          <h1 className="text-2xl font-bold">DiffGraph</h1>
           <p className="text-sm text-muted-foreground">ログインして PR 依存グラフを可視化</p>
         </div>
         <a

@@ -31,7 +31,7 @@ func main() {
 	frontendURL := envOr("FRONTEND_URL", "")
 	staticDir := envOr("STATIC_DIR", "")
 	port := envOr("PORT", "8080")
-	dbPath := envOr("DB_PATH", "/app/data/reviewarena.db")
+	dbPath := envOr("DB_PATH", "/app/data/diffgraph.db")
 
 	db, err := store.Open(dbPath)
 	if err != nil {

@@ -11,7 +11,7 @@ services:
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - GITHUB_CALLBACK_URL=${GITHUB_CALLBACK_URL:-http://localhost:20080/auth/github/callback}
       - SESSION_SECRET=${SESSION_SECRET}
-      - DB_PATH=/app/data/reviewarena.db
+      - DB_PATH=/app/data/diffgraph.db
       - GOMEMLIMIT=4GiB
     volumes:
       - app-data:/app/data
