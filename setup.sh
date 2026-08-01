@@ -3,7 +3,7 @@ set -euo pipefail
 
 ENV_FILE=".env"
 
-echo "=== ReviewArena セットアップ ==="
+echo "=== DiffGraph セットアップ ==="
 echo ""
 
 if [ -f "$ENV_FILE" ]; then
