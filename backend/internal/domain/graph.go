@@ -51,7 +51,7 @@ type Node struct {
 	Package    string     // パッケージパス
 	File       string     // ファイルパス
 	Line       int        // 定義行
-	Changed    bool       // このPRで変更されたか（ファイル単位）
+	Changed    bool       // このPRで変更されたか（関数単位）
 	DiffStatus DiffStatus // PR差分におけるノードの状態
 }
 

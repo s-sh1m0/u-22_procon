@@ -28,13 +28,13 @@ const defaultNeighborhoodDepth = 2
 
 // PreparedSource はclone・ロード・変更パッケージ特定の結果をまとめたもの。
 type PreparedSource struct {
-	RepoRoot            string // リポジトリルート（GitHub API パスの基点）
-	RootDir             string // go.mod のあるディレクトリ（パッケージロードの基点）
-	Packages            []*packages.Package
-	LoadErrors          []packages.Error
-	ChangedPackages     []string // パッケージID（重複なし・ソート済み）
-	ChangedFileAbsPaths []string // PR で変更された .go ファイルの絶対パス（HEAD 側）
-	Cleanup             func() error
+	RepoRoot        string // リポジトリルート（GitHub API パスの基点）
+	RootDir         string // go.mod のあるディレクトリ（パッケージロードの基点）
+	Packages        []*packages.Package
+	LoadErrors      []packages.Error
+	ChangedPackages []string // パッケージID（重複なし・ソート済み）
+	ChangedLines    ChangedLines
+	Cleanup         func() error
 }
 
 // SourceTree はCloneとPackageLoadを組み合わせたファサード。
@@ -141,24 +141,15 @@ func (s *SourceTree) prepareFromDir(ctx context.Context, rootDir string, changed
 	changedPkgs := IdentifyChangedPackages(clonedRoot, fastPkgs, changed)
 	log.Printf("analyzer: changed packages: %v", changedPkgs)
 
-	// sha 側に実在するファイルの絶対パスを収集する。
-	// HEAD 側では removed が、BASE 側では added が、それぞれ実在しないため自動的に除外される。
-	changedFileAbsPaths := make([]string, 0, len(changed))
-	for _, f := range changed {
-		absPath := filepath.Clean(filepath.Join(clonedRoot, f.Filename))
-		if _, statErr := os.Stat(absPath); statErr != nil {
-			continue
-		}
-		changedFileAbsPaths = append(changedFileAbsPaths, absPath)
-	}
+	changedLines := BuildChangedLines(changed, clonedRoot)
 
 	if len(changedPkgs) == 0 {
 		// 変更されたGoパッケージがない（非Goファイルのみの変更など）
 		return &PreparedSource{
-			RepoRoot:            clonedRoot,
-			RootDir:             loadDir,
-			ChangedPackages:     nil,
-			ChangedFileAbsPaths: changedFileAbsPaths,
+			RepoRoot:        clonedRoot,
+			RootDir:         loadDir,
+			ChangedPackages: nil,
+			ChangedLines:    changedLines,
 		}, nil
 	}
 
@@ -181,12 +172,12 @@ func (s *SourceTree) prepareFromDir(ctx context.Context, rootDir string, changed
 	log.Printf("analyzer: phase2 Load(%d pkgs) took %s", len(result.Packages), time.Since(t1))
 
 	return &PreparedSource{
-		RepoRoot:            clonedRoot,
-		RootDir:             loadDir,
-		Packages:            result.Packages,
-		LoadErrors:          result.Errors,
-		ChangedPackages:     changedPkgs,
-		ChangedFileAbsPaths: changedFileAbsPaths,
+		RepoRoot:        clonedRoot,
+		RootDir:         loadDir,
+		Packages:        result.Packages,
+		LoadErrors:      result.Errors,
+		ChangedPackages: changedPkgs,
+		ChangedLines:    changedLines,
 	}, nil
 }
 

@@ -95,7 +95,7 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 	// 4. コールグラフ構築
 	t1 := time.Now()
 	cgBuilder := analyzer.NewGoCallGraphBuilder()
-	graph, err := cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+	graph, err := cgBuilder.Build(ctx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedLines, prepared.RepoRoot)
 	if err != nil {
 		return fmt.Errorf("build: %w", err)
 	}
@@ -162,7 +162,7 @@ func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []
 		}
 		log.Printf("[head] PrepareFromDir took %s (pkgs=%d, changed pkgs=%d)", time.Since(t), len(prepared.Packages), len(prepared.ChangedPackages))
 		t = time.Now()
-		g, err := cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+		g, err := cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedLines, prepared.RepoRoot)
 		if err != nil {
 			return fmt.Errorf("head build: %w", err)
 		}
@@ -179,7 +179,7 @@ func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []
 		}
 		log.Printf("[base] PrepareFromDir took %s (pkgs=%d, changed pkgs=%d)", time.Since(t), len(prepared.Packages), len(prepared.ChangedPackages))
 		t = time.Now()
-		g, err := cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+		g, err := cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedLines, prepared.RepoRoot)
 		if err != nil {
 			return fmt.Errorf("base build: %w", err)
 		}

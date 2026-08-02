@@ -277,7 +277,7 @@ func (w *Worker) buildBothGraphs(
 		if err != nil {
 			return fmt.Errorf("head prepare: %w", err)
 		}
-		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedLines, prepared.RepoRoot)
 		if err != nil {
 			return fmt.Errorf("head build: %w", err)
 		}
@@ -291,7 +291,7 @@ func (w *Worker) buildBothGraphs(
 		if err != nil {
 			return fmt.Errorf("base prepare: %w", err)
 		}
-		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedFileAbsPaths, prepared.RepoRoot)
+		g, err := w.cgBuilder.Build(egCtx, prepared.Packages, prepared.ChangedPackages, prepared.ChangedLines, prepared.RepoRoot)
 		if err != nil {
 			return fmt.Errorf("base build: %w", err)
 		}

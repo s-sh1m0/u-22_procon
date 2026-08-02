@@ -19,9 +19,9 @@ import (
 const defaultMaxDepth = 3
 
 // CallGraphBuilder はロード済みパッケージから呼び出しグラフを構築する抽象。
-// source_tree.go が返す PreparedSource.Packages / ChangedPackages / ChangedFileAbsPaths をそのまま渡せる設計にする。
+// source_tree.go が返す PreparedSource.Packages / ChangedPackages / ChangedLines をそのまま渡せる設計にする。
 type CallGraphBuilder interface {
-	Build(ctx context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedFileAbsPaths []string, rootDir string) (*domain.Graph, error)
+	Build(ctx context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedLines ChangedLines, rootDir string) (*domain.Graph, error)
 }
 
 // GoCallGraphBuilder は golang.org/x/tools/go/callgraph を使う本番実装。
@@ -37,17 +37,12 @@ func NewGoCallGraphBuilder() *GoCallGraphBuilder {
 
 // Build は pkgs から SSA を構築し、changedPkgIDs を起点に caller/callee グラフを返す。
 // changedPkgIDs が空の場合は空の Graph を返す。
-// changedFileAbsPaths は changed フラグをファイル単位で設定するために使う（パッケージ単位ではない）。
+// changedLines は changed フラグを関数単位で設定するために使う。
 // stdlib・外部ライブラリはフィルタリングして含めない。
 // rootDir はリポジトリのルートディレクトリの絶対パスで、ノードのファイルパスを相対パスに変換するために使用される。
-func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedFileAbsPaths []string, rootDir string) (*domain.Graph, error) {
+func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedLines ChangedLines, rootDir string) (*domain.Graph, error) {
 	if len(changedPkgIDs) == 0 {
 		return &domain.Graph{}, nil
-	}
-
-	changedFileSet := make(map[string]struct{}, len(changedFileAbsPaths))
-	for _, f := range changedFileAbsPaths {
-		changedFileSet[f] = struct{}{}
 	}
 
 	maxDepth := b.MaxDepth
@@ -176,8 +171,14 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		nodeSeen[nid] = struct{}{}
 
 		pos := prog.Fset.Position(fn.Pos())
-		_, fileChanged := changedFileSet[pos.Filename]
-		relPath, err := filepath.Rel(rootDir, pos.Filename) // リポジトリからの相対パスにする
+		funcChanged := false
+		if syntaxNode := fn.Syntax(); syntaxNode != nil {
+			endPos := prog.Fset.Position(syntaxNode.End())
+			funcChanged = changedLines.FunctionChanged(pos.Filename, pos.Line, endPos.Line)
+		} else {
+			funcChanged = changedLines.FileChanged(pos.Filename)
+		}
+		relPath, err := filepath.Rel(rootDir, pos.Filename)
 		if err != nil {
 			relPath = pos.Filename
 		}
@@ -187,7 +188,7 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 			Package:    pkgPath(fn),
 			File:       relPath,
 			Line:       pos.Line,
-			Changed:    fileChanged,
+			Changed:    funcChanged,
 			DiffStatus: domain.DiffStatusExisting,
 		})
 	}
