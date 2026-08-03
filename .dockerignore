@@ -2,7 +2,7 @@
 .github
 .claude
 data/
-nginx/
+nginx/dev.conf
 *.md
 .env
 .env.*
