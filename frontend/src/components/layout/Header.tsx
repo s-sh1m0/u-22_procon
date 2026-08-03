@@ -7,7 +7,7 @@ export default function Header() {
 
   return (
     <header className="flex h-14 items-center justify-between border-b px-6">
-      <span className="font-semibold">ReviewArena</span>
+      <span className="font-semibold">DiffGraph</span>
       <div className="flex items-center gap-3">
         {user && <span className="text-sm text-muted-foreground">{user.login}</span>}
         <Button

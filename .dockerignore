@@ -1,0 +1,10 @@
+.git
+.github
+.claude
+data/
+nginx/
+*.md
+.env
+.env.*
+!.env.example
+frontend/node_modules

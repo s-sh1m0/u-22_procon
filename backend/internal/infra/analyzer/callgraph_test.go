@@ -102,11 +102,17 @@ func TestGoCallGraphBuilder_Build_ChangedNodes(t *testing.T) {
 	root := setupCGFixture(t)
 	pkgs := loadCGFixture(t, root)
 
-	// pkg/a/a.go だけを変更ファイルとして渡す（ファイル単位の changed フラグを検証）
-	changedFileAbsPaths := []string{filepath.Join(root, "pkg/a/a.go")}
+	// func A() は 5 行目。patch は A の行のみ変更。
+	// C (6行目)、D (8-11行目) は変更なし。
+	aFile := filepath.Join(root, "pkg/a/a.go")
+	cl := ChangedLines{
+		aFile: {
+			{Start: 5, End: 5},
+		},
+	}
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, changedFileAbsPaths, root)
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, cl, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -118,8 +124,7 @@ func TestGoCallGraphBuilder_Build_ChangedNodes(t *testing.T) {
 		}
 	}
 
-	// 変更ファイル内の関数（A, C）は Changed=true
-	// 呼び出し先（B）は Changed=false だがグラフに含まれる
+	// A のみ Changed=true、C / D / B は Changed=false
 	nodeMap := make(map[string]bool) // Name -> Changed
 	for _, n := range graph.Nodes {
 		nodeMap[n.Name] = n.Changed
@@ -130,7 +135,8 @@ func TestGoCallGraphBuilder_Build_ChangedNodes(t *testing.T) {
 		changed bool
 	}{
 		{"A", true},
-		{"C", true},
+		{"C", false},
+		{"D", false},
 		{"B", false},
 	}
 	for _, tc := range tests {
@@ -145,12 +151,36 @@ func TestGoCallGraphBuilder_Build_ChangedNodes(t *testing.T) {
 	}
 }
 
+func TestGoCallGraphBuilder_Build_ChangedNodes_FileFallback(t *testing.T) {
+	root := setupCGFixture(t)
+	pkgs := loadCGFixture(t, root)
+
+	// Patch が空（nil ranges）の場合はファイル単位にフォールバック → 全関数 changed
+	aFile := filepath.Join(root, "pkg/a/a.go")
+	cl := ChangedLines{
+		aFile: nil,
+	}
+
+	b := &GoCallGraphBuilder{MaxDepth: 3}
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, cl, root)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	for _, n := range graph.Nodes {
+		if n.Package == "example.com/cgfixture/pkg/a" && n.File != "" && !n.Changed {
+			t.Errorf("node %q in changed file should be Changed=true with nil ranges (fallback), got false", n.Name)
+		}
+	}
+}
+
 func TestGoCallGraphBuilder_Build_Edges(t *testing.T) {
 	root := setupCGFixture(t)
 	pkgs := loadCGFixture(t, root)
 
+	cl := ChangedLines{filepath.Join(root, "pkg/a/a.go"): nil}
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")}, root)
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, cl, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -186,8 +216,9 @@ func TestGoCallGraphBuilder_Build_StdlibExcluded(t *testing.T) {
 	root := setupCGFixture(t)
 	pkgs := loadCGFixture(t, root)
 
+	cl := ChangedLines{filepath.Join(root, "pkg/a/a.go"): nil}
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")}, root)
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, cl, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -204,8 +235,9 @@ func TestGoCallGraphBuilder_Build_ClosureMerged(t *testing.T) {
 	root := setupCGFixture(t)
 	pkgs := loadCGFixture(t, root)
 
+	cl := ChangedLines{filepath.Join(root, "pkg/a/a.go"): nil}
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")}, root)
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, cl, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -249,8 +281,9 @@ func TestGoCallGraphBuilder_Build_SameMethodNameNotCollided(t *testing.T) {
 	root := setupCGFixture(t)
 	pkgs := loadCGFixture(t, root)
 
+	cl := ChangedLines{filepath.Join(root, "pkg/a/a.go"): nil}
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, []string{filepath.Join(root, "pkg/a/a.go")}, root)
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, cl, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -344,9 +377,9 @@ func TestGoCallGraphBuilder_Build_ExportDataParity(t *testing.T) {
 		"example.com/extfixture/pkg/a",
 		"example.com/extfixture/pkg/b",
 	}
-	changedFiles := []string{
-		filepath.Join(root, "pkg/a/a.go"),
-		filepath.Join(root, "pkg/b/b.go"),
+	changedLines := ChangedLines{
+		filepath.Join(root, "pkg/a/a.go"): nil,
+		filepath.Join(root, "pkg/b/b.go"): nil,
 	}
 
 	build := func(sourceDeps bool) (map[string]struct{}, map[[2]string]struct{}) {
@@ -361,7 +394,7 @@ func TestGoCallGraphBuilder_Build_ExportDataParity(t *testing.T) {
 			t.Fatalf("Load(sourceDeps=%v): %v", sourceDeps, err)
 		}
 		b := &GoCallGraphBuilder{MaxDepth: 3}
-		g, err := b.Build(context.Background(), res.Packages, changedPkgs, changedFiles, root)
+		g, err := b.Build(context.Background(), res.Packages, changedPkgs, changedLines, root)
 		if err != nil {
 			t.Fatalf("Build(sourceDeps=%v): %v", sourceDeps, err)
 		}
@@ -400,7 +433,7 @@ func TestGoCallGraphBuilder_Build_EmptyChanged(t *testing.T) {
 	pkgs := loadCGFixture(t, root)
 
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{}, []string{}, root)
+	graph, err := b.Build(context.Background(), pkgs, []string{}, ChangedLines{}, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
