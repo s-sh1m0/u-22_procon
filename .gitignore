@@ -1,5 +1,7 @@
 # env
 .env
+.env.dev
+.env.production
 
 # Go
 backend/tmp/
