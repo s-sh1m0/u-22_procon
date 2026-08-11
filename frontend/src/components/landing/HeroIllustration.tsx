@@ -8,9 +8,9 @@ const NODES: Node[] = [
   { x: 80, y: 36, w: 90, label: 'CheckoutForm', c: '#d97706', bg: '#fef3c7', bd: '#fcd34d' },
   { x: 200, y: 36, w: 100, label: 'PaymentPicker', c: '#16a34a', bg: '#dcfce7', bd: '#86efac' },
   { x: 320, y: 36, w: 84, label: 'ReceiptModal', c: '#16a34a', bg: '#dcfce7', bd: '#86efac' },
-  { x: 160, y: 152, w: 96, label: 'PaymentService', c: '#7c3aed', bg: '#ede9fe', bd: '#c4b5fd' },
+  { x: 160, y: 152, w: 96, label: 'PaymentService', c: '#d97706', bg: '#fef3c7', bd: '#fcd34d' },
   { x: 280, y: 152, w: 90, label: 'StripeAdapter', c: '#16a34a', bg: '#dcfce7', bd: '#86efac' },
-  { x: 80, y: 152, w: 88, label: 'useCheckoutFlow', c: '#7c3aed', bg: '#ede9fe', bd: '#c4b5fd' },
+  { x: 80, y: 152, w: 88, label: 'useCheckoutFlow', c: '#d97706', bg: '#fef3c7', bd: '#fcd34d' },
   { x: 340, y: 152, w: 88, label: 'FeeCalculator', c: '#d97706', bg: '#fef3c7', bd: '#fcd34d' },
   {
     x: 240,
@@ -27,8 +27,7 @@ const NODES: Node[] = [
 const LEGEND: [string, string][] = [
   ['#16a34a', '追加 3'],
   ['#dc2626', '削除 1'],
-  ['#d97706', '修正 3'],
-  ['#7c3aed', 'リファクタ 2'],
+  ['#d97706', '変更 5'],
 ]
 
 export default function HeroIllustration() {
@@ -69,8 +68,8 @@ export default function HeroIllustration() {
           <path d="M240 60 C240 110, 220 130, 220 160" stroke="#16a34a" />
           <path d="M360 60 C360 110, 340 130, 320 160" stroke="#16a34a" />
           <path d="M200 200 C200 240, 260 250, 280 280" stroke="#dc2626" />
-          <path d="M320 200 C320 240, 280 250, 280 280" stroke="#7c3aed" />
-          <path d="M120 200 C120 230, 160 250, 200 220" stroke="#7c3aed" />
+          <path d="M320 200 C320 240, 280 250, 280 280" stroke="#d97706" />
+          <path d="M120 200 C120 230, 160 250, 200 220" stroke="#d97706" />
           <path d="M380 200 C380 240, 340 260, 320 280" stroke="#d97706" />
         </g>
         {NODES.map((n) => (

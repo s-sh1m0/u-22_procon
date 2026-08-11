@@ -31,7 +31,7 @@ export default function GuestCta() {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <CheckGlyph className="text-green-600" />
-          パブリックリポジトリのみ要求
+          パブリック・プライベート両対応
         </span>
       </div>
     </div>
