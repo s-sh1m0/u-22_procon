@@ -8,16 +8,6 @@ function FeatureArt1() {
       <circle
         cx="100"
         cy="60"
-        r="50"
-        fill="none"
-        stroke="#5eead4"
-        strokeWidth="1"
-        strokeDasharray="2 3"
-        opacity="0.6"
-      />
-      <circle
-        cx="100"
-        cy="60"
         r="32"
         fill="none"
         stroke="#5eead4"
@@ -39,24 +29,13 @@ function FeatureArt1() {
       </text>
       <text
         x="100"
-        y="22"
+        y="18"
         textAnchor="middle"
         fontSize="9"
         fill="#0f766e"
         fontFamily="JetBrains Mono"
       >
         1 hop
-      </text>
-      <text
-        x="100"
-        y="6"
-        textAnchor="middle"
-        fontSize="9"
-        fill="#0f766e"
-        fontFamily="JetBrains Mono"
-        opacity="0.7"
-      >
-        2 hop
       </text>
     </svg>
   )
@@ -153,12 +132,12 @@ type Feature = { title: string; desc: string; art: ReactNode }
 const FEATURES: Feature[] = [
   {
     title: '影響範囲を hop で測る',
-    desc: '変更ノードから caller/callee を双方向に辿り、何が壊れる可能性があるかを段階的に可視化。',
+    desc: '変更ノードをクリックすると、直接の caller / callee を自動ハイライト。影響範囲をひと目で把握。',
     art: <FeatureArt1 />,
   },
   {
-    title: 'AST 単位の diff',
-    desc: '行ベースではなく関数・型単位で差分を表示。Monaco エディタによる VSCode 同等の体験。',
+    title: 'インライン diff ビューア',
+    desc: '関数ノードから対応ファイルの差分を即座に表示。Monaco エディタによる VSCode 同等の体験。',
     art: <FeatureArt2 />,
   },
   {
