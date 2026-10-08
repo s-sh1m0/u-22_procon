@@ -33,6 +33,8 @@ type Props = {
   pr: PRInfo
   priority: ReviewPriority
   onClose: () => void
+  /** 指定時はパネル内に Monaco を出さず、diff をエディタ側（VS Code）で開くボタンにする */
+  onOpenDiffInEditor?: () => void
 }
 
 export default function FunctionDetailsPanel({
@@ -43,6 +45,7 @@ export default function FunctionDetailsPanel({
   pr,
   priority,
   onClose,
+  onOpenDiffInEditor,
 }: Props) {
   if (!node || node.type !== 'function') return null
 
@@ -50,10 +53,12 @@ export default function FunctionDetailsPanel({
   const changed = node.data.changed as boolean
   const inCycle = node.data.inCycle as boolean
   const blobUrl = buildBlobUrl(pr, node.data.file, node.data.line, node.data.diffStatus)
+  // エディタ連携時はパネル内に diff を出さない（Monaco を読み込まない）
+  const inlineDiff = onOpenDiffInEditor ? undefined : diff
 
   return (
     <div
-      className={`flex flex-shrink-0 flex-col border-l border-stone-200 bg-white overflow-hidden ${diff ? 'w-[700px]' : 'w-80'}`}
+      className={`flex flex-shrink-0 flex-col border-l border-stone-200 bg-white overflow-hidden ${inlineDiff ? 'w-[700px]' : 'w-80'}`}
     >
       <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
         <span className="text-sm font-semibold text-stone-800">詳細</span>
@@ -143,9 +148,19 @@ export default function FunctionDetailsPanel({
         </div>
       </div>
 
-      {diff ? (
+      {inlineDiff ? (
         <div className="flex min-h-0 flex-1">
-          <DiffViewer file={diff} />
+          <DiffViewer file={inlineDiff} />
+        </div>
+      ) : diff ? (
+        <div className="px-4 py-3">
+          <button
+            type="button"
+            onClick={onOpenDiffInEditor}
+            className="w-full rounded-md border border-stone-200 px-3 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50"
+          >
+            エディタで diff を開く
+          </button>
         </div>
       ) : (
         <div className="px-4 py-3 text-xs text-stone-400">このファイルに変更はありません</div>
