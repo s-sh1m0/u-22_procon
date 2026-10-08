@@ -55,6 +55,17 @@ services:
         - action: rebuild
           path: ./frontend/package.json
 
+  # VS Code 拡張（extension/）の npm / vsce 実行用。常駐させないので profiles で除外し、
+  # `docker compose run --rm extension ...` で使う。webview の成果物を
+  # ../frontend/dist-webview から取り込むため、リポジトリ全体をマウントする。
+  extension:
+    image: node:22-alpine
+    profiles: ["tools"]
+    user: node
+    working_dir: /repo/extension
+    volumes:
+      - .:/repo
+
 volumes:
   # backend の解析ランタイムが使う Go ビルド/モジュールキャッシュ。
   go-build-cache:
