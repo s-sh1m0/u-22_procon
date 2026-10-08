@@ -1,4 +1,4 @@
-// 拡張ホスト側コードのバンドルと、webview 用成果物の取り込みを行う。
+// 拡張ホスト側コードのバンドルと、webview 用成果物・ライセンス表記の取り込みを行う。
 // webview は frontend 側で `npm run build:webview` した frontend/dist-webview を media/webview にコピーする
 // （UI は Web と同じコードからビルドし、拡張では作り直さない）。
 import { build } from 'esbuild'
@@ -16,6 +16,12 @@ if (!existsSync(`${webviewSrc}/webview.js`)) {
 }
 rmSync(webviewDest, { recursive: true, force: true })
 cpSync(webviewSrc, webviewDest, { recursive: true })
+
+// .vsix には webview にバンドルした依存（React, @xyflow/react, elkjs 等）が含まれるため、
+// ライセンス表記もリポジトリ直下の正本からコピーして同梱する。
+for (const name of ['LICENSE', 'THIRD_PARTY_LICENSES']) {
+  cpSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), name)
+}
 
 await build({
   entryPoints: ['src/extension.ts'],
