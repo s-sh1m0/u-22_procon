@@ -45,9 +45,24 @@ const CLUSTER_LAYOUT_OPTIONS: Record<string, string> = {
 // ノード数に対して超線形に重く、メインスレッドだと大きなグラフの展開で UI がフリーズする。
 // elk-worker は Vite が別チャンクに分離するのでメインバンドルにも乗らない。
 let elkInstance: ELK | null = null
+let elkWorkerFactory: ((url?: string) => Worker) | undefined
 function getElk(): ELK {
-  if (!elkInstance) elkInstance = new ELKConstructor({ workerUrl: elkWorkerUrl })
+  if (!elkInstance) {
+    elkInstance = new ELKConstructor({ workerUrl: elkWorkerUrl, workerFactory: elkWorkerFactory })
+  }
   return elkInstance
+}
+
+/** ELK レイアウトで使う worker スクリプトの URL。 */
+export { elkWorkerUrl }
+
+/**
+ * ELK の Worker の生成方法を差し替える。最初のレイアウトより前に呼ぶ。
+ * VS Code の webview は拡張フォルダの URL から直接 Worker を作れない（blob: / data: のみ可）ため、
+ * webview 側で worker スクリプトを Blob URL 化した Worker を渡す。
+ */
+export function setElkWorkerFactory(factory: () => Worker): void {
+  elkWorkerFactory = factory
 }
 
 type InputNode = {
