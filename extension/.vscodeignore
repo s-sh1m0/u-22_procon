@@ -1,0 +1,10 @@
+# .vsix に含めるのは dist/（拡張ホスト）、media/webview/（UI）、package.json、README、LICENSE のみ
+src/**
+node_modules/**
+esbuild.mjs
+tsconfig.json
+.prettierrc
+.prettierignore
+**/*.map
+*.vsix
+.gitignore

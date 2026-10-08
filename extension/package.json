@@ -1,0 +1,80 @@
+{
+  "name": "diffgraph",
+  "displayName": "DiffGraph",
+  "description": "Go の GitHub PR を関数単位の依存グラフとクラスタで可視化し、VS Code の diff エディタで読み進める",
+  "version": "0.1.0",
+  "publisher": "s-sh1m0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/s-sh1m0/u-22_procon"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "diffgraph.analyzePR",
+        "title": "PR を解析",
+        "category": "DiffGraph"
+      },
+      {
+        "command": "diffgraph.openInBrowser",
+        "title": "ブラウザで開く",
+        "category": "DiffGraph",
+        "icon": "$(link-external)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "diffgraph.openInBrowser",
+          "when": "activeWebviewPanelId == 'diffgraph.graph'",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "diffgraph.openInBrowser",
+          "when": "diffgraph.hasAnalysis"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DiffGraph",
+      "properties": {
+        "diffgraph.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:20080",
+          "markdownDescription": "DiffGraph サーバーの URL。`docker compose -f compose.prod.yml up -d` で起動した場合は既定値のままでよい（`.env` で `PORT` を変えた場合は合わせる）。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node esbuild.mjs",
+    "format": "prettier --write .",
+    "package": "npm run typecheck && npm run build && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "~1.90.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.8.3",
+    "typescript": "~6.0.2"
+  }
+}
