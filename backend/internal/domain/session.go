@@ -1,6 +1,12 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrInvalidToken は GitHub アクセストークンが無効（失効・偽造など）な場合のエラー。
+var ErrInvalidToken = errors.New("invalid github token")
 
 // SessionID はセッションの一意識別子
 type SessionID string

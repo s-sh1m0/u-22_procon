@@ -26,6 +26,12 @@ type SessionRepository interface {
 	Delete(ctx context.Context, id SessionID) error
 }
 
+// GitHubUserRepository は GitHub アクセストークンの持ち主を引き当てるインターフェース。
+// トークンが無効な場合は ErrInvalidToken を返す。
+type GitHubUserRepository interface {
+	LoginByToken(ctx context.Context, token string) (string, error)
+}
+
 // PRRepository は GitHub から PR メタ情報・変更ファイル一覧を取得するインターフェース。
 // token はユーザーの OAuth アクセストークン（domain は oauth2 に依存しないため string で受ける）。
 type PRRepository interface {
