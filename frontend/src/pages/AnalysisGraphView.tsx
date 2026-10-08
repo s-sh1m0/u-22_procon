@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { LayerKind, AnyFlowNode } from '@/types/graph'
 import type { Cluster, ClusterMode, DiffFile, GraphResponse } from '@/types/api'
@@ -9,6 +9,7 @@ import { getClusterColor } from '@/lib/clusterColors'
 import { makeClusterKey } from '@/lib/graphLayout'
 import { filterToImpact } from '@/lib/impactFilter'
 import { isChanged } from '@/lib/nodeChange'
+import { useEditorBridge, type OpenDiffRequest } from '@/lib/editorBridge'
 import {
   computeInDegree,
   computeReviewPriority,
@@ -44,6 +45,8 @@ export default function AnalysisGraphView({ jobId }: Props) {
   // 検索ジャンプで中央寄せしたいノード。nonce は同一ノードへの再ジャンプでも
   // グラフ側の effect を再発火させるための世代番号。
   const [centerTarget, setCenterTarget] = useState<{ nodeId: string; nonce: number } | null>(null)
+  // VS Code 拡張の webview でだけ非 null。diff はパネル内ではなくエディタ側で開く。
+  const editor = useEditorBridge()
 
   // 描画に使うグラフ。変更影響ビューでは diff 近傍だけに絞った部分グラフを渡す。
   // クラスタ集計・展開・レイアウトはすべてこの view を基準に行う。
@@ -279,6 +282,33 @@ export default function AnalysisGraphView({ jobId }: Props) {
     }
   }, [data, diffData, selectedNodeId, inDegree, cycleNodeIds])
 
+  const panelDiffRequest = useMemo<OpenDiffRequest | null>(() => {
+    if (panelNode?.type !== 'function' || !panelDiff) return null
+    return {
+      file: panelDiff,
+      functionName: panelNode.data.label,
+      line: panelNode.data.line,
+      diffStatus: panelNode.data.diffStatus,
+    }
+  }, [panelNode, panelDiff])
+
+  // エディタ連携時は、関数を選択したら（クリック・検索・変更ノード巡回のいずれでも）
+  // その diff を即エディタに開く。グラフの再取得などで同じ選択のまま再計算されても
+  // 開き直さないよう、最後に開いた関数とファイルを覚えておく（選択解除でリセット）。
+  const lastOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!editor) return
+    if (!selectedNodeId) {
+      lastOpenedRef.current = null
+      return
+    }
+    if (!panelDiffRequest) return
+    const key = `${selectedNodeId}\n${panelDiffRequest.file.filename}`
+    if (lastOpenedRef.current === key) return
+    lastOpenedRef.current = key
+    editor.openDiff(panelDiffRequest)
+  }, [editor, panelDiffRequest, selectedNodeId])
+
   if (isLoading) {
     return (
       <div className="flex h-svh items-center justify-center bg-[#fafaf9]">
@@ -324,6 +354,9 @@ export default function AnalysisGraphView({ jobId }: Props) {
             pr={data.pr}
             priority={panelPriority}
             onClose={() => setSelectedNodeId(null)}
+            onOpenDiffInEditor={
+              editor && panelDiffRequest ? () => editor.openDiff(panelDiffRequest) : undefined
+            }
           />
         ) : undefined
       }
