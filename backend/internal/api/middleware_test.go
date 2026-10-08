@@ -166,6 +166,15 @@ func TestRequireAuth(t *testing.T) {
 			}
 			err := RequireAuth(tt.sessions, tt.tokens)(next)(c)
 
+			if len(tt.tokens.got) != len(tt.wantTokens) {
+				t.Fatalf("token auth calls: got %v, want %v", tt.tokens.got, tt.wantTokens)
+			}
+			for i := range tt.wantTokens {
+				if tt.tokens.got[i] != tt.wantTokens[i] {
+					t.Errorf("token auth call %d: got %q, want %q", i, tt.tokens.got[i], tt.wantTokens[i])
+				}
+			}
+
 			if tt.wantStatus != 0 {
 				var he *echo.HTTPError
 				if !errors.As(err, &he) || he.Code != tt.wantStatus {
@@ -174,25 +183,17 @@ func TestRequireAuth(t *testing.T) {
 				if gotSession != nil {
 					t.Errorf("next should not be called, got session %+v", gotSession)
 				}
-			} else {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if gotSession == nil {
-					t.Fatal("next was not called with a session")
-				}
-				if gotSession.UserLogin != tt.wantLogin || gotSession.GitHubToken != tt.wantToken {
-					t.Errorf("session: got login=%q token=%q, want login=%q token=%q",
-						gotSession.UserLogin, gotSession.GitHubToken, tt.wantLogin, tt.wantToken)
-				}
+				return
 			}
-			if len(tt.tokens.got) != len(tt.wantTokens) {
-				t.Fatalf("token auth calls: got %v, want %v", tt.tokens.got, tt.wantTokens)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
-			for i := range tt.wantTokens {
-				if tt.tokens.got[i] != tt.wantTokens[i] {
-					t.Errorf("token auth call %d: got %q, want %q", i, tt.tokens.got[i], tt.wantTokens[i])
-				}
+			if gotSession == nil {
+				t.Fatal("next was not called with a session")
+			}
+			if gotSession.UserLogin != tt.wantLogin || gotSession.GitHubToken != tt.wantToken {
+				t.Errorf("session: got login=%q token=%q, want login=%q token=%q",
+					gotSession.UserLogin, gotSession.GitHubToken, tt.wantLogin, tt.wantToken)
 			}
 		})
 	}
