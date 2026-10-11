@@ -1,37 +1,14 @@
-import type { AnyFlowNode, LayerKind } from '@/types/graph'
+import type { AnyFlowNode } from '@/types/graph'
 import type { Cluster, DiffFile, PRInfo } from '@/types/api'
-import type { ReviewPriority } from '@/lib/reviewPriority'
 import { getClusterColor } from '@/lib/clusterColors'
 import { buildBlobUrl } from '@/lib/githubLinks'
 import DiffViewer from '@/components/diff/DiffViewer'
 
-const LAYER_LABELS: Record<LayerKind, string> = {
-  ui: 'UI',
-  domain: 'Domain',
-  data: 'Data',
-  infra: 'Infra',
-  other: 'Other',
-}
-
-const PRIORITY_LABELS: Record<ReviewPriority, string> = {
-  high: '高',
-  medium: '中',
-  low: '低',
-}
-
-const PRIORITY_CLASSES: Record<ReviewPriority, string> = {
-  high: 'bg-red-100 text-red-700',
-  medium: 'bg-amber-100 text-amber-700',
-  low: 'bg-stone-100 text-stone-500',
-}
-
 type Props = {
   node: AnyFlowNode | null
   cluster: Cluster | null
-  layer: LayerKind
   diff: DiffFile | undefined
   pr: PRInfo
-  priority: ReviewPriority
   onClose: () => void
   /** 指定時はパネル内に Monaco を出さず、diff をエディタ側（VS Code）で開くボタンにする */
   onOpenDiffInEditor?: () => void
@@ -40,10 +17,8 @@ type Props = {
 export default function FunctionDetailsPanel({
   node,
   cluster,
-  layer,
   diff,
   pr,
-  priority,
   onClose,
   onOpenDiffInEditor,
 }: Props) {
@@ -51,7 +26,6 @@ export default function FunctionDetailsPanel({
 
   const color = cluster ? getClusterColor(cluster.id) : null
   const changed = node.data.changed as boolean
-  const inCycle = node.data.inCycle as boolean
   const blobUrl = buildBlobUrl(pr, node.data.file, node.data.line, node.data.diffStatus)
   // エディタ連携時はパネル内に diff を出さない（Monaco を読み込まない）
   const inlineDiff = onOpenDiffInEditor ? undefined : diff
@@ -82,12 +56,6 @@ export default function FunctionDetailsPanel({
 
       <div className="p-4 space-y-4 border-b border-stone-100">
         <div className="flex flex-wrap gap-1.5">
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_CLASSES[priority]}`}
-            title="レビュー優先度（新規循環・変更・被呼び出し数から算出）"
-          >
-            優先度 {PRIORITY_LABELS[priority]}
-          </span>
           {cluster && color && (
             <span
               className="rounded-full px-2 py-0.5 text-xs font-medium"
@@ -96,17 +64,9 @@ export default function FunctionDetailsPanel({
               {cluster.label}
             </span>
           )}
-          <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-600">
-            {LAYER_LABELS[layer]}
-          </span>
           {changed && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
               changed
-            </span>
-          )}
-          {inCycle && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-              循環参照
             </span>
           )}
         </div>

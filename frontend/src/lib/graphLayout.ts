@@ -89,9 +89,6 @@ function mergeEdgeStatus(a: DiffStatus, b: DiffStatus): DiffStatus {
   return 'existing'
 }
 
-// 新規循環参照を構成するエッジの強調色（red-500）。diff の色より優先する。
-const CYCLE_EDGE_COLOR = '#ef4444'
-
 function edgeColorByStatus(status: DiffStatus): string {
   switch (status) {
     case 'added':
@@ -122,14 +119,6 @@ function edgeMarkerByStatus(status: DiffStatus): EdgeMarker {
   return { type: MarkerType.ArrowClosed, color: edgeColorByStatus(status), width: 16, height: 16 }
 }
 
-// 新規循環参照を構成するエッジのスタイル / マーカー（赤・太線）。
-function cycleEdgeStyle(): CSSProperties {
-  return { stroke: CYCLE_EDGE_COLOR, strokeWidth: 2.5 }
-}
-function cycleEdgeMarker(): EdgeMarker {
-  return { type: MarkerType.ArrowClosed, color: CYCLE_EDGE_COLOR, width: 16, height: 16 }
-}
-
 // 展開クラスタ（コンテナ + 子関数ノード）/ 折りたたみクラスタ（スーパーノード）を
 // 組み立てるための中間表現。ELK レイアウト後に位置を埋めて AnyFlowNode 化する。
 type PendingCluster = {
@@ -142,7 +131,7 @@ type Pending = PendingCluster | PendingSuper
 
 /**
  * グラフ全体を ELK の layered アルゴリズムで階層配置する。ノード/エッジの集約・
- * diff ステータス・循環強調のロジックはレイアウト非依存で、位置のみ ELK に委ねる。
+ * diff ステータスのロジックはレイアウト非依存で、位置のみ ELK に委ねる。
  * クラスタ枠を compound ノードとして扱い、枠を跨ぐ呼び出し連鎖も上→下で読める。
  */
 export async function layoutGraph(
@@ -160,13 +149,6 @@ export async function layoutGraph(
   }))
   const inputEdges: GraphEdge[] = data.graph.edges
   const clusters: Cluster[] = data.clusters
-
-  // 新規循環参照（is_new）に属するノード集合と、同一循環内のノード対集合を作る。
-  const newCycleSets = data.cycles.filter((c) => c.is_new).map((c) => new Set(c.nodes))
-  const cycleNodeIds = new Set<string>()
-  for (const s of newCycleSets) for (const id of s) cycleNodeIds.add(id)
-  const isCycleEdge = (from: string, to: string): boolean =>
-    newCycleSets.some((s) => s.has(from) && s.has(to))
 
   const nodeToCluster = new Map<string, number>()
   for (const c of clusters) {
@@ -190,7 +172,6 @@ export async function layoutGraph(
   // DiffStatus は added > removed > existing で昇格。
   const edgeStatusMap = new Map<string, DiffStatus>()
   const edgeKeyToFromTo = new Map<string, { source: string; target: string }>()
-  const edgeCycleMap = new Map<string, boolean>()
 
   for (const e of inputEdges) {
     const fromNode = nodeMap.get(e.from)
@@ -213,20 +194,18 @@ export async function layoutGraph(
     if (!edgeKeyToFromTo.has(edgeKey)) {
       edgeKeyToFromTo.set(edgeKey, { source: srcId, target: dstId })
     }
-    if (isCycleEdge(e.from, e.to)) edgeCycleMap.set(edgeKey, true)
   }
 
   const flowEdges: Edge[] = []
   for (const [edgeKey, status] of edgeStatusMap.entries()) {
     const ft = edgeKeyToFromTo.get(edgeKey)!
-    const inCycle = edgeCycleMap.get(edgeKey) ?? false
     flowEdges.push({
       id: `e:${edgeKey}`,
       source: ft.source,
       target: ft.target,
-      style: inCycle ? cycleEdgeStyle() : edgeStyleByStatus(status),
-      markerEnd: inCycle ? cycleEdgeMarker() : edgeMarkerByStatus(status),
-      data: { diffStatus: status, inCycle },
+      style: edgeStyleByStatus(status),
+      markerEnd: edgeMarkerByStatus(status),
+      data: { diffStatus: status },
     })
   }
 
@@ -290,7 +269,6 @@ export async function layoutGraph(
             line: n.line,
             changed: n.changed,
             diffStatus: n.diffStatus,
-            inCycle: cycleNodeIds.has(n.id),
             clusterId: cid,
             clusterColorHex: color.hex,
             layer,

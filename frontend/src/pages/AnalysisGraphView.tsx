@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import type { LayerKind, AnyFlowNode } from '@/types/graph'
+import type { AnyFlowNode } from '@/types/graph'
 import type { Cluster, ClusterMode, DiffFile, GraphResponse } from '@/types/api'
 import { useGraph } from '@/hooks/useGraph'
 import { useDiff } from '@/hooks/useDiff'
@@ -10,18 +10,12 @@ import { makeClusterKey } from '@/lib/graphLayout'
 import { filterToImpact } from '@/lib/impactFilter'
 import { isChanged } from '@/lib/nodeChange'
 import { useEditorBridge, type OpenDiffRequest } from '@/lib/editorBridge'
-import {
-  computeInDegree,
-  computeReviewPriority,
-  newCycleNodeIds,
-  type ReviewPriority,
-} from '@/lib/reviewPriority'
+import { computeInDegree, computeReviewPriority, type ReviewPriority } from '@/lib/reviewPriority'
 import AppShell from '@/components/layout/AppShell'
 import PRMetaBar from '@/components/layout/PRMetaBar'
 import DependencyGraph from '@/components/graph/DependencyGraph'
 import type { SearchCandidate } from '@/components/graph/GraphSearch'
 import FunctionDetailsPanel from '@/components/graph/FunctionDetailsPanel'
-import CycleAlert from '@/components/graph/CycleAlert'
 import LayeringAlert from '@/components/graph/LayeringAlert'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -159,8 +153,8 @@ export default function AnalysisGraphView({ jobId }: Props) {
     [defaultExpandedClusters],
   )
 
-  // CycleAlert / LayeringAlert からノードを選択された場合: 展開 + 選択 + フォーカス
-  const handleSelectCycleNode = useCallback(
+  // LayeringAlert からノードを選択された場合: 展開 + 選択 + フォーカス
+  const handleSelectAlertNode = useCallback(
     (nodeId: string) => {
       if (data) revealNode(data, nodeId)
     },
@@ -183,12 +177,9 @@ export default function AnalysisGraphView({ jobId }: Props) {
     return view.graph.nodes.map((n) => ({ id: n.id, name: n.name, package: n.package }))
   }, [view])
 
-  // in-degree（被呼び出し数）と新規循環ノード集合はグラフ全体から一度だけ算出する。
-  const { inDegree, cycleNodeIds } = useMemo(
-    () => ({
-      inDegree: data ? computeInDegree(data.graph.edges) : new Map<string, number>(),
-      cycleNodeIds: data ? newCycleNodeIds(data.cycles) : new Set<string>(),
-    }),
+  // in-degree（被呼び出し数）はグラフ全体から一度だけ算出する。
+  const inDegree = useMemo(
+    () => (data ? computeInDegree(data.graph.edges) : new Map<string, number>()),
     [data],
   )
 
@@ -201,14 +192,14 @@ export default function AnalysisGraphView({ jobId }: Props) {
       .map((n) => ({
         id: n.id,
         pkg: n.package,
-        priority: computeReviewPriority(n, inDegree.get(n.id) ?? 0, cycleNodeIds.has(n.id)),
+        priority: computeReviewPriority(n, inDegree.get(n.id) ?? 0),
       }))
       .sort(
         (a, b) =>
           priorityOrder[a.priority] - priorityOrder[b.priority] || a.pkg.localeCompare(b.pkg),
       )
       .map((n) => n.id)
-  }, [view, inDegree, cycleNodeIds])
+  }, [view, inDegree])
 
   const changedNodeIndex = useMemo(() => {
     if (!selectedNodeId) return null
@@ -233,13 +224,11 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setCenterTarget((t) => ({ nodeId: changedNodeIds[prev], nonce: (t?.nonce ?? 0) + 1 }))
   }, [changedNodeIds, changedNodeIndex, view, revealNode])
 
-  const { panelNode, selectedCluster, selectedLayer, panelDiff, panelPriority } = useMemo(() => {
+  const { panelNode, selectedCluster, panelDiff } = useMemo(() => {
     const empty = {
       panelNode: null,
       selectedCluster: null,
-      selectedLayer: 'other' as LayerKind,
       panelDiff: undefined as DiffFile | undefined,
-      panelPriority: 'low' as ReviewPriority,
     }
     if (!data || !selectedNodeId) return empty
 
@@ -250,8 +239,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
     const cluster: Cluster | null = data.clusters.find((c) => c.nodes.includes(gn.id)) ?? null
     const cid = cluster?.id ?? 0
     const color = getClusterColor(cid)
-    const inCycle = cycleNodeIds.has(gn.id)
-    const priority = computeReviewPriority(gn, inDegree.get(gn.id) ?? 0, inCycle)
 
     const node: AnyFlowNode = {
       id: gn.id,
@@ -264,7 +251,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
         line: gn.line,
         changed: gn.changed,
         diffStatus: gn.diff_status,
-        inCycle,
         clusterId: cid,
         clusterColorHex: color.hex,
         layer,
@@ -276,11 +262,9 @@ export default function AnalysisGraphView({ jobId }: Props) {
     return {
       panelNode: node,
       selectedCluster: cluster,
-      selectedLayer: layer,
       panelDiff: funcDiff,
-      panelPriority: priority,
     }
-  }, [data, diffData, selectedNodeId, inDegree, cycleNodeIds])
+  }, [data, diffData, selectedNodeId])
 
   const panelDiffRequest = useMemo<OpenDiffRequest | null>(() => {
     if (panelNode?.type !== 'function' || !panelDiff) return null
@@ -340,8 +324,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
       topBar={
         <div className="flex flex-col gap-1">
           <PRMetaBar pr={data.pr} />
-          <CycleAlert cycles={data.cycles} onSelectCycleNode={handleSelectCycleNode} />
-          <LayeringAlert violations={data.violations} onSelectNode={handleSelectCycleNode} />
+          <LayeringAlert violations={data.violations} onSelectNode={handleSelectAlertNode} />
         </div>
       }
       rightPanel={
@@ -349,10 +332,8 @@ export default function AnalysisGraphView({ jobId }: Props) {
           <FunctionDetailsPanel
             node={panelNode}
             cluster={selectedCluster}
-            layer={selectedLayer}
             diff={panelDiff}
             pr={data.pr}
-            priority={panelPriority}
             onClose={() => setSelectedNodeId(null)}
             onOpenDiffInEditor={
               editor && panelDiffRequest ? () => editor.openDiff(panelDiffRequest) : undefined

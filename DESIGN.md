@@ -145,13 +145,14 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 |---|---|
 | `PRMetaBar` | 上部固定バー。PR タイトル・ブランチ情報・ユーザー情報 |
 | `DependencyGraph` | `@xyflow/react` ベースの呼び出しグラフ |
-| `FunctionNode` / `FileNode` | グラフ上のノード。リング優先度: 選択(stone-900) > 新規循環(red-500) > 追加(emerald-500) > 変更(amber-400)。新規循環ノードは右下に赤い ↻ バッジ |
+| `FunctionNode` / `FileNode` | グラフ上のノード。リング優先度: 選択(stone-900) > 追加(emerald-500) > 変更(amber-400) |
 | `ClusterGroup` | 展開中クラスタの背景コンテナ。子ノードを `parentId` で内包 |
 | `SuperClusterNode` | 折りたたみ中クラスタのスーパーノード。クリックで展開 |
-| `FunctionDetailsPanel` | 右パネル。クラスタラベル・レイヤー・GitHub 該当行リンク・diff |
+| `FunctionDetailsPanel` | 右パネル。クラスタラベル・GitHub 該当行リンク・diff |
 | `GraphSearch` | グラフ左上の検索ボックス。関数名/パッケージをインクリメンタル検索→候補選択で展開+選択+中央寄せ（`fitView`）。折りたたみ中クラスタ内のノードも親を開いて到達する |
 | `GraphControls` | 右下フローティングパネル（frosted glass: `bg-white/90 backdrop-blur-md`）。ラベル付きセクションに分割: 表示モード切替（変更影響/全体）・クラスタモード（Louvain/Package/File）・展開/折畳アクションボタン・変更ノードステップナビゲーター。セグメントコントロールは pill 型（active=`bg-white shadow-sm`、inactive=`text-stone-500`）。ナビゲーターはレビュー優先度順に変更ノードを1つずつ巡回し、クラスタ自動展開+選択+中央寄せを行う |
 | `FocusLegend` | フォーカスモード中に左上（検索ボックスの下）に出る凡例（呼び出し元/先の方向色と件数） |
+| `DiffLegend` | ノード非選択時に `FocusLegend` と同じ位置に出る凡例。ノード右上のマーク（追加=緑 `+` / 変更=オレンジの点 / 削除=灰 `−`）と追加エッジ（緑線）の意味を示す。ノードを選ぶと `FocusLegend` に入れ替わる |
 | `DiffViewer` | `@monaco-editor/react` で before/after 表示 |
 | `ClusterSidebar` | クラスタ一覧（実装位置: `layout/`） |
 
@@ -164,10 +165,10 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
   - 呼び出し先（downstream callee, 選択ノードが呼ぶ側）: orange `#f97316`
 - フォーカス計算（1-hop 近傍）は純粋関数 `computeFocus` に切り出し、レイアウト/描画から分離している。
 
-### 3.7 循環参照ハイライトとレビュー優先度
+### 3.7 レビュー優先度と GitHub 行リンク
 
-- **循環参照ハイライト**: 新規循環（`is_new`）に属するノードは red-500 リング + 右下 ↻ バッジ、その内部辺（同一循環内の from→to）は red-500 の太線で強調する。既存循環は強調しない（PR で新たに生じた構造リスクのみ可視化する方針）。クラスタ折りたたみ時は循環がスーパーノード内に隠れるため、展開して確認する（段階的開示）。`CycleAlert` は新規循環の索引としてクリックでフォーカスする導線を兼ねる。
-- **レビュー優先度**: ノード選択時に詳細パネルへ `優先度 高/中/低` バッジを出す（グラフ上には出さない＝情報過多を避ける）。判定は `src/lib/reviewPriority.ts` の純粋関数: 高=新規循環に含まれる or（PR 変更ノードかつ被呼び出し数 `in-degree >= 3`）、中=その他の PR 変更ノード、低=未変更。色は 高=red / 中=amber / 低=stone。
+- **循環参照は表示しない**: バックエンドは循環（`cycles`）を返すが、フロントではバナー・ノード・エッジ・詳細パネルのいずれにも出さない。
+- **レビュー優先度**: 画面には出さない（詳細パネルにもグラフ上にも表示しない＝情報過多を避ける）。`GraphControls` の変更ノードナビゲーターが巡回する順番を決めるためだけに使う。判定は `src/lib/reviewPriority.ts` の純粋関数: 高=PR 変更ノードかつ被呼び出し数 `in-degree >= 3`、中=その他の PR 変更ノード、低=未変更。
 - **GitHub 行リンク**: 詳細パネルから定義行の GitHub blob URL を新規タブで開く（`src/lib/githubLinks.ts`）。`removed` は base SHA、それ以外は head SHA を ref に使う。
 
 ### 3.8 変更影響ビュー（既定表示）
@@ -196,7 +197,7 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 - **プロダクトマーク**: `components/branding/AppMark.tsx` が DiffGraph. のアプリアイコン（design "A4·4"：ノード群が 1 つの accent ノードへ V 字で収束する形）。`Brand.tsx` と `public/favicon.svg` もこれに統一。
 - **コンテンツ整合方針**: LP の記述は実装済み機能に限定する。未実装機能・架空の統計値・存在しないプラン/ページへのリンクは載せない。
   - `ClusterShowcase`: 実際の 3 クラスタリングモード（Louvain / パッケージ / ファイル）を紹介
-  - `FeatureGrid`: 影響範囲 hop 可視化・AST diff・新規循環参照検出の 3 機能
+  - `FeatureGrid`: 影響範囲 hop 可視化・AST diff・変更ノードの矢印巡回の 3 機能
   - `HowItWorks`: PR 貼付 → 依存グラフ構築 → クラスタ構造把握の 3 ステップ
   - Footer: 実リンクのみ（GitHub / README / ページ内アンカー）
 

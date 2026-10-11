@@ -10,7 +10,6 @@ export type FunctionNodeData = {
   line: number
   changed: boolean
   diffStatus: DiffStatus
-  inCycle: boolean
   clusterId: number
   clusterColorHex: string
   layer: LayerKind
