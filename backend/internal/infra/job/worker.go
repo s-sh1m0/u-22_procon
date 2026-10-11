@@ -302,6 +302,11 @@ func (w *Worker) buildBothGraphs(
 	if err = eg.Wait(); err != nil {
 		return nil, nil, cleanup, err
 	}
+
+	// hunk の行範囲だけでは中身の変わっていない隣の関数や、patch 不明のファイル全体が
+	// changed になり得るため、base/head の関数ソースを比較して changed を確定する。
+	// ノードの File は各 worktree ルート（PreparedSource.RepoRoot = headDir / baseDir）からの相対パス。
+	analyzer.RefineChangedByContent(head, base, headDir, baseDir)
 	return head, base, cleanup, nil
 }
 
