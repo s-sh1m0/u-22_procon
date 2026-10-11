@@ -194,6 +194,9 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	// 循環参照を検出（base にあった cycle と比較して IsNew を決定）
 	cycles := analyzer.DetectNewCycles(baseGraph, headGraph)
 
+	// 保存・表示するグラフを、変わった関数とその直接の呼び出し元・呼び出し先に絞る
+	diffGraph, cycles = domain.ImpactSubgraph(diffGraph, cycles, changed)
+
 	// 依存方向の逆転（domain → infra 等）を検出（added エッジを新規違反とする）
 	violations := analyzer.DetectLayeringViolations(diffGraph)
 
@@ -302,6 +305,11 @@ func (w *Worker) buildBothGraphs(
 	if err = eg.Wait(); err != nil {
 		return nil, nil, cleanup, err
 	}
+
+	// hunk の行範囲だけでは中身の変わっていない隣の関数や、patch 不明のファイル全体が
+	// changed になり得るため、base/head の関数ソースを比較して changed を確定する。
+	// ノードの File は各 worktree ルート（PreparedSource.RepoRoot = headDir / baseDir）からの相対パス。
+	analyzer.RefineChangedByContent(head, base, headDir, baseDir)
 	return head, base, cleanup, nil
 }
 

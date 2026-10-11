@@ -15,7 +15,7 @@ import (
 	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
 
-// defaultMaxDepth は変更関数から辿るホップ数のデフォルト上限。
+// defaultMaxDepth は起点から呼び出し先・呼び出し元の各方向に辿るホップ数のデフォルト上限。
 const defaultMaxDepth = 3
 
 // CallGraphBuilder はロード済みパッケージから呼び出しグラフを構築する抽象。
@@ -26,7 +26,7 @@ type CallGraphBuilder interface {
 
 // GoCallGraphBuilder は golang.org/x/tools/go/callgraph を使う本番実装。
 type GoCallGraphBuilder struct {
-	// MaxDepth は変更関数から辿るホップ数の上限。0 以下でデフォルト値を使う。
+	// MaxDepth は起点から呼び出し先・呼び出し元の各方向に辿るホップ数の上限。0 以下でデフォルト値を使う。
 	MaxDepth int
 }
 
@@ -35,9 +35,9 @@ func NewGoCallGraphBuilder() *GoCallGraphBuilder {
 	return &GoCallGraphBuilder{MaxDepth: defaultMaxDepth}
 }
 
-// Build は pkgs から SSA を構築し、changedPkgIDs を起点に caller/callee グラフを返す。
+// Build は pkgs から SSA を構築し、変更ファイルに定義された関数を起点に caller/callee グラフを返す。
 // changedPkgIDs が空の場合は空の Graph を返す。
-// changedLines は changed フラグを関数単位で設定するために使う。
+// changedLines は起点（変更ファイル）の判定と、changed フラグを関数単位で設定するために使う。
 // stdlib・外部ライブラリはフィルタリングして含めない。
 // rootDir はリポジトリのルートディレクトリの絶対パスで、ノードのファイルパスを相対パスに変換するために使用される。
 func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedLines ChangedLines, rootDir string) (*domain.Graph, error) {
@@ -83,7 +83,7 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 	cg.DeleteSyntheticNodes()
 	chaTook := time.Since(tCHA)
 
-	// 4. 変更パッケージ ID セット
+	// 4. 変更パッケージ ID セット（起点判定で Position を引く前の事前フィルタ）
 	changedSet := make(map[string]struct{}, len(changedPkgIDs))
 	for _, id := range changedPkgIDs {
 		changedSet[id] = struct{}{}
@@ -95,61 +95,29 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		loadedSet[pkg.ID] = struct{}{}
 	}
 
-	// 5. 変更パッケージの関数を起点に BFS（双方向、maxDepth ホップ）
+	// 5. 変更ファイルに定義された関数を起点に、呼び出し先方向・呼び出し元方向へ
+	// それぞれ maxDepth ホップ辿る。起点を関数単位にしないのは、base 側の changedLines が
+	// head 側の行番号で作られていて base で削除された関数を行範囲から特定できず、
+	// 中身の比較（RefineChangedByContent）も Build の後でしか行えないため。
+	// 変更・追加・削除された関数は必ず変更ファイルにあるので、ファイル単位でも漏れない。
+	// 各方向は一方向にだけ辿る（呼び出し先の別の呼び出し元、のような兄弟関数は拾わない）。
 	tBFS := time.Now()
-	type entry struct {
-		node  *callgraph.Node
-		depth int
-	}
-
-	visited := make(map[*callgraph.Node]struct{})
-	queue := []entry{}
-
+	var seeds []*callgraph.Node
 	for fn, node := range cg.Nodes {
 		if fn == nil || fn.Package() == nil {
 			continue
 		}
-		if _, ok := changedSet[fn.Package().Pkg.Path()]; ok {
-			if _, ok2 := visited[node]; !ok2 {
-				visited[node] = struct{}{}
-				queue = append(queue, entry{node, 0})
-			}
+		if _, ok := changedSet[fn.Package().Pkg.Path()]; !ok {
+			continue
+		}
+		if changedLines.FileChanged(prog.Fset.Position(fn.Pos()).Filename) {
+			seeds = append(seeds, node)
 		}
 	}
 
 	collected := make(map[*callgraph.Node]struct{})
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		collected[cur.node] = struct{}{}
-
-		if cur.depth >= maxDepth {
-			continue
-		}
-
-		// callee 方向
-		for _, edge := range cur.node.Out {
-			callee := edge.Callee
-			if !isInLoadedSet(callee.Func, loadedSet) {
-				continue
-			}
-			if _, ok := visited[callee]; !ok {
-				visited[callee] = struct{}{}
-				queue = append(queue, entry{callee, cur.depth + 1})
-			}
-		}
-		// caller 方向
-		for _, edge := range cur.node.In {
-			caller := edge.Caller
-			if !isInLoadedSet(caller.Func, loadedSet) {
-				continue
-			}
-			if _, ok := visited[caller]; !ok {
-				visited[caller] = struct{}{}
-				queue = append(queue, entry{caller, cur.depth + 1})
-			}
-		}
-	}
+	walk(seeds, true, maxDepth, loadedSet, collected)
+	walk(seeds, false, maxDepth, loadedSet, collected)
 
 	bfsTook := time.Since(tBFS)
 
@@ -172,9 +140,10 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 
 		pos := prog.Fset.Position(fn.Pos())
 		funcChanged := false
+		endLine := 0
 		if syntaxNode := fn.Syntax(); syntaxNode != nil {
-			endPos := prog.Fset.Position(syntaxNode.End())
-			funcChanged = changedLines.FunctionChanged(pos.Filename, pos.Line, endPos.Line)
+			endLine = prog.Fset.Position(syntaxNode.End()).Line
+			funcChanged = changedLines.FunctionChanged(pos.Filename, pos.Line, endLine)
 		} else {
 			funcChanged = changedLines.FileChanged(pos.Filename)
 		}
@@ -188,6 +157,7 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 			Package:    pkgPath(fn),
 			File:       relPath,
 			Line:       pos.Line,
+			EndLine:    endLine,
 			Changed:    funcChanged,
 			DiffStatus: domain.DiffStatusExisting,
 		})
@@ -201,6 +171,9 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 			continue
 		}
 		for _, edge := range cgNode.Out {
+			if isFuncValueCall(edge) {
+				continue
+			}
 			calleeID, ok2 := nodeIDMap[edge.Callee]
 			if !ok2 {
 				continue
@@ -224,6 +197,67 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		len(projectPkgs), len(cg.Nodes), len(collected), len(nodes), len(edges))
 
 	return &domain.Graph{Nodes: nodes, Edges: edges}, nil
+}
+
+// walk は seeds から maxDepth ホップまで一方向に辿り、到達したノードを collected に加える。
+// forward が true なら呼び出し先（Out）、false なら呼び出し元（In）の方向に辿る。
+// プロジェクト外（loadedSet に無いパッケージ）の関数は辿らない。
+func walk(seeds []*callgraph.Node, forward bool, maxDepth int, loadedSet map[string]struct{}, collected map[*callgraph.Node]struct{}) {
+	type entry struct {
+		node  *callgraph.Node
+		depth int
+	}
+
+	visited := make(map[*callgraph.Node]struct{}, len(seeds))
+	queue := make([]entry, 0, len(seeds))
+	for _, s := range seeds {
+		visited[s] = struct{}{}
+		queue = append(queue, entry{s, 0})
+	}
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		collected[cur.node] = struct{}{}
+
+		if cur.depth >= maxDepth {
+			continue
+		}
+
+		edges := cur.node.In
+		if forward {
+			edges = cur.node.Out
+		}
+		for _, edge := range edges {
+			if isFuncValueCall(edge) {
+				continue
+			}
+			next := edge.Caller
+			if forward {
+				next = edge.Callee
+			}
+			if !isInLoadedSet(next.Func, loadedSet) {
+				continue
+			}
+			if _, ok := visited[next]; ok {
+				continue
+			}
+			visited[next] = struct{}{}
+			queue = append(queue, entry{next, cur.depth + 1})
+		}
+	}
+}
+
+// isFuncValueCall は edge が関数値の呼び出し（`next(c)` のように変数・引数・フィールドに入った
+// 関数を呼ぶもの）由来かを返す。CHA はこれを同じシグネチャを持つプログラム中の全関数への
+// 呼び出しとして解決するため、無関係な関数どうしが大量につながってしまう。
+// 静的呼び出しとインターフェースメソッド呼び出し（invoke）は false を返す。
+func isFuncValueCall(edge *callgraph.Edge) bool {
+	if edge.Site == nil {
+		return false
+	}
+	call := edge.Site.Common()
+	return !call.IsInvoke() && call.StaticCallee() == nil
 }
 
 func isInLoadedSet(fn *ssa.Function, loadedSet map[string]struct{}) bool {
