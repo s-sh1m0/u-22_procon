@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"golang.org/x/tools/go/packages"
+
+	"github.com/s-sh1m0/u-22_procon/backend/internal/domain"
 )
 
 // setupCGFixture は callgraph テスト用の Go モジュールを tmpdir に構築して返す。
@@ -155,8 +157,10 @@ func TestGoCallGraphBuilder_Build_LineRange(t *testing.T) {
 	root := setupCGFixture(t)
 	pkgs := loadCGFixture(t, root)
 
+	// a.go を変更ファイルにする（行範囲は空 = 変更関数なし）。起点は a.go の関数になる。
+	cl := ChangedLines{filepath.Join(root, "pkg/a/a.go"): {}}
 	b := &GoCallGraphBuilder{MaxDepth: 3}
-	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, ChangedLines{}, root)
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, cl, root)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -352,6 +356,94 @@ func TestGoCallGraphBuilder_Build_SameMethodNameNotCollided(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("edge %s->C not found (edges: %v)", mID, graph.Edges)
+		}
+	}
+}
+
+// setupModule は files（モジュールルートからの相対パス → 内容）を書き出した一時ディレクトリを返す。
+func setupModule(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for rel, content := range files {
+		abs := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// nodeNames はグラフのノード名の集合を返す。
+func nodeNames(g *domain.Graph) map[string]struct{} {
+	names := make(map[string]struct{}, len(g.Nodes))
+	for _, n := range g.Nodes {
+		names[n.Name] = struct{}{}
+	}
+	return names
+}
+
+// TestGoCallGraphBuilder_Build_Scope は収集範囲が「変更ファイルの関数」を起点に、
+// 呼び出し先・呼び出し元の各方向へ一方向にだけ広がることを確認する。
+//
+//	pkg/a/a.go     -- Changed() { b.Callee() }       ← 変更ファイル（起点）
+//	pkg/a/other.go -- Unrelated(x int)               ← 同じパッケージだが変更ファイル外・依存なし
+//	pkg/b/b.go     -- Callee() / Sibling() { Callee() }  ← Sibling は呼び出し先の別の呼び出し元
+//	pkg/c/c.go     -- Caller() { a.Changed() } / CallerOfCaller() { Caller() }
+func TestGoCallGraphBuilder_Build_Scope(t *testing.T) {
+	root := setupModule(t, map[string]string{
+		"go.mod": "module example.com/scope\n\ngo 1.21\n",
+		"pkg/a/a.go": `package a
+
+import "example.com/scope/pkg/b"
+
+func Changed() { b.Callee() }
+`,
+		"pkg/a/other.go": `package a
+
+func Unrelated(x int) {}
+`,
+		"pkg/b/b.go": `package b
+
+func Callee() {}
+
+func Sibling() { Callee() }
+`,
+		"pkg/c/c.go": `package c
+
+import "example.com/scope/pkg/a"
+
+func Caller() { a.Changed() }
+
+func CallerOfCaller() { Caller() }
+`,
+	})
+	pkgs := loadCGFixture(t, root)
+
+	cl := ChangedLines{filepath.Join(root, "pkg/a/a.go"): {{Start: 5, End: 5}}}
+	b := &GoCallGraphBuilder{MaxDepth: 3}
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/scope/pkg/a"}, cl, root)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	names := nodeNames(graph)
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"Changed", true},        // 起点
+		{"Callee", true},         // 呼び出し先
+		{"Caller", true},         // 呼び出し元
+		{"CallerOfCaller", true}, // 呼び出し元の呼び出し元（一方向に 2 ホップ）
+		{"Sibling", false},       // 呼び出し先の別の呼び出し元（ジグザグ）
+		{"Unrelated", false},     // 同じパッケージだが変更ファイル外・依存なし
+	}
+	for _, tc := range tests {
+		if _, ok := names[tc.name]; ok != tc.want {
+			t.Errorf("node %q in graph = %v, want %v (nodes: %v)", tc.name, ok, tc.want, names)
 		}
 	}
 }
