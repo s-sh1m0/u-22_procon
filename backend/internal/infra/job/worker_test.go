@@ -291,6 +291,9 @@ func TestWorker_HappyPath(t *testing.T) {
 	if analyses.saved[0].ID != fixedID {
 		t.Errorf("unexpected analysis ID: %s", analyses.saved[0].ID)
 	}
+	if analyses.saved[0].AnalyzerVersion != domain.AnalyzerVersion {
+		t.Errorf("expected AnalyzerVersion %d, got %d", domain.AnalyzerVersion, analyses.saved[0].AnalyzerVersion)
+	}
 	// フェーズが順番どおりに記録されたことを確認（build_graph は sync.Once で 1 回のみ）
 	wantPhases := []domain.JobPhase{
 		domain.JobPhaseClone,

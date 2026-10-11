@@ -223,11 +223,12 @@ func (w *Worker) process(ctx context.Context, item Item) {
 
 	analysisID := domain.AnalysisID(w.newID())
 	a := &domain.Analysis{
-		ID:           analysisID,
-		PR:           j.PR,
-		Result:       result,
-		ChangedFiles: diffFiles,
-		CreatedAt:    w.now().UTC(),
+		ID:              analysisID,
+		PR:              j.PR,
+		Result:          result,
+		ChangedFiles:    diffFiles,
+		AnalyzerVersion: domain.AnalyzerVersion,
+		CreatedAt:       w.now().UTC(),
 	}
 	if err := w.analyses.Save(ctx, a); err != nil {
 		fail(fmt.Errorf("save analysis: %w", err))
