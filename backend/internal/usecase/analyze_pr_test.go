@@ -134,9 +134,10 @@ func TestAnalyzePR_CacheMiss_Enqueue(t *testing.T) {
 
 func TestAnalyzePR_CacheHit_NoEnqueue(t *testing.T) {
 	cachedAnalysis := &domain.Analysis{
-		ID:           "cached-analysis",
-		PR:           domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"},
-		ChangedFiles: []domain.DiffFile{},
+		ID:              "cached-analysis",
+		PR:              domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"},
+		ChangedFiles:    []domain.DiffFile{},
+		AnalyzerVersion: domain.AnalyzerVersion,
 	}
 	analyses := &fakeAnalysisRepo{byPR: cachedAnalysis}
 	jobs := &fakeJobRepo{}
@@ -171,14 +172,44 @@ func TestAnalyzePR_CacheHit_NoEnqueue(t *testing.T) {
 // キャッシュにあっても再解析（enqueue）されること。
 func TestAnalyzePR_StaleSHA_Reanalyze(t *testing.T) {
 	cachedAnalysis := &domain.Analysis{
-		ID:           "cached-analysis",
-		PR:           domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "old", BaseSHA: "b1"},
-		ChangedFiles: []domain.DiffFile{},
+		ID:              "cached-analysis",
+		PR:              domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "old", BaseSHA: "b1"},
+		ChangedFiles:    []domain.DiffFile{},
+		AnalyzerVersion: domain.AnalyzerVersion,
 	}
 	analyses := &fakeAnalysisRepo{byPR: cachedAnalysis}
 	jobs := &fakeJobRepo{}
 	enqueuer := &fakeEnqueuer{}
 	prRepo := &fakePRRepo{pr: &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "new", BaseSHA: "b1"}}
+
+	uc := NewAnalyzePRUseCase(analyses, jobs, prRepo, enqueuer)
+	pr := domain.PRInfo{Owner: "o", Repo: "r", Number: 1}
+
+	_, err := uc.Execute(context.Background(), "token-xxx", pr)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(jobs.saved) != 1 || jobs.saved[0].Status != domain.JobStatusPending {
+		t.Fatalf("expected 1 pending job, got %+v", jobs.saved)
+	}
+	if len(enqueuer.calls) != 1 {
+		t.Errorf("expected 1 enqueue call (re-analyze), got %d", len(enqueuer.calls))
+	}
+}
+
+// SHA が一致していても、古い解析ロジック（AnalyzerVersion 違い）で作った結果は
+// キャッシュとして使わず再解析（enqueue）されること。
+func TestAnalyzePR_StaleAnalyzerVersion_Reanalyze(t *testing.T) {
+	cachedAnalysis := &domain.Analysis{
+		ID:              "cached-analysis",
+		PR:              domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"},
+		ChangedFiles:    []domain.DiffFile{},
+		AnalyzerVersion: domain.AnalyzerVersion - 1,
+	}
+	analyses := &fakeAnalysisRepo{byPR: cachedAnalysis}
+	jobs := &fakeJobRepo{}
+	enqueuer := &fakeEnqueuer{}
+	prRepo := &fakePRRepo{pr: &domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "h1", BaseSHA: "b1"}}
 
 	uc := NewAnalyzePRUseCase(analyses, jobs, prRepo, enqueuer)
 	pr := domain.PRInfo{Owner: "o", Repo: "r", Number: 1}
