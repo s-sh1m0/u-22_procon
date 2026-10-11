@@ -197,7 +197,7 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 - **プロダクトマーク**: `components/branding/AppMark.tsx` が DiffGraph. のアプリアイコン（design "A4·4"：ノード群が 1 つの accent ノードへ V 字で収束する形）。`Brand.tsx` と `public/favicon.svg` もこれに統一。
 - **コンテンツ整合方針**: LP の記述は実装済み機能に限定する。未実装機能・架空の統計値・存在しないプラン/ページへのリンクは載せない。
   - `ClusterShowcase`: 実際の 3 クラスタリングモード（Louvain / パッケージ / ファイル）を紹介
-  - `FeatureGrid`: 影響範囲 hop 可視化・AST diff・新規循環参照検出の 3 機能
+  - `FeatureGrid`: 影響範囲 hop 可視化・AST diff・変更ノードの矢印巡回の 3 機能
   - `HowItWorks`: PR 貼付 → 依存グラフ構築 → クラスタ構造把握の 3 ステップ
   - Footer: 実リンクのみ（GitHub / README / ページ内アンカー）
 

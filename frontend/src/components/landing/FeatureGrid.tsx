@@ -57,73 +57,33 @@ function FeatureArt2() {
   )
 }
 
+// 変更ノード巡回のイメージ。現在地の変更関数だけ amber リングで強調する。
+const NAV_STEPS = ['Parse', 'Charge', 'Notify']
+
 function FeatureArt3() {
   return (
-    <svg viewBox="0 0 200 120" className="h-full w-full" aria-hidden="true">
-      <g stroke="#d6d3d1" strokeWidth="1" fill="none">
-        <path d="M60 30 L100 60" />
-        <path d="M140 30 L100 60" />
-        <path d="M100 60 L60 90" />
-        <path d="M100 60 L140 90" />
-      </g>
-      <rect x="40" y="18" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1" />
-      <text
-        x="60"
-        y="34"
-        textAnchor="middle"
-        fontSize="8"
-        fill="#44403c"
-        fontFamily="JetBrains Mono"
-      >
-        funcA
-      </text>
-      <rect x="120" y="18" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1" />
-      <text
-        x="140"
-        y="34"
-        textAnchor="middle"
-        fontSize="8"
-        fill="#44403c"
-        fontFamily="JetBrains Mono"
-      >
-        funcB
-      </text>
-      <circle cx="100" cy="60" r="14" fill="#ef4444" />
-      <text
-        x="100"
-        y="64"
-        textAnchor="middle"
-        fontSize="8"
-        fill="white"
-        fontFamily="JetBrains Mono"
-        fontWeight="600"
-      >
-        ↻
-      </text>
-      <rect x="40" y="78" width="40" height="24" rx="4" fill="white" stroke="#d6d3d1" />
-      <text
-        x="60"
-        y="94"
-        textAnchor="middle"
-        fontSize="8"
-        fill="#44403c"
-        fontFamily="JetBrains Mono"
-      >
-        funcC
-      </text>
-      <rect x="120" y="78" width="40" height="24" rx="4" fill="#fee2e2" stroke="#fca5a5" />
-      <text
-        x="140"
-        y="94"
-        textAnchor="middle"
-        fontSize="8"
-        fill="#dc2626"
-        fontFamily="JetBrains Mono"
-      >
-        funcD
-      </text>
-      <path d="M140 78 L100 74" stroke="#ef4444" strokeWidth="2" fill="none" />
-    </svg>
+    <div className="flex w-full flex-col items-center gap-3 font-mono text-[10px]">
+      <div className="flex items-center gap-2">
+        {NAV_STEPS.map((name, i) => (
+          <div
+            key={name}
+            className={[
+              'relative rounded-md border border-stone-200 bg-white py-1.5 pl-2 pr-3.5',
+              i === 1 ? 'text-stone-900 ring-2 ring-amber-400' : 'text-stone-500',
+            ].join(' ')}
+          >
+            <span className="absolute right-1 top-1 size-1.5 rounded-full bg-amber-400" />
+            {name}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 py-1 shadow-sm">
+        <span className="text-stone-500">‹</span>
+        <span className="tabular-nums text-stone-900">2</span>
+        <span className="text-stone-400">/ 3 変更</span>
+        <span className="text-stone-500">›</span>
+      </div>
+    </div>
   )
 }
 
@@ -141,8 +101,8 @@ const FEATURES: Feature[] = [
     art: <FeatureArt2 />,
   },
   {
-    title: '新規循環参照を自動検出',
-    desc: 'PR で新たに生じた循環依存を赤でハイライト。構造リスクをレビュー前に把握できます。',
+    title: '矢印で変更を順にたどる',
+    desc: 'ナビゲーターの ‹ › で、変更された関数へ 1 つずつ移動。折りたたまれたクラスタも自動で開き、画面の中央に寄せます。',
     art: <FeatureArt3 />,
   },
 ]
