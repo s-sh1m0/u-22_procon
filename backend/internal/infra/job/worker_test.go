@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,6 +117,8 @@ type fakeSourceTree struct {
 	err      error
 
 	// 観測用: 何回呼ばれたか / どの worktree で呼ばれたか
+	// PrepareFromDir は head/base の goroutine から並行に呼ばれるため mu で保護する。
+	mu                  sync.Mutex
 	cloneBothCalls      int
 	prepareFromDirCalls int
 	headDir, baseDir    string
@@ -137,6 +140,8 @@ func (s *fakeSourceTree) CloneBoth(_ context.Context, pr domain.PRInfo, _ string
 }
 
 func (s *fakeSourceTree) PrepareFromDir(_ context.Context, rootDir string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.prepareFromDirCalls++
 	if s.changedByDir == nil {
 		s.changedByDir = make(map[string][]domain.ChangedFile)
