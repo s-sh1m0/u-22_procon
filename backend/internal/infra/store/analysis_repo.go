@@ -50,11 +50,11 @@ func (r *AnalysisRepo) Save(ctx context.Context, a *domain.Analysis) error {
 	}
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO analyses
-		 (id, owner, repo, pr_number, pr_title, pr_base_ref, pr_head_ref, pr_base_sha, pr_head_sha, result, changed_files, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (id, owner, repo, pr_number, pr_title, pr_base_ref, pr_head_ref, pr_base_sha, pr_head_sha, result, changed_files, analyzer_version, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(a.ID), a.PR.Owner, a.PR.Repo, a.PR.Number,
 		a.PR.Title, a.PR.BaseRef, a.PR.HeadRef, a.PR.BaseSHA, a.PR.HeadSHA,
-		string(resultJSON), changedCol, a.CreatedAt.UTC(),
+		string(resultJSON), changedCol, a.AnalyzerVersion, a.CreatedAt.UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("insert analysis: %w", err)
@@ -136,24 +136,25 @@ func (r *AnalysisRepo) FindDiffByID(ctx context.Context, id domain.AnalysisID) (
 }
 
 // FindByPR は同一 PR の最新解析結果を返す。キャッシュ判定に使うため
-// diff 本文（ChangedFiles）も復元する。存在しない場合は (nil, nil) を返す。
+// diff 本文（ChangedFiles）と解析器のバージョンも復元する。存在しない場合は (nil, nil) を返す。
 func (r *AnalysisRepo) FindByPR(ctx context.Context, pr domain.PRInfo) (*domain.Analysis, error) {
 	var (
-		id         string
-		prTitle    string
-		prBaseRef  string
-		prHeadRef  string
-		prBaseSHA  string
-		prHeadSHA  string
-		resultJSON string
-		changedCol sql.NullString
-		createdAt  time.Time
+		id              string
+		prTitle         string
+		prBaseRef       string
+		prHeadRef       string
+		prBaseSHA       string
+		prHeadSHA       string
+		resultJSON      string
+		changedCol      sql.NullString
+		analyzerVersion int
+		createdAt       time.Time
 	)
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, pr_title, pr_base_ref, pr_head_ref, pr_base_sha, pr_head_sha, result, changed_files, created_at
+		`SELECT id, pr_title, pr_base_ref, pr_head_ref, pr_base_sha, pr_head_sha, result, changed_files, analyzer_version, created_at
 		 FROM analyses WHERE owner=? AND repo=? AND pr_number=? ORDER BY created_at DESC LIMIT 1`,
 		pr.Owner, pr.Repo, pr.Number,
-	).Scan(&id, &prTitle, &prBaseRef, &prHeadRef, &prBaseSHA, &prHeadSHA, &resultJSON, &changedCol, &createdAt)
+	).Scan(&id, &prTitle, &prBaseRef, &prHeadRef, &prBaseSHA, &prHeadSHA, &resultJSON, &changedCol, &analyzerVersion, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -181,9 +182,10 @@ func (r *AnalysisRepo) FindByPR(ctx context.Context, pr domain.PRInfo) (*domain.
 			BaseSHA: prBaseSHA,
 			HeadSHA: prHeadSHA,
 		},
-		Result:       result,
-		ChangedFiles: changedFiles,
-		CreatedAt:    createdAt,
+		Result:          result,
+		ChangedFiles:    changedFiles,
+		AnalyzerVersion: analyzerVersion,
+		CreatedAt:       createdAt,
 	}, nil
 }
 
