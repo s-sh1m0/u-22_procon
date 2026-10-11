@@ -17,6 +17,7 @@ import SuperClusterNode from './SuperClusterNode'
 import GraphControls from './GraphControls'
 import GraphSearch, { type SearchCandidate } from './GraphSearch'
 import FocusLegend from './FocusLegend'
+import DiffLegend from './DiffLegend'
 import { layoutGraph, type LayoutResult } from '@/lib/graphLayout'
 import {
   computeFocus,
@@ -240,7 +241,11 @@ function GraphInner({
       )}
       <Panel position="top-left" className="flex flex-col gap-2">
         <GraphSearch candidates={searchCandidates} onJump={onJump} />
-        {focus && <FocusLegend callerCount={focus.callerCount} calleeCount={focus.calleeCount} />}
+        {focus ? (
+          <FocusLegend callerCount={focus.callerCount} calleeCount={focus.calleeCount} />
+        ) : (
+          <DiffLegend />
+        )}
       </Panel>
       <Controls position="bottom-left" />
       {nodes.length <= MINIMAP_HIDE_NODE_THRESHOLD && (
