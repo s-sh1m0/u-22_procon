@@ -111,16 +111,23 @@ func NewGoPackageLoader() *GoPackageLoader {
 //     これは workspace vendoring と不整合になり依存解決を壊していた。
 //   - GOTOOLCHAIN=auto を明示し、ベースイメージが焼く GOTOOLCHAIN=local を上書きする。
 //     リポジトリの go.mod が要求する新しい Go を必要に応じて自動取得する。
+//   - GOFLAGS に -p を足し、依存パッケージを同時にコンパイルする数を絞る
+//     （buildParallelism を参照）。既存の GOFLAGS は残す。
 func analyzerEnv() []string {
 	src := os.Environ()
-	env := make([]string, 0, len(src)+1)
+	env := make([]string, 0, len(src)+2)
+	goflags := ""
 	for _, kv := range src {
 		if strings.HasPrefix(kv, "GOWORK=") || strings.HasPrefix(kv, "GOTOOLCHAIN=") {
 			continue
 		}
+		if v, ok := strings.CutPrefix(kv, "GOFLAGS="); ok {
+			goflags = v
+			continue
+		}
 		env = append(env, kv)
 	}
-	return append(env, "GOTOOLCHAIN=auto")
+	return append(env, "GOTOOLCHAIN=auto", "GOFLAGS="+goflagsWithParallelism(goflags))
 }
 
 // classifyLoadErr は packages.Load のトップレベルエラーを sentinel に分類する。
