@@ -31,6 +31,7 @@ func BuildChangedLines(changed []domain.ChangedFile, repoRoot string) ChangedLin
 //   - ファイルが ChangedLines に存在しない → false（変更なし）
 //   - ファイルが存在するが行範囲が nil → true（Patch が空でファイル単位フォールバック）
 //   - 行範囲が存在する → いずれかの ChangedLineRange と重なれば true
+//     （削除位置を表す空範囲は、範囲の内側で削除されたときだけ重なる）
 func (cl ChangedLines) FunctionChanged(absFilePath string, startLine, endLine int) bool {
 	ranges, ok := cl[absFilePath]
 	if !ok {

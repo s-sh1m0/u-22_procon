@@ -64,10 +64,56 @@ func TestParseHunks_DeleteOnly(t *testing.T) {
 -	removed2
  	keep2`
 
+	// 削除位置（HEAD の 10 行目と 11 行目の間）を空範囲で返す。
+	// nil を返すとファイル単位フォールバックになり全関数が changed になるため、非 nil であることも確認する。
 	got := ParseHunks(patch)
-	if len(got) != 0 {
-		t.Errorf("expected no changed ranges for delete-only hunk, got %v", got)
+	if got == nil {
+		t.Fatal("expected non-nil ranges for delete-only hunk, got nil")
 	}
+	want := []ChangedLineRange{{Start: 11, End: 10}}
+	assertRanges(t, got, want)
+}
+
+func TestParseHunks_DeleteAtEndOfHunk(t *testing.T) {
+	patch := `@@ -10,3 +10,1 @@ func Foo() {
+ 	keep
+-	removed1
+-	removed2`
+
+	got := ParseHunks(patch)
+	want := []ChangedLineRange{{Start: 11, End: 10}}
+	assertRanges(t, got, want)
+}
+
+func TestParseHunks_DeleteThenAddSeparately(t *testing.T) {
+	patch := `@@ -1,5 +1,5 @@
+ line1
+-removed
+ line2
++added
+ line3`
+
+	got := ParseHunks(patch)
+	want := []ChangedLineRange{
+		{Start: 2, End: 1},
+		{Start: 3, End: 3},
+	}
+	assertRanges(t, got, want)
+}
+
+func TestParseHunks_NoNewlineMarker(t *testing.T) {
+	// "\ No newline at end of file" は行番号を進めないので、後続の +行は 2 行目から始まる。
+	patch := `@@ -1,2 +1,4 @@
+ line1
+-}
+\ No newline at end of file
++}
++
++func New() {}`
+
+	got := ParseHunks(patch)
+	want := []ChangedLineRange{{Start: 2, End: 4}}
+	assertRanges(t, got, want)
 }
 
 func TestParseHunks_MixedAddDelete(t *testing.T) {
