@@ -1,4 +1,4 @@
-import type { Cycle, DiffStatus, GraphEdge } from '@/types/api'
+import type { DiffStatus, GraphEdge } from '@/types/api'
 import { isChanged } from '@/lib/nodeChange'
 
 // レビュー優先度。レビュアーがどのノードを重点的に見るべきかの指標。
@@ -15,27 +15,15 @@ export function computeInDegree(edges: GraphEdge[]): Map<string, number> {
   return m
 }
 
-// newCycleNodeIds は新規循環参照（is_new）に属する全ノード ID 集合を返す。
-export function newCycleNodeIds(cycles: Cycle[]): Set<string> {
-  const s = new Set<string>()
-  for (const c of cycles) {
-    if (!c.is_new) continue
-    for (const n of c.nodes) s.add(n)
-  }
-  return s
-}
-
 // computeReviewPriority はノード単体の優先度を決める。
 //
-// 高: 新規循環に含まれる、または PR で変更され被呼び出し数が多い（影響範囲が広い）
+// 高: PR で変更され被呼び出し数が多い（影響範囲が広い）
 // 中: PR で変更されたが上記に当たらない
 // 低: PR で変更されていない（レビューの主対象ではない文脈ノード）
 export function computeReviewPriority(
   node: { changed: boolean; diff_status: DiffStatus },
   inDegree: number,
-  inNewCycle: boolean,
 ): ReviewPriority {
-  if (inNewCycle) return 'high'
   if (!isChanged(node)) return 'low'
   if (inDegree >= HIGH_IN_DEGREE) return 'high'
   return 'medium'

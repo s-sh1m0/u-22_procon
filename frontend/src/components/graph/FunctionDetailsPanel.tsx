@@ -26,7 +26,6 @@ export default function FunctionDetailsPanel({
 
   const color = cluster ? getClusterColor(cluster.id) : null
   const changed = node.data.changed as boolean
-  const inCycle = node.data.inCycle as boolean
   const blobUrl = buildBlobUrl(pr, node.data.file, node.data.line, node.data.diffStatus)
   // エディタ連携時はパネル内に diff を出さない（Monaco を読み込まない）
   const inlineDiff = onOpenDiffInEditor ? undefined : diff
@@ -68,11 +67,6 @@ export default function FunctionDetailsPanel({
           {changed && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
               changed
-            </span>
-          )}
-          {inCycle && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-              循環参照
             </span>
           )}
         </div>
