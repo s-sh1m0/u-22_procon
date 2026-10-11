@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -162,9 +163,11 @@ func (b *fakeCGBuilder) Build(_ context.Context, _ []*packages.Package, _ []stri
 type fakeClusterer struct {
 	result *domain.ClusterResult
 	err    error
+	got    *domain.Graph // Cluster に渡されたグラフ
 }
 
-func (c *fakeClusterer) Cluster(_ context.Context, _ *domain.Graph) (*domain.ClusterResult, error) {
+func (c *fakeClusterer) Cluster(_ context.Context, g *domain.Graph) (*domain.ClusterResult, error) {
+	c.got = g
 	return c.result, c.err
 }
 
@@ -188,6 +191,54 @@ func newWorkerWithFakes(
 }
 
 // --- tests ---
+
+// TestWorker_ClustersImpactSubgraph はクラスタリング（＝保存されるグラフ）が、変更関数と
+// その直接の呼び出し元・呼び出し先に絞ったグラフに対して行われることを確認する。
+func TestWorker_ClustersImpactSubgraph(t *testing.T) {
+	graph := &domain.Graph{
+		Nodes: []domain.Node{
+			{ID: "fn:S", File: "a.go", Changed: true},
+			{ID: "fn:N", File: "b.go"},
+			{ID: "fn:U", File: "c.go"},
+		},
+		Edges: []domain.Edge{{From: "fn:S", To: "fn:N"}},
+	}
+
+	jobs := newFakeJobStore()
+	jobs.jobs["job-1"] = &domain.Job{
+		ID:     "job-1",
+		Status: domain.JobStatusPending,
+		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "head-sha", BaseSHA: "base-sha"},
+	}
+	st := &fakeSourceTree{prepared: &analyzer.PreparedSource{}}
+	clusterer := &fakeClusterer{result: &domain.ClusterResult{}}
+
+	w := newWorkerWithFakes(
+		jobs,
+		&fakeAnalysisRepo{},
+		&fakePRRepo{changed: []domain.ChangedFile{{Filename: "a.go", Status: domain.FileStatusModified}}},
+		st,
+		&fakeCGBuilder{graph: graph},
+		clusterer,
+	)
+
+	w.process(context.Background(), Item{JobID: "job-1", Token: "tok"})
+
+	if j := jobs.jobs["job-1"]; j.Status != domain.JobStatusDone {
+		t.Fatalf("expected done, got %s", j.Status)
+	}
+	if clusterer.got == nil {
+		t.Fatal("Cluster was not called")
+	}
+	var got []domain.NodeID
+	for _, n := range clusterer.got.Nodes {
+		got = append(got, n.ID)
+	}
+	want := []domain.NodeID{"fn:N", "fn:S"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("clustered nodes = %v, want %v", got, want)
+	}
+}
 
 func TestWorker_HappyPath(t *testing.T) {
 	graph := &domain.Graph{

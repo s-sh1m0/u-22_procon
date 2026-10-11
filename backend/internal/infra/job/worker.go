@@ -194,6 +194,9 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	// 循環参照を検出（base にあった cycle と比較して IsNew を決定）
 	cycles := analyzer.DetectNewCycles(baseGraph, headGraph)
 
+	// 保存・表示するグラフを、変わった関数とその直接の呼び出し元・呼び出し先に絞る
+	diffGraph, cycles = domain.ImpactSubgraph(diffGraph, cycles, changed)
+
 	// 依存方向の逆転（domain → infra 等）を検出（added エッジを新規違反とする）
 	violations := analyzer.DetectLayeringViolations(diffGraph)
 

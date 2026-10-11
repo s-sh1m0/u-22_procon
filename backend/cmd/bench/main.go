@@ -121,8 +121,8 @@ func runHeadOnly(ctx context.Context, prInfo domain.PRInfo, token string, change
 	return nil
 }
 
-// runBoth は worker と同じパイプライン（base+head 並列構築 → Merge → cycles/violations
-// 検出 → Cluster）を実行し、ノード/エッジ数のサマリを出力する。
+// runBoth は worker と同じパイプライン（base+head 並列構築 → Merge → cycles 検出 →
+// 変更関数と直接の依存関係に絞る → violations 検出 → Cluster）を実行し、ノード/エッジ数のサマリを出力する。
 // PR-F（依存の export data 化 / #82）の A/B 比較ゲートとして、新旧実装で
 // このサマリのノード/エッジ数が完全一致することの確認に使う。
 // エラー時も defer した Cleanup（base/head 共有の一時ディレクトリ）が走るよう、
@@ -190,12 +190,14 @@ func runBoth(ctx context.Context, prInfo domain.PRInfo, token string, changed []
 	if err := eg.Wait(); err != nil {
 		return fmt.Errorf("build base/head graphs: %w", err)
 	}
+	analyzer.RefineChangedByContent(headGraph, baseGraph, headDir, baseDir)
 	log.Printf("[3] parallel base+head build took %s", time.Since(t0))
 
-	// 4. Merge + cycles/violations 検出
+	// 4. Merge + cycles 検出 → 変更関数と直接の依存関係に絞る → violations 検出
 	t1 := time.Now()
 	diffGraph := analyzer.MergeWithDiffStatus(baseGraph, headGraph)
 	cycles := analyzer.DetectNewCycles(baseGraph, headGraph)
+	diffGraph, cycles = domain.ImpactSubgraph(diffGraph, cycles, changed)
 	violations := analyzer.DetectLayeringViolations(diffGraph)
 	log.Printf("[4] Merge+Detect took %s", time.Since(t1))
 
