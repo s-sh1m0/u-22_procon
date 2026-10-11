@@ -151,6 +151,41 @@ func TestGoCallGraphBuilder_Build_ChangedNodes(t *testing.T) {
 	}
 }
 
+func TestGoCallGraphBuilder_Build_LineRange(t *testing.T) {
+	root := setupCGFixture(t)
+	pkgs := loadCGFixture(t, root)
+
+	b := &GoCallGraphBuilder{MaxDepth: 3}
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/cgfixture/pkg/a"}, ChangedLines{}, root)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	type lineRange struct{ line, endLine int }
+	got := make(map[string]lineRange) // Name -> 行範囲
+	for _, n := range graph.Nodes {
+		got[n.Name] = lineRange{n.Line, n.EndLine}
+	}
+
+	// D はクロージャを畳み込んだ親関数の本体全体（8〜11 行目）を範囲に持つ。
+	want := map[string]lineRange{
+		"A": {5, 5},
+		"C": {6, 6},
+		"D": {8, 11},
+		"B": {3, 3},
+	}
+	for name, w := range want {
+		g, ok := got[name]
+		if !ok {
+			t.Errorf("node %q not found in graph", name)
+			continue
+		}
+		if g != w {
+			t.Errorf("node %q Line/EndLine = %d/%d, want %d/%d", name, g.line, g.endLine, w.line, w.endLine)
+		}
+	}
+}
+
 func TestGoCallGraphBuilder_Build_ChangedNodes_FileFallback(t *testing.T) {
 	root := setupCGFixture(t)
 	pkgs := loadCGFixture(t, root)

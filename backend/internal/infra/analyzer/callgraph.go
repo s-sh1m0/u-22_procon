@@ -172,9 +172,10 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 
 		pos := prog.Fset.Position(fn.Pos())
 		funcChanged := false
+		endLine := 0
 		if syntaxNode := fn.Syntax(); syntaxNode != nil {
-			endPos := prog.Fset.Position(syntaxNode.End())
-			funcChanged = changedLines.FunctionChanged(pos.Filename, pos.Line, endPos.Line)
+			endLine = prog.Fset.Position(syntaxNode.End()).Line
+			funcChanged = changedLines.FunctionChanged(pos.Filename, pos.Line, endLine)
 		} else {
 			funcChanged = changedLines.FileChanged(pos.Filename)
 		}
@@ -188,6 +189,7 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 			Package:    pkgPath(fn),
 			File:       relPath,
 			Line:       pos.Line,
+			EndLine:    endLine,
 			Changed:    funcChanged,
 			DiffStatus: domain.DiffStatusExisting,
 		})
