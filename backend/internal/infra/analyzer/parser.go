@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,11 +96,16 @@ type PackageLoader interface {
 }
 
 // GoPackageLoader はgo/packagesを使う本番実装。
-type GoPackageLoader struct{}
+// 依存パッケージのコンパイルを全ジョブで 1 つずつに制限するため、1 つの値を
+// 全ワーカーで共有すること（NewGoPackageLoader で作る）。
+type GoPackageLoader struct {
+	// buildSem は warmExportData を同時に 1 つだけ実行するためのセマフォ。
+	buildSem chan struct{}
+}
 
 // NewGoPackageLoader は本番用GoPackageLoaderを返す。
 func NewGoPackageLoader() *GoPackageLoader {
-	return &GoPackageLoader{}
+	return &GoPackageLoader{buildSem: make(chan struct{}, 1)}
 }
 
 // analyzerEnv はパッケージロード時の環境変数を構築する。
@@ -232,6 +238,13 @@ func (l *GoPackageLoader) Load(ctx context.Context, rootDir string, patterns []s
 	if sourceDepsEnabled() {
 		// escape hatch: 依存も含めてソースから型チェックする旧挙動に戻す。
 		mode |= packages.NeedDeps
+	} else if err := l.warmExportData(ctx, rootDir, patterns); err != nil {
+		// 依存の export data を先に作っておく。失敗しても go/packages が自前で
+		// コンパイルし直すので続行する。キャンセル（タイムアウト）だけはそのまま返す。
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("analyzer: warm export data: %w", err)
+		}
+		log.Printf("analyzer: warm export data failed, continuing with go/packages: %v", err)
 	}
 
 	cfg := &packages.Config{
