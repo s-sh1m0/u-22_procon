@@ -13,6 +13,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
+    # 解析中に kill した go コマンドの子プロセス（compile）は PID 1 に付け替わる。
+    # server は回収しないのでゾンビが溜まる。init を PID 1 にして回収させる。
+    init: true
     expose:
       - "8080"
     env_file:
