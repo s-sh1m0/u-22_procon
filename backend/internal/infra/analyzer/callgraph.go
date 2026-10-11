@@ -171,6 +171,9 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 			continue
 		}
 		for _, edge := range cgNode.Out {
+			if isFuncValueCall(edge) {
+				continue
+			}
 			calleeID, ok2 := nodeIDMap[edge.Callee]
 			if !ok2 {
 				continue
@@ -226,6 +229,9 @@ func walk(seeds []*callgraph.Node, forward bool, maxDepth int, loadedSet map[str
 			edges = cur.node.Out
 		}
 		for _, edge := range edges {
+			if isFuncValueCall(edge) {
+				continue
+			}
 			next := edge.Caller
 			if forward {
 				next = edge.Callee
@@ -240,6 +246,18 @@ func walk(seeds []*callgraph.Node, forward bool, maxDepth int, loadedSet map[str
 			queue = append(queue, entry{next, cur.depth + 1})
 		}
 	}
+}
+
+// isFuncValueCall は edge が関数値の呼び出し（`next(c)` のように変数・引数・フィールドに入った
+// 関数を呼ぶもの）由来かを返す。CHA はこれを同じシグネチャを持つプログラム中の全関数への
+// 呼び出しとして解決するため、無関係な関数どうしが大量につながってしまう。
+// 静的呼び出しとインターフェースメソッド呼び出し（invoke）は false を返す。
+func isFuncValueCall(edge *callgraph.Edge) bool {
+	if edge.Site == nil {
+		return false
+	}
+	call := edge.Site.Common()
+	return !call.IsInvoke() && call.StaticCallee() == nil
 }
 
 func isInLoadedSet(fn *ssa.Function, loadedSet map[string]struct{}) bool {

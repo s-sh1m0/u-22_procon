@@ -448,6 +448,58 @@ func CallerOfCaller() { Caller() }
 	}
 }
 
+// TestGoCallGraphBuilder_Build_FuncValueCall は関数値の呼び出しが、同じシグネチャを持つ
+// 無関係な関数へのエッジにならないことを確認する。インターフェース経由の呼び出しは
+// 実装メソッドへのエッジとして残す。
+//
+//	pkg/a/a.go -- Run(fn func()) { fn() } / Use(i I) { i.M() }  ← 変更ファイル（起点）
+//	pkg/b/b.go -- Unrelated() / T.M()                           ← Unrelated は fn と同じシグネチャ
+func TestGoCallGraphBuilder_Build_FuncValueCall(t *testing.T) {
+	root := setupModule(t, map[string]string{
+		"go.mod": "module example.com/funcvalue\n\ngo 1.21\n",
+		"pkg/a/a.go": `package a
+
+type I interface{ M() }
+
+func Run(fn func()) { fn() }
+
+func Use(i I) { i.M() }
+`,
+		"pkg/b/b.go": `package b
+
+func Unrelated() {}
+
+type T struct{}
+
+func (T) M() {}
+`,
+	})
+	pkgs := loadCGFixture(t, root)
+
+	cl := ChangedLines{filepath.Join(root, "pkg/a/a.go"): nil}
+	b := &GoCallGraphBuilder{MaxDepth: 3}
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/funcvalue/pkg/a"}, cl, root)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	names := nodeNames(graph)
+	if _, ok := names["Unrelated"]; ok {
+		t.Errorf("Unrelated should not be reached via func value call fn() (nodes: %v)", names)
+	}
+
+	found := false
+	for _, e := range graph.Edges {
+		if e.From == "example.com/funcvalue/pkg/a.Use" && e.To == "(example.com/funcvalue/pkg/b.T).M" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("interface call edge Use -> T.M not found (edges: %v)", graph.Edges)
+	}
+}
+
 // setupCGFixtureExtDep は外部依存（stdlib）を含む Go モジュールを構築する。
 // export data 経路（NeedDeps なし + ssautil.Packages）で外部パッケージの本体 SSA を
 // 構築しなくても、プロジェクト内グラフが旧経路と一致することを検証するための fixture。
