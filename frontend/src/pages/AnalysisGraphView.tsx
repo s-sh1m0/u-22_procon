@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import type { LayerKind, AnyFlowNode } from '@/types/graph'
+import type { AnyFlowNode } from '@/types/graph'
 import type { Cluster, ClusterMode, DiffFile, GraphResponse } from '@/types/api'
 import { useGraph } from '@/hooks/useGraph'
 import { useDiff } from '@/hooks/useDiff'
@@ -233,13 +233,11 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setCenterTarget((t) => ({ nodeId: changedNodeIds[prev], nonce: (t?.nonce ?? 0) + 1 }))
   }, [changedNodeIds, changedNodeIndex, view, revealNode])
 
-  const { panelNode, selectedCluster, selectedLayer, panelDiff, panelPriority } = useMemo(() => {
+  const { panelNode, selectedCluster, panelDiff } = useMemo(() => {
     const empty = {
       panelNode: null,
       selectedCluster: null,
-      selectedLayer: 'other' as LayerKind,
       panelDiff: undefined as DiffFile | undefined,
-      panelPriority: 'low' as ReviewPriority,
     }
     if (!data || !selectedNodeId) return empty
 
@@ -251,7 +249,6 @@ export default function AnalysisGraphView({ jobId }: Props) {
     const cid = cluster?.id ?? 0
     const color = getClusterColor(cid)
     const inCycle = cycleNodeIds.has(gn.id)
-    const priority = computeReviewPriority(gn, inDegree.get(gn.id) ?? 0, inCycle)
 
     const node: AnyFlowNode = {
       id: gn.id,
@@ -276,11 +273,9 @@ export default function AnalysisGraphView({ jobId }: Props) {
     return {
       panelNode: node,
       selectedCluster: cluster,
-      selectedLayer: layer,
       panelDiff: funcDiff,
-      panelPriority: priority,
     }
-  }, [data, diffData, selectedNodeId, inDegree, cycleNodeIds])
+  }, [data, diffData, selectedNodeId, cycleNodeIds])
 
   const panelDiffRequest = useMemo<OpenDiffRequest | null>(() => {
     if (panelNode?.type !== 'function' || !panelDiff) return null
@@ -349,10 +344,8 @@ export default function AnalysisGraphView({ jobId }: Props) {
           <FunctionDetailsPanel
             node={panelNode}
             cluster={selectedCluster}
-            layer={selectedLayer}
             diff={panelDiff}
             pr={data.pr}
-            priority={panelPriority}
             onClose={() => setSelectedNodeId(null)}
             onOpenDiffInEditor={
               editor && panelDiffRequest ? () => editor.openDiff(panelDiffRequest) : undefined
