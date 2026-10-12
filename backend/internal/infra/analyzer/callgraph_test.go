@@ -450,7 +450,7 @@ func CallerOfCaller() { Caller() }
 
 // TestGoCallGraphBuilder_Build_FuncValueCall は関数値の呼び出しが、同じシグネチャを持つ
 // 無関係な関数へのエッジにならないことを確認する。インターフェース経由の呼び出しは
-// 実装メソッドへのエッジとして残す。
+// interface メソッドノードを経由して実装メソッドにつながる。
 //
 //	pkg/a/a.go -- Run(fn func()) { fn() } / Use(i I) { i.M() }  ← 変更ファイル（起点）
 //	pkg/b/b.go -- Unrelated() / T.M()                           ← Unrelated は fn と同じシグネチャ
@@ -488,15 +488,130 @@ func (T) M() {}
 		t.Errorf("Unrelated should not be reached via func value call fn() (nodes: %v)", names)
 	}
 
-	found := false
-	for _, e := range graph.Edges {
-		if e.From == "example.com/funcvalue/pkg/a.Use" && e.To == "(example.com/funcvalue/pkg/b.T).M" {
-			found = true
-			break
+	edges := edgeSet(graph)
+	want := []domain.Edge{
+		{From: "example.com/funcvalue/pkg/a.Use", To: "(example.com/funcvalue/pkg/a.I).M", Kind: domain.EdgeKindCall},
+		{From: "(example.com/funcvalue/pkg/a.I).M", To: "(example.com/funcvalue/pkg/b.T).M", Kind: domain.EdgeKindImplements},
+	}
+	for _, w := range want {
+		if kind, ok := edges[[2]domain.NodeID{w.From, w.To}]; !ok || kind != w.Kind {
+			t.Errorf("edge %s -> %s (%s) not found (edges: %v)", w.From, w.To, w.Kind, graph.Edges)
 		}
 	}
-	if !found {
-		t.Errorf("interface call edge Use -> T.M not found (edges: %v)", graph.Edges)
+}
+
+// edgeSet はグラフのエッジを (From, To) → Kind のマップにして返す。
+func edgeSet(g *domain.Graph) map[[2]domain.NodeID]domain.EdgeKind {
+	m := make(map[[2]domain.NodeID]domain.EdgeKind, len(g.Edges))
+	for _, e := range g.Edges {
+		m[[2]domain.NodeID{e.From, e.To}] = e.Kind
+	}
+	return m
+}
+
+// TestGoCallGraphBuilder_Build_InterfaceMethodNode は interface 経由の呼び出しが、
+// 実装の数だけのエッジではなく interface メソッドノードを経由する形になることを確認する。
+//
+//	pkg/a/a.go -- type I interface{ M() } / ViaIface(i I) { i.M() }        ← 変更ファイル（起点）
+//	              Stringify(s fmt.Stringer) string { return s.String() }    ← stdlib の interface 経由
+//	pkg/b/b.go -- T1.M() / (*T2).M() / T1.String()                         ← I の実装と String 実装
+func TestGoCallGraphBuilder_Build_InterfaceMethodNode(t *testing.T) {
+	root := setupModule(t, map[string]string{
+		"go.mod": "module example.com/iface\n\ngo 1.21\n",
+		"pkg/a/a.go": `package a
+
+import "fmt"
+
+type I interface {
+	M()
+}
+
+func ViaIface(i I) { i.M() }
+
+func Stringify(s fmt.Stringer) string { return s.String() }
+`,
+		"pkg/b/b.go": `package b
+
+type T1 struct{}
+
+func (T1) M() {}
+
+func (T1) String() string { return "" }
+
+type T2 struct{}
+
+func (*T2) M() {}
+`,
+	})
+	pkgs := loadCGFixture(t, root)
+
+	cl := ChangedLines{filepath.Join(root, "pkg/a/a.go"): nil}
+	b := &GoCallGraphBuilder{MaxDepth: 3}
+	graph, err := b.Build(context.Background(), pkgs, []string{"example.com/iface/pkg/a"}, cl, root)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	const (
+		viaIface  = domain.NodeID("example.com/iface/pkg/a.ViaIface")
+		stringify = domain.NodeID("example.com/iface/pkg/a.Stringify")
+		ifaceM    = domain.NodeID("(example.com/iface/pkg/a.I).M")
+		t1M       = domain.NodeID("(example.com/iface/pkg/b.T1).M")
+		t2M       = domain.NodeID("(*example.com/iface/pkg/b.T2).M")
+		t1String  = domain.NodeID("(example.com/iface/pkg/b.T1).String")
+	)
+
+	// interface メソッドノードの中身
+	nodes := make(map[domain.NodeID]domain.Node, len(graph.Nodes))
+	for _, n := range graph.Nodes {
+		nodes[n.ID] = n
+	}
+	in, ok := nodes[ifaceM]
+	if !ok {
+		t.Fatalf("interface method node %s not found (nodes: %v)", ifaceM, graph.Nodes)
+	}
+	if in.Kind != domain.NodeKindInterfaceMethod || in.Name != "M" || in.Receiver != "I" ||
+		in.Package != "example.com/iface/pkg/a" || in.File != "pkg/a/a.go" || in.Line != 6 || in.EndLine != 6 || !in.Changed {
+		t.Errorf("interface method node = %+v", in)
+	}
+
+	// レシーバ型名: 関数は空、値レシーバ・ポインタレシーバとも型名のみ
+	for id, want := range map[domain.NodeID]string{viaIface: "", t1M: "T1", t2M: "T2"} {
+		n, ok := nodes[id]
+		if !ok {
+			t.Errorf("node %s not found", id)
+			continue
+		}
+		if n.Kind != domain.NodeKindFunc || n.Receiver != want {
+			t.Errorf("node %s: Kind=%q Receiver=%q, want func / %q", id, n.Kind, n.Receiver, want)
+		}
+	}
+
+	edges := edgeSet(graph)
+	want := map[[2]domain.NodeID]domain.EdgeKind{
+		{viaIface, ifaceM}: domain.EdgeKindCall,
+		{ifaceM, t1M}:      domain.EdgeKindImplements,
+		{ifaceM, t2M}:      domain.EdgeKindImplements,
+	}
+	for k, kind := range want {
+		if got, ok := edges[k]; !ok || got != kind {
+			t.Errorf("edge %s -> %s (%s) not found (edges: %v)", k[0], k[1], kind, graph.Edges)
+		}
+	}
+	// 呼び出し元から実装への直接のエッジは無い
+	for _, impl := range []domain.NodeID{t1M, t2M} {
+		if _, ok := edges[[2]domain.NodeID{viaIface, impl}]; ok {
+			t.Errorf("unexpected direct edge %s -> %s", viaIface, impl)
+		}
+	}
+	// stdlib の interface（fmt.Stringer）経由の呼び出しは、プロジェクト内の実装につながない
+	for k := range edges {
+		if k[0] == stringify {
+			t.Errorf("unexpected edge from Stringify: %s -> %s", k[0], k[1])
+		}
+	}
+	if _, ok := nodes[t1String]; ok {
+		t.Errorf("T1.String should not be reached via fmt.Stringer (nodes: %v)", graph.Nodes)
 	}
 }
 
