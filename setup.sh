@@ -8,16 +8,19 @@ ENV_FILE=".env"
 APP_URL="http://localhost:20080"
 CALLBACK_URL="${APP_URL}/auth/github/callback"
 
+# 入力が途中で終わった（Ctrl+D など）ときに中止する
+cancel() {
+  echo ""
+  echo "中止しました。"
+  exit 1
+}
+
 # 空でない値が入力されるまで同じ質問を繰り返し、結果を変数 $1 に入れる
 ask_required() {
   local var_name="$1" label="$2" input
   while true; do
     printf "%s: " "$label"
-    if ! read -r input; then
-      echo ""
-      echo "中止しました。"
-      exit 1
-    fi
+    read -r input || cancel
     if [ -n "$input" ]; then
       printf -v "$var_name" '%s' "$input"
       return
@@ -26,20 +29,68 @@ ask_required() {
   done
 }
 
-echo "=== DiffGraph セットアップ ==="
-echo ""
+cat <<EOF
+=== DiffGraph セットアップ ===
+
+DiffGraph の起動に必要な設定ファイル .env を作ります。
+次の 3 ステップで進めます。
+
+  1. GitHub で OAuth App を作る（ブラウザで操作します）
+  2. 発行された Client ID と Client Secret をここに貼り付ける
+  3. .env を書き出す
+
+EOF
 
 if [ -f "$ENV_FILE" ]; then
-  printf ".env が既に存在します。上書きしますか？ [y/N]: "
-  read -r overwrite
+  echo ".env がすでにあります。上書きすると今の設定は消えます。"
+  printf "上書きしますか？ [y/N]: "
+  read -r overwrite || cancel
   if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
-    echo "中止しました。"
+    echo "中止しました。既存の .env はそのまま残っています。"
     exit 0
   fi
+  echo ""
 fi
 
-ask_required github_client_id "GITHUB_CLIENT_ID"
-ask_required github_client_secret "GITHUB_CLIENT_SECRET"
+cat <<EOF
+--- ステップ 1/3: GitHub で OAuth App を作る ---
+
+DiffGraph には GitHub アカウントでログインします。
+そのための OAuth App を、あなたの GitHub アカウントに登録します。
+
+  1) ブラウザで次の URL を開く
+       https://github.com/settings/developers
+  2) 左のメニューで「OAuth Apps」を選び、「New OAuth App」をクリックする
+     （OAuth App が 1 つもない場合は「Register a new application」）
+  3) 次の値を入力して「Register application」をクリックする
+       Application name           : DiffGraph（好きな名前でよい）
+       Homepage URL               : ${APP_URL}
+       Authorization callback URL : ${CALLBACK_URL}
+     ※ Authorization callback URL は 1 文字でも違うとログインできません。
+       上の値をそのままコピーしてください。
+  4) 作成後の画面に出る「Client ID」をコピーする
+  5) 「Generate a new client secret」をクリックし、表示された Client Secret をコピーする
+     ※ Client Secret はこのとき一度しか表示されません。画面を閉じる前にコピーしてください。
+
+EOF
+printf "OAuth App を作ったら Enter を押してください（作成済みならそのまま Enter）: "
+read -r _ || cancel
+
+cat <<EOF
+
+--- ステップ 2/3: Client ID と Client Secret を入力 ---
+
+ステップ 1 でコピーした値を貼り付けて Enter を押してください。
+
+EOF
+ask_required github_client_id "Client ID"
+ask_required github_client_secret "Client Secret"
+
+cat <<EOF
+
+--- ステップ 3/3: .env を書き出す ---
+
+EOF
 
 session_secret=$(openssl rand -base64 32)
 
@@ -50,6 +101,27 @@ GITHUB_CALLBACK_URL=${CALLBACK_URL}
 SESSION_SECRET=${session_secret}
 EOF
 
-echo ""
-echo ".env を生成しました。"
-echo "起動: docker compose -f compose.prod.yml up -d"
+cat <<EOF
+.env を作りました: $(pwd)/${ENV_FILE}
+
+  GITHUB_CLIENT_ID      入力した Client ID
+  GITHUB_CLIENT_SECRET  入力した Client Secret
+  GITHUB_CALLBACK_URL   ${CALLBACK_URL}
+  SESSION_SECRET        自動で作ったランダムな文字列（ログイン状態の署名に使う）
+
+=== セットアップ完了 ===
+
+次の手順で DiffGraph を使い始められます。
+
+  1) リポジトリのディレクトリで起動する（初回はビルドに数分かかります）
+       cd $(pwd)
+       docker compose -f compose.prod.yml up -d
+  2) ブラウザで ${APP_URL} を開く
+  3) 画面右上の「ログイン」から GitHub アカウントでログインする
+
+停止するとき:
+  docker compose -f compose.prod.yml down
+
+ログインで OAuth のエラーが出たら、OAuth App の Authorization callback URL が
+${CALLBACK_URL} と完全に一致しているか確認してください。
+EOF
