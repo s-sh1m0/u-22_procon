@@ -6,6 +6,24 @@ cd "$(dirname "$0")"
 
 ENV_FILE=".env"
 
+# 空でない値が入力されるまで同じ質問を繰り返し、結果を変数 $1 に入れる
+ask_required() {
+  local var_name="$1" label="$2" input
+  while true; do
+    printf "%s: " "$label"
+    if ! read -r input; then
+      echo ""
+      echo "中止しました。"
+      exit 1
+    fi
+    if [ -n "$input" ]; then
+      printf -v "$var_name" '%s' "$input"
+      return
+    fi
+    echo "  空のままでは進めません。値を貼り付けて Enter を押してください。"
+  done
+}
+
 echo "=== DiffGraph セットアップ ==="
 echo ""
 
@@ -18,19 +36,8 @@ if [ -f "$ENV_FILE" ]; then
   fi
 fi
 
-printf "GITHUB_CLIENT_ID: "
-read -r github_client_id
-if [ -z "$github_client_id" ]; then
-  echo "エラー: GITHUB_CLIENT_ID は必須です。"
-  exit 1
-fi
-
-printf "GITHUB_CLIENT_SECRET: "
-read -r github_client_secret
-if [ -z "$github_client_secret" ]; then
-  echo "エラー: GITHUB_CLIENT_SECRET は必須です。"
-  exit 1
-fi
+ask_required github_client_id "GITHUB_CLIENT_ID"
+ask_required github_client_secret "GITHUB_CLIENT_SECRET"
 
 default_callback="http://localhost:20080/auth/github/callback"
 printf "GITHUB_CALLBACK_URL [%s]: " "$default_callback"
