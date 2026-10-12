@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import { MarkerType, type Edge, type EdgeMarker } from '@xyflow/react'
 import ELKConstructor, { type ELK, type ElkNode } from 'elkjs/lib/elk-api.js'
 import elkWorkerUrl from 'elkjs/lib/elk-worker.min.js?url'
-import type { GraphResponse, Cluster, GraphEdge, DiffStatus } from '@/types/api'
+import type { GraphResponse, Cluster, GraphEdge, DiffStatus, EdgeKind, NodeKind } from '@/types/api'
 import type {
   AnyFlowNode,
   LayerKind,
@@ -13,6 +13,7 @@ import type {
 import { getClusterColor } from './clusterColors'
 import { inferLayer } from './layerInference'
 import { nodeDisplayName } from './nodeLabel'
+import { IMPLEMENTS_EDGE_DASH } from './graphFocus'
 
 export const NODE_W = 200
 export const NODE_H = 60
@@ -68,6 +69,7 @@ export function setElkWorkerFactory(factory: () => Worker): void {
 
 type InputNode = {
   id: string
+  kind: NodeKind
   label: string
   package: string
   file: string
@@ -77,6 +79,12 @@ type InputNode = {
 }
 
 export type LayoutResult = { nodes: AnyFlowNode[]; edges: Edge[] }
+
+/** interface メソッドノードの表示に使う状態（実装の数と展開中の interface メソッド）。 */
+export type InterfaceLayoutState = {
+  implCounts: Map<string, number>
+  expanded: Set<string>
+}
 
 /** "layer:clusterId" 形式のキーを返す */
 export function makeClusterKey(pkg: string, clusterId: number): string {
@@ -100,6 +108,17 @@ function edgeColorByStatus(status: DiffStatus): string {
     default:
       return '#d6d3d1'
   }
+}
+
+// 集約エッジの種類: 呼び出しが 1 本でも含まれれば call（実線）にする。
+function mergeEdgeKind(a: EdgeKind, b: EdgeKind): EdgeKind {
+  return a === 'call' || b === 'call' ? 'call' : 'implements'
+}
+
+// implements エッジは diff ステータスの色のまま点線にする。
+function edgeStyle(status: DiffStatus, kind: EdgeKind): CSSProperties {
+  const style = edgeStyleByStatus(status)
+  return kind === 'implements' ? { ...style, strokeDasharray: IMPLEMENTS_EDGE_DASH } : style
 }
 
 function edgeStyleByStatus(status: DiffStatus): CSSProperties {
@@ -138,9 +157,11 @@ type Pending = PendingCluster | PendingSuper
 export async function layoutGraph(
   data: GraphResponse,
   expandedClusters: Set<string>,
+  interfaces: InterfaceLayoutState,
 ): Promise<LayoutResult> {
   const inputNodes: InputNode[] = data.graph.nodes.map((n) => ({
     id: n.id,
+    kind: n.kind,
     label: nodeDisplayName(n),
     package: n.package,
     file: n.file,
@@ -172,6 +193,7 @@ export async function layoutGraph(
   // エッジを集約。クラスタ折りたたみ時は端点をスーパーノードに付け替える。
   // DiffStatus は added > removed > existing で昇格。
   const edgeStatusMap = new Map<string, DiffStatus>()
+  const edgeKindMap = new Map<string, EdgeKind>()
   const edgeKeyToFromTo = new Map<string, { source: string; target: string }>()
 
   for (const e of inputEdges) {
@@ -192,6 +214,8 @@ export async function layoutGraph(
     const edgeKey = `${srcId}→${dstId}`
     const prev = edgeStatusMap.get(edgeKey)
     edgeStatusMap.set(edgeKey, prev ? mergeEdgeStatus(prev, e.status) : e.status)
+    const prevKind = edgeKindMap.get(edgeKey)
+    edgeKindMap.set(edgeKey, prevKind ? mergeEdgeKind(prevKind, e.kind) : e.kind)
     if (!edgeKeyToFromTo.has(edgeKey)) {
       edgeKeyToFromTo.set(edgeKey, { source: srcId, target: dstId })
     }
@@ -200,13 +224,14 @@ export async function layoutGraph(
   const flowEdges: Edge[] = []
   for (const [edgeKey, status] of edgeStatusMap.entries()) {
     const ft = edgeKeyToFromTo.get(edgeKey)!
+    const kind = edgeKindMap.get(edgeKey)!
     flowEdges.push({
       id: `e:${edgeKey}`,
       source: ft.source,
       target: ft.target,
-      style: edgeStyleByStatus(status),
+      style: edgeStyle(status, kind),
       markerEnd: edgeMarkerByStatus(status),
-      data: { diffStatus: status },
+      data: { diffStatus: status, kind },
     })
   }
 
@@ -264,6 +289,7 @@ export async function layoutGraph(
         children: nodes.map((n) => ({
           id: n.id,
           data: {
+            kind: n.kind,
             label: n.label,
             packagePath: n.package,
             file: n.file,
@@ -273,6 +299,8 @@ export async function layoutGraph(
             clusterId: cid,
             clusterColorHex: color.hex,
             layer,
+            implCount: interfaces.implCounts.get(n.id) ?? 0,
+            implExpanded: interfaces.expanded.has(n.id),
           },
         })),
       })

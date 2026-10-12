@@ -4,6 +4,7 @@ import type { FunctionFlowNode } from '@/types/graph'
 export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowNode>) {
   const isAdded = data.diffStatus === 'added'
   const isRemoved = data.diffStatus === 'removed'
+  const isIface = data.kind === 'interface_method'
   return (
     <div
       className={[
@@ -50,9 +51,24 @@ export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowN
           {data.label}
         </p>
         <p className="truncate font-mono text-[10px] text-stone-400">{data.packagePath}</p>
-        <p className="truncate font-mono text-[10px] text-stone-300">
-          {data.file.split('/').pop()}:{data.line}
-        </p>
+        {isIface ? (
+          // interface メソッドはクリックで実装を展開・折りたたむ。定義位置は詳細パネルで見る。
+          <p
+            className="flex items-center gap-1.5 text-[10px] text-stone-500"
+            title={data.implExpanded ? 'クリックで実装を隠す' : 'クリックで実装を表示'}
+          >
+            <span className="rounded-full bg-stone-100 px-1.5 font-mono text-stone-500">
+              interface
+            </span>
+            <span>
+              実装 {data.implCount} {data.implExpanded ? '▾' : '▸'}
+            </span>
+          </p>
+        ) : (
+          <p className="truncate font-mono text-[10px] text-stone-300">
+            {data.file.split('/').pop()}:{data.line}
+          </p>
+        )}
       </div>
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />

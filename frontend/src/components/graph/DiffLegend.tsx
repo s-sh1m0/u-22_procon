@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 
-/** ノード非選択時に表示する凡例。ノード右上のマークとエッジ色が表す diff の種類を示す。 */
+/**
+ * ノード非選択時に表示する凡例。ノード右上のマークとエッジ色が表す diff の種類と、
+ * interface メソッドから実装への点線エッジの意味を示す。
+ */
 export default function DiffLegend() {
   return (
     <Card className="border-stone-200 bg-white shadow-md">
@@ -22,6 +25,9 @@ export default function DiffLegend() {
         </LegendRow>
         <LegendRow label="追加された呼び出し">
           <span className="h-0.5 w-4 rounded-full bg-emerald-500" />
+        </LegendRow>
+        <LegendRow label="interface の実装（interface をクリックで展開）">
+          <span className="w-4 border-t-2 border-dotted border-stone-400" />
         </LegendRow>
       </CardContent>
     </Card>

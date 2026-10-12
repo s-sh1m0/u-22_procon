@@ -8,6 +8,7 @@ import { inferLayer } from '@/lib/layerInference'
 import { getClusterColor } from '@/lib/clusterColors'
 import { makeClusterKey } from '@/lib/graphLayout'
 import { filterToImpact } from '@/lib/impactFilter'
+import { collapseImplementations, implementationIds } from '@/lib/interfaceCollapse'
 import { isChanged } from '@/lib/nodeChange'
 import { nodeDisplayName } from '@/lib/nodeLabel'
 import { useEditorBridge, type OpenDiffRequest } from '@/lib/editorBridge'
@@ -37,18 +38,28 @@ export default function AnalysisGraphView({ jobId }: Props) {
   const [expandedClustersOverride, setExpandedClustersOverride] = useState<Set<string> | null>(null)
   // true = 変更影響のみ（diff 1-hop 近傍に絞り込み）、false = 全体グラフ
   const [impactOnly, setImpactOnly] = useState(true)
+  // 実装を展開中の interface メソッドノード ID。既定では実装を隠す。
+  const [expandedInterfaces, setExpandedInterfaces] = useState<Set<string>>(() => new Set())
   // 検索ジャンプで中央寄せしたいノード。nonce は同一ノードへの再ジャンプでも
   // グラフ側の effect を再発火させるための世代番号。
   const [centerTarget, setCenterTarget] = useState<{ nodeId: string; nonce: number } | null>(null)
   // VS Code 拡張の webview でだけ非 null。diff はパネル内ではなくエディタ側で開く。
   const editor = useEditorBridge()
 
-  // 描画に使うグラフ。変更影響ビューでは diff 近傍だけに絞った部分グラフを渡す。
-  // クラスタ集計・展開・レイアウトはすべてこの view を基準に行う。
-  const view = useMemo(() => {
+  // 実装を折りたたむ前のグラフ。変更影響ビューでは diff 近傍だけに絞った部分グラフにする。
+  const baseView = useMemo(() => {
     if (!data) return data
     return impactOnly ? filterToImpact(data) : data
   }, [data, impactOnly])
+
+  // 描画に使うグラフ。baseView から、展開されていない interface メソッドの実装を隠したもの。
+  // クラスタ集計・展開・レイアウトはすべてこの view を基準に行う。
+  const collapsed = useMemo(
+    () => (baseView ? collapseImplementations(baseView, expandedInterfaces) : null),
+    [baseView, expandedInterfaces],
+  )
+  const view = collapsed?.data
+  const implCounts = useMemo(() => collapsed?.implCounts ?? new Map<string, number>(), [collapsed])
 
   // モード切替時はクラスタが組み変わるため、選択 / 明示的な展開セットをリセットして
   // 新しいクラスタ構造に応じた自動展開ロジックを再適用する。
@@ -56,6 +67,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
     setClusterMode(mode)
     setSelectedNodeId(null)
     setExpandedClustersOverride(null)
+    setExpandedInterfaces(new Set())
   }, [])
 
   // 影響ビューの切替もクラスタ構成が変わるため、選択 / 展開セットをリセットする。
@@ -65,6 +77,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
       setImpactOnly(next)
       setSelectedNodeId(null)
       setExpandedClustersOverride(null)
+      setExpandedInterfaces(new Set())
     },
     [impactOnly],
   )
@@ -129,8 +142,40 @@ export default function AnalysisGraphView({ jobId }: Props) {
 
   const handleCollapseAll = useCallback(() => {
     setExpandedClustersOverride(new Set())
+    setExpandedInterfaces(new Set())
     setSelectedNodeId(null)
   }, [])
+
+  // interface メソッドの実装を展開・折りたたむ。展開時は、実装が折りたたみ中のクラスタに
+  // あると見えないので、そのクラスタも開く。どちらの場合も展開セットを今の状態で固定し、
+  // ノード数の変化で自動展開の対象が入れ替わらないようにする。
+  const handleToggleInterface = useCallback(
+    (ifaceId: string) => {
+      if (!baseView) return
+      const opening = !expandedInterfaces.has(ifaceId)
+      setExpandedInterfaces((prev) => {
+        const next = new Set(prev)
+        if (opening) next.add(ifaceId)
+        else next.delete(ifaceId)
+        return next
+      })
+      const keys: string[] = []
+      if (opening) {
+        const nodeMap = new Map(baseView.graph.nodes.map((n) => [n.id, n]))
+        for (const id of implementationIds(baseView, ifaceId)) {
+          const n = nodeMap.get(id)
+          const cluster = baseView.clusters.find((c) => c.nodes.includes(id))
+          if (n && cluster) keys.push(makeClusterKey(n.package, cluster.id))
+        }
+      }
+      setExpandedClustersOverride((prev) => {
+        const next = new Set(prev !== null ? prev : defaultExpandedClusters)
+        for (const k of keys) next.add(k)
+        return next
+      })
+    },
+    [baseView, expandedInterfaces, defaultExpandedClusters],
+  )
 
   // 指定ノードを可視化する: 折りたたみ中なら親クラスタを展開し、そのノードを選択する。
   // source は展開判定に使うグラフ（全体 = data / 影響ビュー = view）。
@@ -246,6 +291,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
       type: 'function',
       position: { x: 0, y: 0 },
       data: {
+        kind: gn.kind,
         label: nodeDisplayName(gn),
         packagePath: gn.package,
         file: gn.file,
@@ -255,6 +301,8 @@ export default function AnalysisGraphView({ jobId }: Props) {
         clusterId: cid,
         clusterColorHex: color.hex,
         layer,
+        implCount: implCounts.get(gn.id) ?? 0,
+        implExpanded: expandedInterfaces.has(gn.id),
       },
     }
     const funcDiff = diffData?.files.find(
@@ -265,7 +313,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
       selectedCluster: cluster,
       panelDiff: funcDiff,
     }
-  }, [data, diffData, selectedNodeId])
+  }, [data, diffData, selectedNodeId, implCounts, expandedInterfaces])
 
   const panelDiffRequest = useMemo<OpenDiffRequest | null>(() => {
     if (panelNode?.type !== 'function' || !panelDiff) return null
@@ -345,6 +393,10 @@ export default function AnalysisGraphView({ jobId }: Props) {
     >
       <DependencyGraph
         data={view ?? data}
+        fitSource={baseView ?? data}
+        implCounts={implCounts}
+        expandedInterfaces={expandedInterfaces}
+        onToggleInterface={handleToggleInterface}
         clusterMode={clusterMode}
         onChangeClusterMode={handleChangeClusterMode}
         impactOnly={impactOnly}

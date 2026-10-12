@@ -44,6 +44,16 @@ const FOCUS_ANIMATE_MAX_EDGES = 60
 
 type Props = {
   data: GraphResponse
+  /**
+   * 全体フィットの基準にするグラフ。data は interface の実装を展開・折りたたむたびに変わるので、
+   * 展開前のグラフを渡し、これが変わったときだけ全体にフィットする（展開で視点が飛ばないように）。
+   */
+  fitSource: GraphResponse
+  /** interface メソッドノード ID → 実装の数 */
+  implCounts: Map<string, number>
+  /** 実装を展開中の interface メソッドノード ID */
+  expandedInterfaces: Set<string>
+  onToggleInterface: (id: string) => void
   clusterMode: ClusterMode
   onChangeClusterMode: (mode: ClusterMode) => void
   impactOnly: boolean
@@ -66,6 +76,10 @@ type Props = {
 
 function GraphInner({
   data,
+  fitSource,
+  implCounts,
+  expandedInterfaces,
+  onToggleInterface,
   clusterMode,
   onChangeClusterMode,
   impactOnly,
@@ -98,7 +112,7 @@ function GraphInner({
 
   useEffect(() => {
     let cancelled = false
-    layoutGraph(data, expandedClusters)
+    layoutGraph(data, expandedClusters, { implCounts, expanded: expandedInterfaces })
       .then((res) => {
         if (!cancelled) setLayout({ ...res, source: data, expanded: expandedClusters })
       })
@@ -108,21 +122,21 @@ function GraphInner({
     return () => {
       cancelled = true
     }
-  }, [data, expandedClusters])
+  }, [data, expandedClusters, implCounts, expandedInterfaces])
 
   const { nodes: layoutNodes, edges: layoutEdges, source: layoutSource } = layout
   const isLayouting = layout.source !== data || layout.expanded !== expandedClusters
 
-  // 新しいグラフ（data 変更）のレイアウトが整ったら一度だけ全体にフィットする。
-  // 展開/折りたたみ（expandedClusters 変更）では data 不変なので再フィットせず位置を保つ。
+  // 新しいグラフ（fitSource 変更）のレイアウトが整ったら一度だけ全体にフィットする。
+  // クラスタや interface の実装の展開/折りたたみでは fitSource 不変なので再フィットせず位置を保つ。
   const fittedSourceRef = useRef<GraphResponse | null>(null)
   useEffect(() => {
     if (layoutSource !== data || layoutNodes.length === 0) return
-    if (fittedSourceRef.current === data) return
-    fittedSourceRef.current = data
+    if (fittedSourceRef.current === fitSource) return
+    fittedSourceRef.current = fitSource
     const raf = requestAnimationFrame(() => fitView({ duration: 300 }))
     return () => cancelAnimationFrame(raf)
-  }, [layoutSource, data, layoutNodes, fitView])
+  }, [layoutSource, data, fitSource, layoutNodes, fitView])
 
   // 検索ジャンプの中央寄せ。ジャンプ要求（centerTarget.nonce 変化）を pending に記録し、
   // 対象ノードが現在のレイアウトに現れ次第そこへ寄せる。折りたたみクラスタ内のノードは
@@ -186,7 +200,7 @@ function GraphInner({
       if (!dir) return { ...e, style: DIMMED_EDGE_STYLE, markerEnd: undefined, animated: false }
       return {
         ...e,
-        style: focusEdgeStyle(dir),
+        style: focusEdgeStyle(dir, e.data?.kind === 'implements' ? 'implements' : 'call'),
         markerEnd: focusEdgeMarker(dir),
         animated: animate,
       }
@@ -199,9 +213,11 @@ function GraphInner({
         onToggleCluster(node.data.clusterKey as string)
       } else if (node.type === 'function') {
         onSelectNode(node.id)
+        // interface メソッドはクリックで実装を展開・折りたたむ
+        if (node.data.kind === 'interface_method') onToggleInterface(node.id)
       }
     },
-    [onSelectNode, onToggleCluster],
+    [onSelectNode, onToggleCluster, onToggleInterface],
   )
 
   return (
