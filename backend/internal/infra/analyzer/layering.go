@@ -30,6 +30,8 @@ func layerRank(pkg string) (name string, rank int) {
 // DetectLayeringViolations は差分グラフ上で依存方向の逆転を検出する。
 // 内側レイヤー（rank 小）から外側レイヤー（rank 大）への呼び出しエッジを違反とみなす。
 // エッジの Status が added のものを IsNew=true とする（PR で新規に持ち込まれた依存）。
+// implements エッジ（interface メソッド → 実装）は呼び出しではなく、外側のレイヤーが内側の
+// interface を実装する正しい向きの依存なので判定しない。
 //
 // 戻り値は From, To の昇順でソート済み（テストの再現性のため）。
 func DetectLayeringViolations(g *domain.Graph) []domain.LayerViolation {
@@ -44,6 +46,9 @@ func DetectLayeringViolations(g *domain.Graph) []domain.LayerViolation {
 
 	out := make([]domain.LayerViolation, 0)
 	for _, e := range g.Edges {
+		if e.IsImplements() {
+			continue
+		}
 		fromLayer, fromRank := layerRank(pkgOf[e.From])
 		toLayer, toRank := layerRank(pkgOf[e.To])
 		if fromRank < 0 || toRank < 0 {
