@@ -12,7 +12,8 @@ type AnalysisID string
 // 履歴:
 //   - 0: analyzer_version カラム導入前に保存した結果
 //   - 1: 変更関数と直接の呼び出し元・呼び出し先だけを保存する（#151）
-const AnalyzerVersion = 1
+//   - 2: interface 経由の呼び出しを interface メソッドノード経由にする（#160）
+const AnalyzerVersion = 2
 
 // PRInfo はGitHub PRの基本情報
 type PRInfo struct {
