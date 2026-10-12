@@ -5,6 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 ENV_FILE=".env"
+APP_URL="http://localhost:20080"
+CALLBACK_URL="${APP_URL}/auth/github/callback"
 
 # 空でない値が入力されるまで同じ質問を繰り返し、結果を変数 $1 に入れる
 ask_required() {
@@ -39,17 +41,12 @@ fi
 ask_required github_client_id "GITHUB_CLIENT_ID"
 ask_required github_client_secret "GITHUB_CLIENT_SECRET"
 
-default_callback="http://localhost:20080/auth/github/callback"
-printf "GITHUB_CALLBACK_URL [%s]: " "$default_callback"
-read -r github_callback_url
-github_callback_url="${github_callback_url:-$default_callback}"
-
 session_secret=$(openssl rand -base64 32)
 
 cat > "$ENV_FILE" <<EOF
 GITHUB_CLIENT_ID=${github_client_id}
 GITHUB_CLIENT_SECRET=${github_client_secret}
-GITHUB_CALLBACK_URL=${github_callback_url}
+GITHUB_CALLBACK_URL=${CALLBACK_URL}
 SESSION_SECRET=${session_secret}
 EOF
 
