@@ -145,20 +145,21 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 |---|---|
 | `PRMetaBar` | 上部固定バー。PR タイトル・ブランチ情報・ユーザー情報 |
 | `DependencyGraph` | `@xyflow/react` ベースの呼び出しグラフ |
-| `FunctionNode` / `FileNode` | グラフ上のノード。リング優先度: 選択(stone-900) > 追加(emerald-500) > 変更(amber-400) |
+| `FunctionNode` / `FileNode` | グラフ上のノード。リング優先度: 選択(stone-900) > 追加(emerald-500) > 変更(amber-400)。ラベルはメソッドならレシーバ型付き（`AbsAction.TargetContains`、`src/lib/nodeLabel.ts`）。interface メソッドノード（`kind === 'interface_method'`）は 3 行目のファイル:行の代わりに mono の「interface」ピルと「実装 N ▸/▾」を出し、クリックで実装を展開・折りたたむ |
 | `ClusterGroup` | 展開中クラスタの背景コンテナ。子ノードを `parentId` で内包 |
 | `SuperClusterNode` | 折りたたみ中クラスタのスーパーノード。クリックで展開 |
 | `FunctionDetailsPanel` | 右パネル。クラスタラベル・GitHub 該当行リンク・diff |
 | `GraphSearch` | グラフ左上の検索ボックス。関数名/パッケージをインクリメンタル検索→候補選択で展開+選択+中央寄せ（`fitView`）。折りたたみ中クラスタ内のノードも親を開いて到達する |
 | `GraphControls` | 右下フローティングパネル（frosted glass: `bg-white/90 backdrop-blur-md`）。ラベル付きセクションに分割: 表示モード切替（変更影響/全体）・クラスタモード（Louvain/Package/File）・展開/折畳アクションボタン・変更ノードステップナビゲーター。セグメントコントロールは pill 型（active=`bg-white shadow-sm`、inactive=`text-stone-500`）。ナビゲーターはレビュー優先度順に変更ノードを1つずつ巡回し、クラスタ自動展開+選択+中央寄せを行う |
 | `FocusLegend` | フォーカスモード中に左上（検索ボックスの下）に出る凡例（呼び出し元/先の方向色と件数） |
-| `DiffLegend` | ノード非選択時に `FocusLegend` と同じ位置に出る凡例。ノード右上のマーク（追加=緑 `+` / 変更=オレンジの点 / 削除=灰 `−`）と追加エッジ（緑線）の意味を示す。ノードを選ぶと `FocusLegend` に入れ替わる |
+| `DiffLegend` | ノード非選択時に `FocusLegend` と同じ位置に出る凡例。ノード右上のマーク（追加=緑 `+` / 変更=オレンジの点 / 削除=灰 `−`）と追加エッジ（緑線）、interface の実装エッジ（点線）の意味を示す。ノードを選ぶと `FocusLegend` に入れ替わる |
 | `DiffViewer` | `@monaco-editor/react` で before/after 表示 |
 | `ClusterSidebar` | クラスタ一覧（実装位置: `layout/`） |
 
 ### 3.6 グラフのフォーカスモードとエッジ方向
 
 - **エッジ矢印**: すべてのエッジに矢印マーカー（caller → callee の向き）を付ける。色は diff ステータスの stroke に揃える（added=emerald / removed=stone 破線 / existing=薄 stone）。
+- **interface 経由の呼び出し**: バックエンドは interface 経由の呼び出しを「呼び出し元 → interface メソッドノード（呼び出し）→ 実装（`implements`）」の形で返す。`implements` エッジは diff ステータスの色のまま点線（`IMPLEMENTS_EDGE_DASH`、`src/lib/graphFocus.ts`）にし、フォーカス中も点線を保つ。クラスタ集約で呼び出しと混ざったら呼び出し（実線）にする。
 - **フォーカスモード**: 関数ノードを選択すると、直接の caller / callee と接続エッジだけを強調し、それ以外のノード・エッジを減光する（`DIMMED_OPACITY`）。Pane クリックで解除。
 - **方向色**（`src/lib/graphFocus.ts` に集約。グラフ機能上の意味色として hex 直書きを許容）:
   - 呼び出し元（upstream caller, 選択ノードを呼ぶ側）: blue `#3b82f6`
@@ -168,7 +169,7 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 ### 3.7 レビュー優先度と GitHub 行リンク
 
 - **循環参照は表示しない**: バックエンドは循環（`cycles`）を返すが、フロントではバナー・ノード・エッジ・詳細パネルのいずれにも出さない。
-- **レビュー優先度**: 画面には出さない（詳細パネルにもグラフ上にも表示しない＝情報過多を避ける）。`GraphControls` の変更ノードナビゲーターが巡回する順番を決めるためだけに使う。判定は `src/lib/reviewPriority.ts` の純粋関数: 高=PR 変更ノードかつ被呼び出し数 `in-degree >= 3`、中=その他の PR 変更ノード、低=未変更。
+- **レビュー優先度**: 画面には出さない（詳細パネルにもグラフ上にも表示しない＝情報過多を避ける）。`GraphControls` の変更ノードナビゲーターが巡回する順番を決めるためだけに使う。判定は `src/lib/reviewPriority.ts` の純粋関数: 高=PR 変更ノードかつ被呼び出し数 `in-degree >= 3`、中=その他の PR 変更ノード、低=未変更。被呼び出し数は呼び出しエッジで数え、実装には interface メソッドの被呼び出し数を足す。
 - **GitHub 行リンク**: 詳細パネルから定義行の GitHub blob URL を新規タブで開く（`src/lib/githubLinks.ts`）。`removed` は base SHA、それ以外は head SHA を ref に使う。
 
 ### 3.8 変更影響ビュー（既定表示）
@@ -177,6 +178,8 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 - 範囲: 変更ノード（`changed` または `diff_status !== 'existing'`）＋その **直接近傍 1-hop（呼び出し元・呼び出し先の両方向）**。いずれかの端点が変更ノードのエッジだけを残し、無関係なノード/エッジを描画前に落とす。孤立した変更ノードも残す。1-hop に限定するのはフォーカスモードと同様に情報過多を避けるため（そこから先は click-focus で辿る）。
 - 全体グラフ（全体構造・レイヤリング違反の俯瞰）は `GraphControls` 右下のトグル（`変更影響のみ` / `全体`）で切替できる。切替時はクラスタ構成が変わるため選択・展開状態をリセットする。
 - 絞り込みは純粋関数 `src/lib/impactFilter.ts` の `filterToImpact` に集約し、クラスタ集約前の生グラフ（`data.graph`）へ適用する（レイアウト/描画から分離）。
+- interface メソッドノードは中継点として通り抜ける: 変更ノードが呼ぶ interface メソッドはその実装も、変更ノードを実装に持つ interface メソッドはその呼び出し元も残す（バックエンドの `ImpactSubgraph` と同じ範囲）。兄弟（同じ interface メソッドの別の呼び出し元など）は拾わない。
+- **実装は既定で隠す**: 1 回の interface 呼び出しが実装の数だけ広がって見えるのを避けるため、`src/lib/interfaceCollapse.ts` の `collapseImplementations` が、展開されていない interface メソッドからしか届かない実装ノードと `implements` エッジを描画前に落とす（変更された実装は残す）。interface メソッドノードのクリックで展開し、そのとき実装のあるクラスタも開く。展開・折りたたみでは全体へのフィットをやり直さない。表示モード・クラスタモードの切替と「すべて折りたたむ」で展開状態をリセットする。
 
 ### 3.5 採用ライブラリ（外観に影響するもの）
 
