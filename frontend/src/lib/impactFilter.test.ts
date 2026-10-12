@@ -1,48 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import type { GraphResponse, GraphNode, GraphEdge, DiffStatus } from '@/types/api'
 import { filterToImpact } from './impactFilter'
-
-function node(id: string, opts: Partial<GraphNode> = {}): GraphNode {
-  return {
-    id,
-    kind: 'func',
-    name: id,
-    receiver: '',
-    package: 'pkg',
-    file: `${id}.go`,
-    line: 1,
-    changed: false,
-    diff_status: 'existing',
-    ...opts,
-  }
-}
-
-function build(overrides: Partial<GraphResponse>): GraphResponse {
-  return {
-    pr: {
-      owner: 'o',
-      repo: 'r',
-      number: 1,
-      title: 't',
-      base_ref: 'main',
-      head_ref: 'feat',
-      base_sha: 'b',
-      head_sha: 'h',
-    },
-    clusters: [],
-    graph: { nodes: [], edges: [] },
-    cycles: [],
-    violations: [],
-    ...overrides,
-  }
-}
-
-const edge = (from: string, to: string, status: DiffStatus = 'existing'): GraphEdge => ({
-  from,
-  to,
-  kind: 'call',
-  status,
-})
+import {
+  testNode as node,
+  testIfaceNode as iface,
+  testEdge as edge,
+  testImplEdge as impl,
+  testGraphResponse as build,
+} from './testGraph'
 
 describe('filterToImpact', () => {
   it('変更ノードと直接近傍 1-hop（両方向）だけ残し、無関係なノード/エッジを落とす', () => {
@@ -109,6 +73,51 @@ describe('filterToImpact', () => {
     const out = filterToImpact(data)
 
     expect(out.clusters).toEqual([{ id: 0, label: 'c0', nodes: ['A', 'C'] }])
+  })
+
+  it('変更ノードが呼ぶ interface メソッドの実装を残し、別の呼び出し元は残さない', () => {
+    const data = build({
+      graph: {
+        nodes: [
+          node('S', { changed: true }),
+          iface('I'),
+          node('Impl1'),
+          node('Impl2'),
+          node('OtherCaller'),
+          node('ImplCallee'),
+        ],
+        edges: [
+          edge('S', 'I', 'added'),
+          impl('I', 'Impl1'),
+          impl('I', 'Impl2'),
+          edge('OtherCaller', 'I'),
+          edge('Impl1', 'ImplCallee'),
+        ],
+      },
+    })
+
+    const out = filterToImpact(data)
+
+    expect(new Set(out.graph.nodes.map((n) => n.id))).toEqual(new Set(['S', 'I', 'Impl1', 'Impl2']))
+    expect(out.graph.edges).toEqual([
+      edge('S', 'I', 'added'),
+      impl('I', 'Impl1'),
+      impl('I', 'Impl2'),
+    ])
+  })
+
+  it('変更ノードを実装に持つ interface メソッドの呼び出し元を残し、別の実装は残さない', () => {
+    const data = build({
+      graph: {
+        nodes: [node('S', { changed: true }), iface('I'), node('Caller'), node('OtherImpl')],
+        edges: [edge('Caller', 'I'), impl('I', 'S'), impl('I', 'OtherImpl')],
+      },
+    })
+
+    const out = filterToImpact(data)
+
+    expect(new Set(out.graph.nodes.map((n) => n.id))).toEqual(new Set(['S', 'I', 'Caller']))
+    expect(out.graph.edges).toEqual([edge('Caller', 'I'), impl('I', 'S')])
   })
 
   it('入力を破壊しない', () => {
