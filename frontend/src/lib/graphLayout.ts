@@ -12,6 +12,7 @@ import type {
 } from '@/types/graph'
 import { getClusterColor } from './clusterColors'
 import { inferLayer } from './layerInference'
+import { nodeDisplayName } from './nodeLabel'
 
 export const NODE_W = 200
 export const NODE_H = 60
@@ -67,7 +68,7 @@ export function setElkWorkerFactory(factory: () => Worker): void {
 
 type InputNode = {
   id: string
-  name: string
+  label: string
   package: string
   file: string
   line: number
@@ -140,7 +141,7 @@ export async function layoutGraph(
 ): Promise<LayoutResult> {
   const inputNodes: InputNode[] = data.graph.nodes.map((n) => ({
     id: n.id,
-    name: n.name,
+    label: nodeDisplayName(n),
     package: n.package,
     file: n.file,
     line: n.line,
@@ -263,7 +264,7 @@ export async function layoutGraph(
         children: nodes.map((n) => ({
           id: n.id,
           data: {
-            label: n.name,
+            label: n.label,
             packagePath: n.package,
             file: n.file,
             line: n.line,

@@ -23,6 +23,13 @@ export type PRInfo = {
 
 export type DiffStatus = 'added' | 'removed' | 'existing'
 
+// NodeKind はノードの種類。interface_method は interface 型のメソッド（本体を持たない）で、
+// interface 経由の呼び出しはこのノードを経由して実装メソッドにつながる。
+export type NodeKind = 'func' | 'interface_method'
+
+// EdgeKind はエッジの種類。implements は interface メソッドから実装メソッドへのエッジ。
+export type EdgeKind = 'call' | 'implements'
+
 export type ClusterMode = 'louvain' | 'package' | 'file'
 
 export type GraphResponse = {
@@ -46,7 +53,10 @@ export type Graph = {
 
 export type GraphNode = {
   id: string
+  kind: NodeKind
   name: string
+  // メソッドのレシーバ型名（ポインタ記号なし）。関数は空文字。
+  receiver: string
   package: string
   file: string
   line: number
@@ -57,6 +67,7 @@ export type GraphNode = {
 export type GraphEdge = {
   from: string
   to: string
+  kind: EdgeKind
   status: DiffStatus
 }
 

@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import type { GraphResponse, GraphNode, DiffStatus } from '@/types/api'
+import type { GraphResponse, GraphNode, GraphEdge, DiffStatus } from '@/types/api'
 import { filterToImpact } from './impactFilter'
 
 function node(id: string, opts: Partial<GraphNode> = {}): GraphNode {
   return {
     id,
+    kind: 'func',
     name: id,
+    receiver: '',
     package: 'pkg',
     file: `${id}.go`,
     line: 1,
@@ -35,7 +37,12 @@ function build(overrides: Partial<GraphResponse>): GraphResponse {
   }
 }
 
-const edge = (from: string, to: string, status: DiffStatus = 'existing') => ({ from, to, status })
+const edge = (from: string, to: string, status: DiffStatus = 'existing'): GraphEdge => ({
+  from,
+  to,
+  kind: 'call',
+  status,
+})
 
 describe('filterToImpact', () => {
   it('変更ノードと直接近傍 1-hop（両方向）だけ残し、無関係なノード/エッジを落とす', () => {

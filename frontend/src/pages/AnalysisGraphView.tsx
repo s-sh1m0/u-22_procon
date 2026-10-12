@@ -9,6 +9,7 @@ import { getClusterColor } from '@/lib/clusterColors'
 import { makeClusterKey } from '@/lib/graphLayout'
 import { filterToImpact } from '@/lib/impactFilter'
 import { isChanged } from '@/lib/nodeChange'
+import { nodeDisplayName } from '@/lib/nodeLabel'
 import { useEditorBridge, type OpenDiffRequest } from '@/lib/editorBridge'
 import { computeInDegree, computeReviewPriority, type ReviewPriority } from '@/lib/reviewPriority'
 import AppShell from '@/components/layout/AppShell'
@@ -174,7 +175,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
   // 検索候補は現在描画しているビュー（影響のみ / 全体）の全関数ノード。
   const searchCandidates = useMemo<SearchCandidate[]>(() => {
     if (!view) return []
-    return view.graph.nodes.map((n) => ({ id: n.id, name: n.name, package: n.package }))
+    return view.graph.nodes.map((n) => ({ id: n.id, name: nodeDisplayName(n), package: n.package }))
   }, [view])
 
   // in-degree（被呼び出し数）はグラフ全体から一度だけ算出する。
@@ -245,7 +246,7 @@ export default function AnalysisGraphView({ jobId }: Props) {
       type: 'function',
       position: { x: 0, y: 0 },
       data: {
-        label: gn.name,
+        label: nodeDisplayName(gn),
         packagePath: gn.package,
         file: gn.file,
         line: gn.line,
