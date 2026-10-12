@@ -2,8 +2,11 @@ package analyzer
 
 import (
 	"context"
+	"go/token"
+	"go/types"
 	"log"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/tools/go/callgraph"
@@ -39,6 +42,7 @@ func NewGoCallGraphBuilder() *GoCallGraphBuilder {
 // changedPkgIDs が空の場合は空の Graph を返す。
 // changedLines は起点（変更ファイル）の判定と、changed フラグを関数単位で設定するために使う。
 // stdlib・外部ライブラリはフィルタリングして含めない。
+// interface 経由の呼び出しは、呼び出し元 → interface メソッドノード → 実装（implements エッジ）の形にする。
 // rootDir はリポジトリのルートディレクトリの絶対パスで、ノードのファイルパスを相対パスに変換するために使用される。
 func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, changedPkgIDs []string, changedLines ChangedLines, rootDir string) (*domain.Graph, error) {
 	if len(changedPkgIDs) == 0 {
@@ -95,6 +99,24 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		loadedSet[pkg.ID] = struct{}{}
 	}
 
+	// プロジェクトのモジュールパス。interface がプロジェクト内で宣言されたかの判定に使う。
+	// interface を宣言したパッケージが近傍ロードの範囲外でも拾えるよう、loadedSet ではなく
+	// モジュールパスで判定する。
+	modules := make(map[string]struct{})
+	for _, pkg := range projectPkgs {
+		modules[pkg.Module.Path] = struct{}{}
+	}
+	// 関数値の呼び出しと、プロジェクト外の interface（error / fmt.Stringer 等）経由の呼び出しは辿らない。
+	// どちらも CHA が同じシグネチャ・同じメソッドを持つ関数すべてへの呼び出しとして解決し、
+	// 無関係な関数どうしが大量につながるため。
+	skipEdge := func(edge *callgraph.Edge) bool {
+		if isFuncValueCall(edge) {
+			return true
+		}
+		m := dispatchMethod(edge)
+		return m != nil && !isProjectInterfaceMethod(m, modules)
+	}
+
 	// 5. 変更ファイルに定義された関数を起点に、呼び出し先方向・呼び出し元方向へ
 	// それぞれ maxDepth ホップ辿る。起点を関数単位にしないのは、base 側の changedLines が
 	// head 側の行番号で作られていて base で削除された関数を行範囲から特定できず、
@@ -116,8 +138,8 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 	}
 
 	collected := make(map[*callgraph.Node]struct{})
-	walk(seeds, true, maxDepth, loadedSet, collected)
-	walk(seeds, false, maxDepth, loadedSet, collected)
+	walk(seeds, true, maxDepth, loadedSet, skipEdge, collected)
+	walk(seeds, false, maxDepth, loadedSet, skipEdge, collected)
 
 	bfsTook := time.Since(tBFS)
 
@@ -125,6 +147,10 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 	// 無名関数（クロージャ）は囲うトップレベル親関数に畳み込む。複数の callgraph
 	// ノード（親本体 + 各クロージャ）が同一 NodeID を指すため、ノードは重複排除し、
 	// エッジは親 NodeID へ付け替えたうえで自己ループ・重複を除去する。
+	// interface 経由の呼び出しは、呼び出し元 → interface メソッド → 実装 の 2 本に分ける。
+	// CHA はこれを同じメソッドを持つ全型への呼び出しとして解決するため、そのままだと
+	// 1 回の呼び出しが実装の数だけのエッジになり、DIP どおりの呼び出し（usecase → domain の
+	// interface）も usecase → infra の実装への依存に見えてしまう。
 	tConv := time.Now()
 	nodeIDMap := make(map[*callgraph.Node]domain.NodeID, len(collected))
 	nodeSeen := make(map[domain.NodeID]struct{}, len(collected))
@@ -153,7 +179,9 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 		}
 		nodes = append(nodes, domain.Node{
 			ID:         nid,
+			Kind:       domain.NodeKindFunc,
 			Name:       fn.Name(),
+			Receiver:   receiverName(fn.Signature),
 			Package:    pkgPath(fn),
 			File:       relPath,
 			Line:       pos.Line,
@@ -165,28 +193,41 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 
 	var edges []domain.Edge
 	seen := make(map[[2]domain.NodeID]struct{})
+	addEdge := func(from, to domain.NodeID, kind domain.EdgeKind) {
+		key := [2]domain.NodeID{from, to}
+		if _, dup := seen[key]; dup {
+			return
+		}
+		seen[key] = struct{}{}
+		edges = append(edges, domain.Edge{From: from, To: to, Kind: kind, Status: domain.DiffStatusExisting})
+	}
 	for cgNode := range collected {
 		callerID, ok := nodeIDMap[cgNode]
 		if !ok {
 			continue
 		}
 		for _, edge := range cgNode.Out {
-			if isFuncValueCall(edge) {
+			if skipEdge(edge) {
 				continue
 			}
 			calleeID, ok2 := nodeIDMap[edge.Callee]
 			if !ok2 {
 				continue
 			}
+			if m := dispatchMethod(edge); m != nil {
+				iid := toInterfaceNodeID(m)
+				if _, dup := nodeSeen[iid]; !dup {
+					nodeSeen[iid] = struct{}{}
+					nodes = append(nodes, interfaceMethodNode(m, prog.Fset, changedLines, rootDir))
+				}
+				addEdge(callerID, iid, domain.EdgeKindCall)
+				addEdge(iid, calleeID, domain.EdgeKindImplements)
+				continue
+			}
 			if callerID == calleeID { // 親→クロージャ / クロージャ→クロージャ由来の自己ループを除去
 				continue
 			}
-			key := [2]domain.NodeID{callerID, calleeID}
-			if _, dup := seen[key]; dup {
-				continue
-			}
-			seen[key] = struct{}{}
-			edges = append(edges, domain.Edge{From: callerID, To: calleeID, Status: domain.DiffStatusExisting})
+			addEdge(callerID, calleeID, domain.EdgeKindCall)
 		}
 	}
 
@@ -201,8 +242,8 @@ func (b *GoCallGraphBuilder) Build(_ context.Context, pkgs []*packages.Package, 
 
 // walk は seeds から maxDepth ホップまで一方向に辿り、到達したノードを collected に加える。
 // forward が true なら呼び出し先（Out）、false なら呼び出し元（In）の方向に辿る。
-// プロジェクト外（loadedSet に無いパッケージ）の関数は辿らない。
-func walk(seeds []*callgraph.Node, forward bool, maxDepth int, loadedSet map[string]struct{}, collected map[*callgraph.Node]struct{}) {
+// プロジェクト外（loadedSet に無いパッケージ）の関数と、skipEdge が true を返すエッジは辿らない。
+func walk(seeds []*callgraph.Node, forward bool, maxDepth int, loadedSet map[string]struct{}, skipEdge func(*callgraph.Edge) bool, collected map[*callgraph.Node]struct{}) {
 	type entry struct {
 		node  *callgraph.Node
 		depth int
@@ -229,7 +270,7 @@ func walk(seeds []*callgraph.Node, forward bool, maxDepth int, loadedSet map[str
 			edges = cur.node.Out
 		}
 		for _, edge := range edges {
-			if isFuncValueCall(edge) {
+			if skipEdge(edge) {
 				continue
 			}
 			next := edge.Caller
@@ -258,6 +299,82 @@ func isFuncValueCall(edge *callgraph.Edge) bool {
 	}
 	call := edge.Site.Common()
 	return !call.IsInvoke() && call.StaticCallee() == nil
+}
+
+// dispatchMethod は edge が interface メソッド呼び出し（invoke）由来なら、呼ばれた interface
+// メソッドを返す。それ以外の呼び出しでは nil を返す。
+// ジェネリックな interface のメソッドは、型引数ごとに分かれないよう元の宣言に揃える。
+func dispatchMethod(edge *callgraph.Edge) *types.Func {
+	if edge.Site == nil {
+		return nil
+	}
+	call := edge.Site.Common()
+	if !call.IsInvoke() {
+		return nil
+	}
+	return call.Method.Origin()
+}
+
+// isProjectInterfaceMethod は m がプロジェクト（modules のいずれかのモジュール）内で宣言された、
+// 名前付き interface のメソッドかを返す。error・fmt.Stringer など stdlib・外部ライブラリの
+// interface や、無名の interface（interface{ M() } の型アサーション等）は false。
+func isProjectInterfaceMethod(m *types.Func, modules map[string]struct{}) bool {
+	if m.Pkg() == nil || receiverName(m.Signature()) == "" {
+		return false
+	}
+	path := m.Pkg().Path()
+	for mod := range modules {
+		if path == mod || strings.HasPrefix(path, mod+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// toInterfaceNodeID は interface メソッドの NodeID を返す。
+// 例: "(example.com/pkg.Iface).M"。具象メソッドの toNodeID（"(example.com/pkg.T).M"）と同じ形式で、
+// 同じパッケージに同名の interface と具象型は宣言できないため衝突しない。
+func toInterfaceNodeID(m *types.Func) domain.NodeID {
+	return domain.NodeID(m.FullName())
+}
+
+// interfaceMethodNode は interface メソッド m のノードを返す。
+// 定義位置は interface 宣言内のメソッドの行で、本体が無いので EndLine は Line と同じにする。
+func interfaceMethodNode(m *types.Func, fset *token.FileSet, changedLines ChangedLines, rootDir string) domain.Node {
+	pos := fset.Position(m.Pos())
+	relPath, err := filepath.Rel(rootDir, pos.Filename)
+	if err != nil {
+		relPath = pos.Filename
+	}
+	return domain.Node{
+		ID:         toInterfaceNodeID(m),
+		Kind:       domain.NodeKindInterfaceMethod,
+		Name:       m.Name(),
+		Receiver:   receiverName(m.Signature()),
+		Package:    m.Pkg().Path(),
+		File:       relPath,
+		Line:       pos.Line,
+		EndLine:    pos.Line,
+		Changed:    changedLines.FunctionChanged(pos.Filename, pos.Line, pos.Line),
+		DiffStatus: domain.DiffStatusExisting,
+	}
+}
+
+// receiverName はメソッドのシグネチャ sig からレシーバ型の名前を返す（ポインタ記号は付けない。
+// 例: (*T).M → "T"）。関数や、レシーバが名前付きの型でないときは空文字を返す。
+func receiverName(sig *types.Signature) string {
+	recv := sig.Recv()
+	if recv == nil {
+		return ""
+	}
+	t := recv.Type()
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	if n, ok := types.Unalias(t).(*types.Named); ok {
+		return n.Obj().Name()
+	}
+	return ""
 }
 
 func isInLoadedSet(fn *ssa.Function, loadedSet map[string]struct{}) bool {

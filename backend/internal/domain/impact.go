@@ -12,6 +12,10 @@ package domain
 //     エッジも同様に、両端とも変更ファイルに無ければ existing に戻す。
 //   - 起点は Changed または DiffStatus が existing 以外のノード。
 //   - 起点と、起点に直接つながるノードを残す。
+//   - interface メソッドノードは呼び出しの中継点として通り抜ける。起点が呼ぶ interface メソッドは
+//     その実装も、起点を実装に持つ interface メソッドはその呼び出し元も残す。interface 経由の
+//     呼び出しを呼び出し元 → 実装の直接のエッジで表していたときと同じ範囲にするため。
+//     起点が呼ぶ interface メソッドの別の呼び出し元のような兄弟は拾わない。
 //   - 起点を含む新規循環（IsNew）は、構成ノードも残す。
 //   - エッジは両端が残ったものだけ、循環は構成ノードがすべて残ったものだけを返す。
 //
@@ -35,21 +39,39 @@ func ImpactSubgraph(g *Graph, cycles []Cycle, changed []ChangedFile) (*Graph, []
 	}
 
 	seeds := make(map[NodeID]struct{})
+	isIface := make(map[NodeID]bool, len(g.Nodes))
 	for _, n := range g.Nodes {
 		if n.Changed || (n.DiffStatus != DiffStatusExisting && inChangedFile[n.ID]) {
 			seeds[n.ID] = struct{}{}
 		}
+		isIface[n.ID] = n.IsInterfaceMethod()
 	}
 
 	keep := make(map[NodeID]struct{}, len(seeds))
 	for id := range seeds {
 		keep[id] = struct{}{}
 	}
+	calledIfaces := make(map[NodeID]struct{}) // 起点が呼ぶ interface メソッド
+	implByIfaces := make(map[NodeID]struct{}) // 起点を実装に持つ interface メソッド
 	for _, e := range g.Edges {
 		if _, ok := seeds[e.From]; ok {
 			keep[e.To] = struct{}{}
+			if isIface[e.To] {
+				calledIfaces[e.To] = struct{}{}
+			}
 		}
 		if _, ok := seeds[e.To]; ok {
+			keep[e.From] = struct{}{}
+			if isIface[e.From] {
+				implByIfaces[e.From] = struct{}{}
+			}
+		}
+	}
+	for _, e := range g.Edges {
+		if _, ok := calledIfaces[e.From]; ok && e.IsImplements() {
+			keep[e.To] = struct{}{}
+		}
+		if _, ok := implByIfaces[e.To]; ok && !e.IsImplements() {
 			keep[e.From] = struct{}{}
 		}
 	}

@@ -12,6 +12,12 @@ func TestImpactSubgraph(t *testing.T) {
 	edge := func(from, to string, st DiffStatus) Edge {
 		return Edge{From: NodeID(from), To: NodeID(to), Status: st}
 	}
+	iface := func(id, file string) Node {
+		return Node{ID: NodeID(id), Kind: NodeKindInterfaceMethod, File: file, DiffStatus: DiffStatusExisting}
+	}
+	impl := func(from, to string) Edge {
+		return Edge{From: NodeID(from), To: NodeID(to), Kind: EdgeKindImplements, Status: DiffStatusExisting}
+	}
 	modified := []ChangedFile{{Filename: "a.go", Status: FileStatusModified}}
 
 	tests := []struct {
@@ -179,6 +185,66 @@ func TestImpactSubgraph(t *testing.T) {
 				{"C", "S"}: DiffStatusExisting,
 			},
 			wantCycles: []int{0},
+		},
+		{
+			name: "起点が呼ぶ interface メソッドの実装を残し、別の呼び出し元は残さない",
+			g: &Graph{
+				Nodes: []Node{
+					node("S", "a.go", true, DiffStatusExisting),
+					iface("I", "i.go"),
+					node("Impl1", "b.go", false, DiffStatusExisting),
+					node("Impl2", "b.go", false, DiffStatusExisting),
+					node("OtherCaller", "c.go", false, DiffStatusExisting),
+					node("ImplCallee", "b.go", false, DiffStatusExisting),
+				},
+				Edges: []Edge{
+					edge("S", "I", DiffStatusAdded),
+					impl("I", "Impl1"),
+					impl("I", "Impl2"),
+					edge("OtherCaller", "I", DiffStatusExisting),
+					edge("Impl1", "ImplCallee", DiffStatusExisting),
+				},
+			},
+			changed: modified,
+			wantNodes: map[NodeID]DiffStatus{
+				"S":     DiffStatusExisting,
+				"I":     DiffStatusExisting,
+				"Impl1": DiffStatusExisting,
+				"Impl2": DiffStatusExisting,
+			},
+			wantEdges: map[[2]NodeID]DiffStatus{
+				{"S", "I"}:     DiffStatusAdded,
+				{"I", "Impl1"}: DiffStatusExisting,
+				{"I", "Impl2"}: DiffStatusExisting,
+			},
+			wantCycles: []int{},
+		},
+		{
+			name: "起点を実装に持つ interface メソッドの呼び出し元を残し、別の実装は残さない",
+			g: &Graph{
+				Nodes: []Node{
+					node("S", "a.go", true, DiffStatusExisting),
+					iface("I", "i.go"),
+					node("Caller", "c.go", false, DiffStatusExisting),
+					node("OtherImpl", "b.go", false, DiffStatusExisting),
+				},
+				Edges: []Edge{
+					edge("Caller", "I", DiffStatusExisting),
+					impl("I", "S"),
+					impl("I", "OtherImpl"),
+				},
+			},
+			changed: modified,
+			wantNodes: map[NodeID]DiffStatus{
+				"S":      DiffStatusExisting,
+				"I":      DiffStatusExisting,
+				"Caller": DiffStatusExisting,
+			},
+			wantEdges: map[[2]NodeID]DiffStatus{
+				{"Caller", "I"}: DiffStatusExisting,
+				{"I", "S"}:      DiffStatusExisting,
+			},
+			wantCycles: []int{},
 		},
 		{
 			name:       "nil グラフは空グラフを返す",

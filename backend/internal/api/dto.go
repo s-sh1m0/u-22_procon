@@ -74,7 +74,9 @@ type GraphDTO struct {
 // NodeDTO はノードの JSON 表現
 type NodeDTO struct {
 	ID         string `json:"id"`
+	Kind       string `json:"kind"` // "func" | "interface_method"
 	Name       string `json:"name"`
+	Receiver   string `json:"receiver"` // メソッドのレシーバ型名。関数は空
 	Package    string `json:"package"`
 	File       string `json:"file"`
 	Line       int    `json:"line"`
@@ -86,6 +88,7 @@ type NodeDTO struct {
 type EdgeDTO struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
+	Kind   string `json:"kind"`   // "call" | "implements"
 	Status string `json:"status"` // "added" | "removed" | "existing"
 }
 
@@ -140,9 +143,15 @@ func toGraphResponse(a *domain.Analysis) GraphResponse {
 		if ds == "" {
 			ds = string(domain.DiffStatusExisting)
 		}
+		kind := string(n.Kind)
+		if kind == "" {
+			kind = string(domain.NodeKindFunc)
+		}
 		nodes[i] = NodeDTO{
 			ID:         string(n.ID),
+			Kind:       kind,
 			Name:       n.Name,
+			Receiver:   n.Receiver,
 			Package:    n.Package,
 			File:       n.File,
 			Line:       n.Line,
@@ -157,7 +166,11 @@ func toGraphResponse(a *domain.Analysis) GraphResponse {
 		if st == "" {
 			st = string(domain.DiffStatusExisting)
 		}
-		edges[i] = EdgeDTO{From: string(e.From), To: string(e.To), Status: st}
+		kind := string(e.Kind)
+		if kind == "" {
+			kind = string(domain.EdgeKindCall)
+		}
+		edges[i] = EdgeDTO{From: string(e.From), To: string(e.To), Kind: kind, Status: st}
 	}
 
 	cycles := make([]CycleDTO, len(r.Cycles))

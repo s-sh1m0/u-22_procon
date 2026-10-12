@@ -9,6 +9,10 @@ import { isChanged } from '@/lib/nodeChange'
  * クラスタ集約前の生グラフ（`data.graph`）に対して適用する想定。
  *
  * - エッジ: いずれかの端点が変更ノードなら残す
+ * - interface メソッドノードは呼び出しの中継点として通り抜ける。変更ノードが呼ぶ interface
+ *   メソッドは実装への implements エッジも、変更ノードを実装に持つ interface メソッドは
+ *   呼び出し元からのエッジも残す（バックエンドの ImpactSubgraph と同じ範囲）。
+ *   変更ノードが呼ぶ interface メソッドの別の呼び出し元のような兄弟は拾わない
  * - ノード: 変更ノード自身 + 残したエッジの端点
  * - 孤立した変更ノード（エッジを持たない）も残す
  * - clusters: 残ったノードで絞り込み、空になったクラスタは除去
@@ -18,14 +22,29 @@ import { isChanged } from '@/lib/nodeChange'
  */
 export function filterToImpact(data: GraphResponse): GraphResponse {
   const changed = new Set<string>()
+  const ifaces = new Set<string>()
   for (const n of data.graph.nodes) {
     if (isChanged(n)) changed.add(n.id)
+    if (n.kind === 'interface_method') ifaces.add(n.id)
+  }
+
+  const calledIfaces = new Set<string>() // 変更ノードが呼ぶ interface メソッド
+  const implByIfaces = new Set<string>() // 変更ノードを実装に持つ interface メソッド
+  for (const e of data.graph.edges) {
+    if (changed.has(e.from) && ifaces.has(e.to)) calledIfaces.add(e.to)
+    if (changed.has(e.to) && ifaces.has(e.from)) implByIfaces.add(e.from)
   }
 
   const keepNodes = new Set<string>(changed)
   const keepEdges: GraphEdge[] = []
   for (const e of data.graph.edges) {
-    if (changed.has(e.from) || changed.has(e.to)) {
+    const isImpl = e.kind === 'implements'
+    if (
+      changed.has(e.from) ||
+      changed.has(e.to) ||
+      (isImpl && calledIfaces.has(e.from)) ||
+      (!isImpl && implByIfaces.has(e.to))
+    ) {
       keepEdges.push(e)
       keepNodes.add(e.from)
       keepNodes.add(e.to)

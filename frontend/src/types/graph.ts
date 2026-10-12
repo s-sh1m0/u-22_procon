@@ -1,9 +1,10 @@
 import type { Node } from '@xyflow/react'
-import type { DiffStatus } from './api'
+import type { DiffStatus, NodeKind } from './api'
 
 export type LayerKind = 'ui' | 'domain' | 'data' | 'infra' | 'other'
 
 export type FunctionNodeData = {
+  kind: NodeKind
   label: string
   packagePath: string
   file: string
@@ -13,6 +14,10 @@ export type FunctionNodeData = {
   clusterId: number
   clusterColorHex: string
   layer: LayerKind
+  /** interface メソッドの実装の数（関数ノードは 0） */
+  implCount: number
+  /** interface メソッドの実装を展開中か */
+  implExpanded: boolean
   [key: string]: unknown
 }
 

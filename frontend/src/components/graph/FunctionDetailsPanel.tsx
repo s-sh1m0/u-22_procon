@@ -64,6 +64,11 @@ export default function FunctionDetailsPanel({
               {cluster.label}
             </span>
           )}
+          {node.data.kind === 'interface_method' && (
+            <span className="rounded-full bg-stone-100 px-2 py-0.5 font-mono text-xs font-medium text-stone-600">
+              interface
+            </span>
+          )}
           {changed && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
               changed
@@ -110,7 +115,7 @@ export default function FunctionDetailsPanel({
 
       {inlineDiff ? (
         <div className="flex min-h-0 flex-1">
-          <DiffViewer file={inlineDiff} />
+          <DiffViewer file={inlineDiff} line={node.data.line} diffStatus={node.data.diffStatus} />
         </div>
       ) : diff ? (
         <div className="px-4 py-3">
