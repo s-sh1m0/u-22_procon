@@ -181,9 +181,11 @@ func TestGetGraph_Success(t *testing.T) {
 			Nodes: []domain.Node{
 				{ID: "fn:A", Name: "A", Changed: true, DiffStatus: domain.DiffStatusAdded},
 				{ID: "fn:B", Name: "B", DiffStatus: domain.DiffStatusRemoved},
+				{ID: "(pkg.I).M", Kind: domain.NodeKindInterfaceMethod, Name: "M", Receiver: "I", DiffStatus: domain.DiffStatusExisting},
 			},
 			Edges: []domain.Edge{
 				{From: "fn:A", To: "fn:B", Status: domain.DiffStatusExisting},
+				{From: "(pkg.I).M", To: "fn:B", Kind: domain.EdgeKindImplements, Status: domain.DiffStatusExisting},
 			},
 		},
 		Cycles: []domain.Cycle{
@@ -221,8 +223,8 @@ func TestGetGraph_Success(t *testing.T) {
 	if len(resp.Clusters) != 1 {
 		t.Errorf("expected 1 cluster, got %d", len(resp.Clusters))
 	}
-	if len(resp.Graph.Nodes) != 2 {
-		t.Errorf("expected 2 nodes, got %d", len(resp.Graph.Nodes))
+	if len(resp.Graph.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(resp.Graph.Nodes))
 	}
 	if resp.PR.Owner != "owner" {
 		t.Errorf("expected PR.Owner=owner, got %s", resp.PR.Owner)
@@ -237,6 +239,13 @@ func TestGetGraph_Success(t *testing.T) {
 	if resp.Graph.Edges[0].Status != string(domain.DiffStatusExisting) {
 		t.Errorf("edge[0].Status=%q want existing", resp.Graph.Edges[0].Status)
 	}
+	// interface メソッドノードと implements エッジの種類・レシーバが返ること
+	if got := resp.Graph.Nodes[2]; got.Kind != "interface_method" || got.Receiver != "I" {
+		t.Errorf("node[2] Kind=%q Receiver=%q want interface_method / I", got.Kind, got.Receiver)
+	}
+	if got := resp.Graph.Edges[1].Kind; got != "implements" {
+		t.Errorf("edge[1].Kind=%q want implements", got)
+	}
 	if len(resp.Cycles) != 1 {
 		t.Fatalf("expected 1 cycle, got %d", len(resp.Cycles))
 	}
@@ -245,12 +254,12 @@ func TestGetGraph_Success(t *testing.T) {
 	}
 }
 
-// 旧形式（DiffStatus 未設定）でも existing にフォールバックすることを確認
+// 旧形式（DiffStatus / Kind 未設定）でも existing / func / call にフォールバックすることを確認
 func TestGetGraph_DefaultsToExisting(t *testing.T) {
 	result := &domain.ClusterResult{
 		Graph: domain.Graph{
-			Nodes: []domain.Node{{ID: "fn:A"}},               // DiffStatus 未設定
-			Edges: []domain.Edge{{From: "fn:A", To: "fn:B"}}, // Status 未設定
+			Nodes: []domain.Node{{ID: "fn:A"}},               // DiffStatus / Kind 未設定
+			Edges: []domain.Edge{{From: "fn:A", To: "fn:B"}}, // Status / Kind 未設定
 		},
 	}
 	analysis := &domain.Analysis{ID: "a1", Result: result}
@@ -275,6 +284,12 @@ func TestGetGraph_DefaultsToExisting(t *testing.T) {
 	}
 	if resp.Graph.Edges[0].Status != string(domain.DiffStatusExisting) {
 		t.Errorf("default Status=%q want existing", resp.Graph.Edges[0].Status)
+	}
+	if resp.Graph.Nodes[0].Kind != string(domain.NodeKindFunc) {
+		t.Errorf("default node Kind=%q want func", resp.Graph.Nodes[0].Kind)
+	}
+	if resp.Graph.Edges[0].Kind != string(domain.EdgeKindCall) {
+		t.Errorf("default edge Kind=%q want call", resp.Graph.Edges[0].Kind)
 	}
 }
 
