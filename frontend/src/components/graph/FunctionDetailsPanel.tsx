@@ -115,7 +115,7 @@ export default function FunctionDetailsPanel({
 
       {inlineDiff ? (
         <div className="flex min-h-0 flex-1">
-          <DiffViewer file={inlineDiff} />
+          <DiffViewer file={inlineDiff} line={node.data.line} diffStatus={node.data.diffStatus} />
         </div>
       ) : diff ? (
         <div className="px-4 py-3">
