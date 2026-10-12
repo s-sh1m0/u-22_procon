@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS analyses (
     pr_head_sha TEXT NOT NULL DEFAULT '',
     result      TEXT,    -- ClusterResult の JSON（グラフ本体。diff 本文は含まない）
     changed_files TEXT,  -- []DiffFile の JSON（diff 本文。グラフ読み経路で unmarshal しないよう別カラムに分離）
+    analyzer_version INTEGER NOT NULL DEFAULT 0, -- 解析したときの domain.AnalyzerVersion（キャッシュ判定に使う）
     created_at  DATETIME NOT NULL
 );
 

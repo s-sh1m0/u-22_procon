@@ -1,59 +1,38 @@
-import type { AnyFlowNode, LayerKind } from '@/types/graph'
+import type { AnyFlowNode } from '@/types/graph'
 import type { Cluster, DiffFile, PRInfo } from '@/types/api'
-import type { ReviewPriority } from '@/lib/reviewPriority'
 import { getClusterColor } from '@/lib/clusterColors'
 import { buildBlobUrl } from '@/lib/githubLinks'
 import DiffViewer from '@/components/diff/DiffViewer'
 
-const LAYER_LABELS: Record<LayerKind, string> = {
-  ui: 'UI',
-  domain: 'Domain',
-  data: 'Data',
-  infra: 'Infra',
-  other: 'Other',
-}
-
-const PRIORITY_LABELS: Record<ReviewPriority, string> = {
-  high: '高',
-  medium: '中',
-  low: '低',
-}
-
-const PRIORITY_CLASSES: Record<ReviewPriority, string> = {
-  high: 'bg-red-100 text-red-700',
-  medium: 'bg-amber-100 text-amber-700',
-  low: 'bg-stone-100 text-stone-500',
-}
-
 type Props = {
   node: AnyFlowNode | null
   cluster: Cluster | null
-  layer: LayerKind
   diff: DiffFile | undefined
   pr: PRInfo
-  priority: ReviewPriority
   onClose: () => void
+  /** 指定時はパネル内に Monaco を出さず、diff をエディタ側（VS Code）で開くボタンにする */
+  onOpenDiffInEditor?: () => void
 }
 
 export default function FunctionDetailsPanel({
   node,
   cluster,
-  layer,
   diff,
   pr,
-  priority,
   onClose,
+  onOpenDiffInEditor,
 }: Props) {
   if (!node || node.type !== 'function') return null
 
   const color = cluster ? getClusterColor(cluster.id) : null
   const changed = node.data.changed as boolean
-  const inCycle = node.data.inCycle as boolean
   const blobUrl = buildBlobUrl(pr, node.data.file, node.data.line, node.data.diffStatus)
+  // エディタ連携時はパネル内に diff を出さない（Monaco を読み込まない）
+  const inlineDiff = onOpenDiffInEditor ? undefined : diff
 
   return (
     <div
-      className={`flex flex-shrink-0 flex-col border-l border-stone-200 bg-white overflow-hidden ${diff ? 'w-[700px]' : 'w-80'}`}
+      className={`flex flex-shrink-0 flex-col border-l border-stone-200 bg-white overflow-hidden ${inlineDiff ? 'w-[700px]' : 'w-80'}`}
     >
       <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
         <span className="text-sm font-semibold text-stone-800">詳細</span>
@@ -77,12 +56,6 @@ export default function FunctionDetailsPanel({
 
       <div className="p-4 space-y-4 border-b border-stone-100">
         <div className="flex flex-wrap gap-1.5">
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_CLASSES[priority]}`}
-            title="レビュー優先度（新規循環・変更・被呼び出し数から算出）"
-          >
-            優先度 {PRIORITY_LABELS[priority]}
-          </span>
           {cluster && color && (
             <span
               className="rounded-full px-2 py-0.5 text-xs font-medium"
@@ -91,17 +64,14 @@ export default function FunctionDetailsPanel({
               {cluster.label}
             </span>
           )}
-          <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-600">
-            {LAYER_LABELS[layer]}
-          </span>
+          {node.data.kind === 'interface_method' && (
+            <span className="rounded-full bg-stone-100 px-2 py-0.5 font-mono text-xs font-medium text-stone-600">
+              interface
+            </span>
+          )}
           {changed && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
               changed
-            </span>
-          )}
-          {inCycle && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-              循環参照
             </span>
           )}
         </div>
@@ -143,9 +113,19 @@ export default function FunctionDetailsPanel({
         </div>
       </div>
 
-      {diff ? (
+      {inlineDiff ? (
         <div className="flex min-h-0 flex-1">
-          <DiffViewer file={diff} />
+          <DiffViewer file={inlineDiff} line={node.data.line} diffStatus={node.data.diffStatus} />
+        </div>
+      ) : diff ? (
+        <div className="px-4 py-3">
+          <button
+            type="button"
+            onClick={onOpenDiffInEditor}
+            className="w-full rounded-md border border-stone-200 px-3 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50"
+          >
+            エディタで diff を開く
+          </button>
         </div>
       ) : (
         <div className="px-4 py-3 text-xs text-stone-400">このファイルに変更はありません</div>

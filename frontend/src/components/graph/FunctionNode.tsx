@@ -4,7 +4,7 @@ import type { FunctionFlowNode } from '@/types/graph'
 export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowNode>) {
   const isAdded = data.diffStatus === 'added'
   const isRemoved = data.diffStatus === 'removed'
-  const inCycle = data.inCycle
+  const isIface = data.kind === 'interface_method'
   return (
     <div
       className={[
@@ -12,9 +12,8 @@ export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowN
         'w-[200px]',
         isRemoved ? 'border-dashed border-stone-300 opacity-60 grayscale' : 'border-stone-200',
         selected ? 'ring-2 ring-stone-900' : '',
-        !selected && inCycle ? 'ring-2 ring-red-500' : '',
-        !selected && !inCycle && isAdded ? 'ring-2 ring-emerald-500' : '',
-        !selected && !inCycle && !isAdded && data.changed ? 'ring-2 ring-amber-400' : '',
+        !selected && isAdded ? 'ring-2 ring-emerald-500' : '',
+        !selected && !isAdded && data.changed ? 'ring-2 ring-amber-400' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -42,14 +41,6 @@ export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowN
       {!isAdded && !isRemoved && data.changed && (
         <div className="absolute right-1.5 top-1.5 size-2 rounded-full bg-amber-400" />
       )}
-      {inCycle && (
-        <div
-          className="absolute bottom-1.5 right-1.5 flex size-3.5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold leading-none text-white"
-          title="新規循環参照に含まれる"
-        >
-          ↻
-        </div>
-      )}
       <div className="pl-3 pr-4 py-2">
         <p
           className={[
@@ -60,9 +51,24 @@ export default function FunctionNode({ data, selected }: NodeProps<FunctionFlowN
           {data.label}
         </p>
         <p className="truncate font-mono text-[10px] text-stone-400">{data.packagePath}</p>
-        <p className="truncate font-mono text-[10px] text-stone-300">
-          {data.file.split('/').pop()}:{data.line}
-        </p>
+        {isIface ? (
+          // interface メソッドはクリックで実装を展開・折りたたむ。定義位置は詳細パネルで見る。
+          <p
+            className="flex items-center gap-1.5 text-[10px] text-stone-500"
+            title={data.implExpanded ? 'クリックで実装を隠す' : 'クリックで実装を表示'}
+          >
+            <span className="rounded-full bg-stone-100 px-1.5 font-mono text-stone-500">
+              interface
+            </span>
+            <span>
+              実装 {data.implCount} {data.implExpanded ? '▾' : '▸'}
+            </span>
+          </p>
+        ) : (
+          <p className="truncate font-mono text-[10px] text-stone-300">
+            {data.file.split('/').pop()}:{data.line}
+          </p>
+        )}
       </div>
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />

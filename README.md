@@ -64,6 +64,42 @@ docker compose -f compose.prod.yml down -v
 
 ---
 
+## VS Code 拡張（任意）
+
+Web 版と同じ解析画面を VS Code の中で開けます。グラフで関数を選ぶと、その関数の差分が VS Code の diff エディタで隣のタブに開きます。
+
+前提: 上の手順でサーバー（<http://localhost:20080>）が起動していること。
+
+### 1. インストール
+
+配布物の `extension/diffgraph-0.1.0.vsix` をインストールする（リポジトリから使う場合は [3.](#3-vsix-を自分でビルドする場合) でビルドする）。
+
+```bash
+code --install-extension extension/diffgraph-0.1.0.vsix
+```
+
+VS Code の拡張機能ビューの「…」メニュー →「VSIX からのインストール...」からでもよい。
+
+### 2. 使い方
+
+1. コマンドパレット（Ctrl+Shift+P / Cmd+Shift+P）から **DiffGraph: PR を解析** を実行する
+2. Go の GitHub PR の URL を入力する（例: `https://github.com/google/uuid/pull/172`）。クリップボードに PR の URL があれば、最初から入力されている
+3. 初回は GitHub へのサインインを求められるので許可する（VS Code 標準の GitHub 認証）
+4. 解析が終わるとグラフが表示される。関数を選ぶと、隣のタブにその関数の diff が開く
+5. 同じ結果を Web 版で見るときは、タブ右上のアイコン（**DiffGraph: ブラウザで開く**）を使う
+
+ポートを変えた場合（`.env` の `PORT`）は、VS Code の設定 `diffgraph.serverUrl` を合わせる。
+
+### 3. .vsix を自分でビルドする場合
+
+```bash
+docker compose run --rm frontend npm run build:webview   # 画面（Web と同じ解析画面）をビルド
+docker compose run --rm extension npm install
+docker compose run --rm extension npm run package        # extension/diffgraph-0.1.0.vsix ができる
+```
+
+---
+
 ## トラブルシューティング
 
 | 症状 | 対処 |
@@ -72,6 +108,7 @@ docker compose -f compose.prod.yml down -v
 | 解析が終わらない / OOM で落ちる | Docker Desktop のメモリ割当を **6 GB 以上** に増やす（Settings → Resources → Memory） |
 | ポート 20080 が競合する | `.env` に `PORT=<別のポート>` を追加し、OAuth App の Homepage URL / Callback URL のポートも合わせて変更する |
 | `./setup.sh` が Permission denied | `chmod +x setup.sh` を実行してから再度試す |
+| VS Code 拡張で「DiffGraph サーバーに接続できません」と出る | `docker compose -f compose.prod.yml up -d` でサーバーを起動する。ポートを変えている場合は VS Code の設定 `diffgraph.serverUrl` を合わせる |
 
 ---
 
@@ -107,7 +144,7 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 - リアルタイムコラボレーション（複数レビュアーの同時編集、CRDT 同期）※コンテスト後の拡張候補
 - AST ノードベースのコメント永続化（rebase 耐性）
 - セルフホスト用の本格的な認証・マルチテナント
-- VSCode 拡張、ブラウザ拡張
+- ブラウザ拡張
 - モバイル対応
 - LLM による意味的解析（クラスタの命名のみ将来的にオプション）
 
@@ -178,6 +215,7 @@ GitHub の PR レビュー UI は変更行ベースの 1 次元 diff であり�
 
 - `@xyflow/react` でクラスタ単位の依存グラフを可視化
 - ノードクリックで `@monaco-editor/react` による diff 表示
+- VS Code 拡張（`extension/`）では同じ解析画面を webview で表示し、diff は VS Code の diff エディタで開く
 
 ---
 

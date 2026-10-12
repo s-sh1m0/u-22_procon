@@ -64,7 +64,7 @@ func main() {
 	queue := job.NewQueue(queueBuf)
 
 	// 1ジョブの解析時間上限。暴走解析がワーカーを占有し続けるのを防ぐ安全弁。
-	jobTimeout := time.Duration(envIntOr("JOB_TIMEOUT_SECONDS", 180)) * time.Second
+	jobTimeout := time.Duration(envIntOr("JOB_TIMEOUT_SECONDS", 1800)) * time.Second
 	worker := job.NewWorker(queue, jobRepo, analysisRepo, prRepo, sourceTree, cgBuilder, clusterer,
 		job.WithJobTimeout(jobTimeout))
 
@@ -91,7 +91,10 @@ func main() {
 	analysisHandler := api.NewAnalysisHandler(analyzeUC, getUC)
 	jobHandler := api.NewJobHandler(getUC)
 	diffHandler := api.NewDiffHandler(getUC)
-	router := api.NewRouter(authHandler, analysisHandler, jobHandler, diffHandler, sessions, frontendURL, staticDir)
+	// VS Code 拡張からの Bearer 認証。検証結果を TTL の間キャッシュし、
+	// ジョブ状態のポーリングのたびに GitHub /user を叩かないようにする。
+	tokenAuthUC := usecase.NewAuthenticateTokenUseCase(githubinfra.NewUserRepo(), 10*time.Minute)
+	router := api.NewRouter(authHandler, analysisHandler, jobHandler, diffHandler, sessions, tokenAuthUC, frontendURL, staticDir)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

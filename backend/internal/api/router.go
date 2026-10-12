@@ -13,13 +13,14 @@ import (
 )
 
 // NewRouter は Echo インスタンスを生成し全ルートを登録して返す。
-// 認証保護が必要なエンドポイントには RequireAuth を適用する。
+// 認証保護が必要なエンドポイントには RequireAuth を適用する（Cookie / Bearer の両対応）。
 func NewRouter(
 	authHandler *AuthHandler,
 	analysisHandler *AnalysisHandler,
 	jobHandler *JobHandler,
 	diffHandler *DiffHandler,
 	sessions domain.SessionRepository,
+	tokens tokenAuthUseCase,
 	frontendURL string,
 	staticDir string,
 ) *echo.Echo {
@@ -56,9 +57,9 @@ func NewRouter(
 	auth.GET("/github", authHandler.Login)
 	auth.GET("/github/callback", authHandler.Callback)
 	auth.POST("/logout", authHandler.Logout)
-	auth.GET("/me", authHandler.Me, RequireAuth(sessions))
+	auth.GET("/me", authHandler.Me, RequireAuth(sessions, tokens))
 
-	apiG := e.Group("/api", RequireAuth(sessions))
+	apiG := e.Group("/api", RequireAuth(sessions, tokens))
 	apiG.POST("/analyze", analysisHandler.Analyze)
 	apiG.GET("/jobs/:id", jobHandler.Get)
 	apiG.GET("/graph/:jobId", analysisHandler.GetGraph)

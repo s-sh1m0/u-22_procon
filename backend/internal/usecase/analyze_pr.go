@@ -41,7 +41,8 @@ func NewAnalyzePRUseCase(analyses domain.AnalysisRepository, jobs domain.JobRepo
 // キャッシュ (同一 PR かつ head/base SHA まで一致する既存解析) があれば done ジョブを
 // 即返し、enqueue しない。SHA を照合するのは、新しいコミットが積まれた PR に対して
 // 古い SHA の解析結果を返してしまわないようにするため（FindByPR は PR 番号で最新行を
-// 引くだけで SHA を見ないため、ここで弾く）。
+// 引くだけで SHA を見ないため、ここで弾く）。解析ロジックが変わった後に古いロジックの
+// 結果を返さないよう、domain.AnalyzerVersion も一致するものだけをキャッシュとして使う。
 func (uc *AnalyzePRUseCase) Execute(ctx context.Context, token string, pr domain.PRInfo) (domain.JobID, error) {
 	// 現在の head/base SHA を解決してキャッシュキーに使う。
 	resolved, err := uc.prRepo.GetPR(ctx, token, pr.Owner, pr.Repo, pr.Number)
@@ -59,7 +60,8 @@ func (uc *AnalyzePRUseCase) Execute(ctx context.Context, token string, pr domain
 	jobID := domain.JobID(uc.newID())
 
 	if cached != nil && cached.ChangedFiles != nil &&
-		cached.PR.HeadSHA == pr.HeadSHA && cached.PR.BaseSHA == pr.BaseSHA {
+		cached.PR.HeadSHA == pr.HeadSHA && cached.PR.BaseSHA == pr.BaseSHA &&
+		cached.AnalyzerVersion == domain.AnalyzerVersion {
 		j := &domain.Job{
 			ID:         jobID,
 			AnalysisID: cached.ID,

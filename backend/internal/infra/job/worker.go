@@ -35,7 +35,7 @@ type sourceTreePreparer interface {
 // defaultJobTimeout は1ジョブの解析にかける時間の上限のデフォルト値。
 // 巨大リポジトリ（k8s 等）の解析が暴走してワーカーを無限に占有し、
 // 後続ジョブ（＝他ユーザー）を巻き添えにするのを防ぐ安全弁。
-const defaultJobTimeout = 180 * time.Second
+const defaultJobTimeout = 1800 * time.Second
 
 // Worker はキューからジョブを受け取り解析パイプラインを実行する。
 // Run は複数 goroutine から同時に呼び出して構わない（フィールドは不変、
@@ -194,6 +194,9 @@ func (w *Worker) process(ctx context.Context, item Item) {
 	// 循環参照を検出（base にあった cycle と比較して IsNew を決定）
 	cycles := analyzer.DetectNewCycles(baseGraph, headGraph)
 
+	// 保存・表示するグラフを、変わった関数とその直接の呼び出し元・呼び出し先に絞る
+	diffGraph, cycles = domain.ImpactSubgraph(diffGraph, cycles, changed)
+
 	// 依存方向の逆転（domain → infra 等）を検出（added エッジを新規違反とする）
 	violations := analyzer.DetectLayeringViolations(diffGraph)
 
@@ -220,11 +223,12 @@ func (w *Worker) process(ctx context.Context, item Item) {
 
 	analysisID := domain.AnalysisID(w.newID())
 	a := &domain.Analysis{
-		ID:           analysisID,
-		PR:           j.PR,
-		Result:       result,
-		ChangedFiles: diffFiles,
-		CreatedAt:    w.now().UTC(),
+		ID:              analysisID,
+		PR:              j.PR,
+		Result:          result,
+		ChangedFiles:    diffFiles,
+		AnalyzerVersion: domain.AnalyzerVersion,
+		CreatedAt:       w.now().UTC(),
 	}
 	if err := w.analyses.Save(ctx, a); err != nil {
 		fail(fmt.Errorf("save analysis: %w", err))
@@ -302,6 +306,11 @@ func (w *Worker) buildBothGraphs(
 	if err = eg.Wait(); err != nil {
 		return nil, nil, cleanup, err
 	}
+
+	// hunk の行範囲だけでは中身の変わっていない隣の関数や、patch 不明のファイル全体が
+	// changed になり得るため、base/head の関数ソースを比較して changed を確定する。
+	// ノードの File は各 worktree ルート（PreparedSource.RepoRoot = headDir / baseDir）からの相対パス。
+	analyzer.RefineChangedByContent(head, base, headDir, baseDir)
 	return head, base, cleanup, nil
 }
 

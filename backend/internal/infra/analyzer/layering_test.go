@@ -50,6 +50,21 @@ func TestDetectLayeringViolations(t *testing.T) {
 			},
 		},
 		{
+			name: "usecase calling a domain interface implemented in infra is not a violation",
+			graph: &domain.Graph{
+				Nodes: []domain.Node{
+					pkgNode("u", usecase),
+					{ID: "(d.Repo).Save", Kind: domain.NodeKindInterfaceMethod, Package: domainPkg},
+					pkgNode("i", infra),
+				},
+				Edges: []domain.Edge{
+					{From: "u", To: "(d.Repo).Save", Kind: domain.EdgeKindCall, Status: domain.DiffStatusAdded},
+					{From: "(d.Repo).Save", To: "i", Kind: domain.EdgeKindImplements, Status: domain.DiffStatusAdded},
+				},
+			},
+			want: []domain.LayerViolation{},
+		},
+		{
 			name: "infra to domain is allowed (outer depends inward)",
 			graph: &domain.Graph{
 				Nodes: []domain.Node{pkgNode("i", infra), pkgNode("d", domainPkg)},

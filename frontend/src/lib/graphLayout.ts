@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import { MarkerType, type Edge, type EdgeMarker } from '@xyflow/react'
 import ELKConstructor, { type ELK, type ElkNode } from 'elkjs/lib/elk-api.js'
 import elkWorkerUrl from 'elkjs/lib/elk-worker.min.js?url'
-import type { GraphResponse, Cluster, GraphEdge, DiffStatus } from '@/types/api'
+import type { GraphResponse, Cluster, GraphEdge, DiffStatus, EdgeKind, NodeKind } from '@/types/api'
 import type {
   AnyFlowNode,
   LayerKind,
@@ -12,6 +12,8 @@ import type {
 } from '@/types/graph'
 import { getClusterColor } from './clusterColors'
 import { inferLayer } from './layerInference'
+import { nodeDisplayName } from './nodeLabel'
+import { IMPLEMENTS_EDGE_DASH } from './graphFocus'
 
 export const NODE_W = 200
 export const NODE_H = 60
@@ -45,14 +47,30 @@ const CLUSTER_LAYOUT_OPTIONS: Record<string, string> = {
 // ノード数に対して超線形に重く、メインスレッドだと大きなグラフの展開で UI がフリーズする。
 // elk-worker は Vite が別チャンクに分離するのでメインバンドルにも乗らない。
 let elkInstance: ELK | null = null
+let elkWorkerFactory: ((url?: string) => Worker) | undefined
 function getElk(): ELK {
-  if (!elkInstance) elkInstance = new ELKConstructor({ workerUrl: elkWorkerUrl })
+  if (!elkInstance) {
+    elkInstance = new ELKConstructor({ workerUrl: elkWorkerUrl, workerFactory: elkWorkerFactory })
+  }
   return elkInstance
+}
+
+/** ELK レイアウトで使う worker スクリプトの URL。 */
+export { elkWorkerUrl }
+
+/**
+ * ELK の Worker の生成方法を差し替える。最初のレイアウトより前に呼ぶ。
+ * VS Code の webview は拡張フォルダの URL から直接 Worker を作れない（blob: / data: のみ可）ため、
+ * webview 側で worker スクリプトを Blob URL 化した Worker を渡す。
+ */
+export function setElkWorkerFactory(factory: () => Worker): void {
+  elkWorkerFactory = factory
 }
 
 type InputNode = {
   id: string
-  name: string
+  kind: NodeKind
+  label: string
   package: string
   file: string
   line: number
@@ -61,6 +79,12 @@ type InputNode = {
 }
 
 export type LayoutResult = { nodes: AnyFlowNode[]; edges: Edge[] }
+
+/** interface メソッドノードの表示に使う状態（実装の数と展開中の interface メソッド）。 */
+export type InterfaceLayoutState = {
+  implCounts: Map<string, number>
+  expanded: Set<string>
+}
 
 /** "layer:clusterId" 形式のキーを返す */
 export function makeClusterKey(pkg: string, clusterId: number): string {
@@ -74,9 +98,6 @@ function mergeEdgeStatus(a: DiffStatus, b: DiffStatus): DiffStatus {
   return 'existing'
 }
 
-// 新規循環参照を構成するエッジの強調色（red-500）。diff の色より優先する。
-const CYCLE_EDGE_COLOR = '#ef4444'
-
 function edgeColorByStatus(status: DiffStatus): string {
   switch (status) {
     case 'added':
@@ -87,6 +108,17 @@ function edgeColorByStatus(status: DiffStatus): string {
     default:
       return '#d6d3d1'
   }
+}
+
+// 集約エッジの種類: 呼び出しが 1 本でも含まれれば call（実線）にする。
+function mergeEdgeKind(a: EdgeKind, b: EdgeKind): EdgeKind {
+  return a === 'call' || b === 'call' ? 'call' : 'implements'
+}
+
+// implements エッジは diff ステータスの色のまま点線にする。
+function edgeStyle(status: DiffStatus, kind: EdgeKind): CSSProperties {
+  const style = edgeStyleByStatus(status)
+  return kind === 'implements' ? { ...style, strokeDasharray: IMPLEMENTS_EDGE_DASH } : style
 }
 
 function edgeStyleByStatus(status: DiffStatus): CSSProperties {
@@ -107,14 +139,6 @@ function edgeMarkerByStatus(status: DiffStatus): EdgeMarker {
   return { type: MarkerType.ArrowClosed, color: edgeColorByStatus(status), width: 16, height: 16 }
 }
 
-// 新規循環参照を構成するエッジのスタイル / マーカー（赤・太線）。
-function cycleEdgeStyle(): CSSProperties {
-  return { stroke: CYCLE_EDGE_COLOR, strokeWidth: 2.5 }
-}
-function cycleEdgeMarker(): EdgeMarker {
-  return { type: MarkerType.ArrowClosed, color: CYCLE_EDGE_COLOR, width: 16, height: 16 }
-}
-
 // 展開クラスタ（コンテナ + 子関数ノード）/ 折りたたみクラスタ（スーパーノード）を
 // 組み立てるための中間表現。ELK レイアウト後に位置を埋めて AnyFlowNode 化する。
 type PendingCluster = {
@@ -127,16 +151,18 @@ type Pending = PendingCluster | PendingSuper
 
 /**
  * グラフ全体を ELK の layered アルゴリズムで階層配置する。ノード/エッジの集約・
- * diff ステータス・循環強調のロジックはレイアウト非依存で、位置のみ ELK に委ねる。
+ * diff ステータスのロジックはレイアウト非依存で、位置のみ ELK に委ねる。
  * クラスタ枠を compound ノードとして扱い、枠を跨ぐ呼び出し連鎖も上→下で読める。
  */
 export async function layoutGraph(
   data: GraphResponse,
   expandedClusters: Set<string>,
+  interfaces: InterfaceLayoutState,
 ): Promise<LayoutResult> {
   const inputNodes: InputNode[] = data.graph.nodes.map((n) => ({
     id: n.id,
-    name: n.name,
+    kind: n.kind,
+    label: nodeDisplayName(n),
     package: n.package,
     file: n.file,
     line: n.line,
@@ -145,13 +171,6 @@ export async function layoutGraph(
   }))
   const inputEdges: GraphEdge[] = data.graph.edges
   const clusters: Cluster[] = data.clusters
-
-  // 新規循環参照（is_new）に属するノード集合と、同一循環内のノード対集合を作る。
-  const newCycleSets = data.cycles.filter((c) => c.is_new).map((c) => new Set(c.nodes))
-  const cycleNodeIds = new Set<string>()
-  for (const s of newCycleSets) for (const id of s) cycleNodeIds.add(id)
-  const isCycleEdge = (from: string, to: string): boolean =>
-    newCycleSets.some((s) => s.has(from) && s.has(to))
 
   const nodeToCluster = new Map<string, number>()
   for (const c of clusters) {
@@ -174,8 +193,8 @@ export async function layoutGraph(
   // エッジを集約。クラスタ折りたたみ時は端点をスーパーノードに付け替える。
   // DiffStatus は added > removed > existing で昇格。
   const edgeStatusMap = new Map<string, DiffStatus>()
+  const edgeKindMap = new Map<string, EdgeKind>()
   const edgeKeyToFromTo = new Map<string, { source: string; target: string }>()
-  const edgeCycleMap = new Map<string, boolean>()
 
   for (const e of inputEdges) {
     const fromNode = nodeMap.get(e.from)
@@ -195,23 +214,24 @@ export async function layoutGraph(
     const edgeKey = `${srcId}→${dstId}`
     const prev = edgeStatusMap.get(edgeKey)
     edgeStatusMap.set(edgeKey, prev ? mergeEdgeStatus(prev, e.status) : e.status)
+    const prevKind = edgeKindMap.get(edgeKey)
+    edgeKindMap.set(edgeKey, prevKind ? mergeEdgeKind(prevKind, e.kind) : e.kind)
     if (!edgeKeyToFromTo.has(edgeKey)) {
       edgeKeyToFromTo.set(edgeKey, { source: srcId, target: dstId })
     }
-    if (isCycleEdge(e.from, e.to)) edgeCycleMap.set(edgeKey, true)
   }
 
   const flowEdges: Edge[] = []
   for (const [edgeKey, status] of edgeStatusMap.entries()) {
     const ft = edgeKeyToFromTo.get(edgeKey)!
-    const inCycle = edgeCycleMap.get(edgeKey) ?? false
+    const kind = edgeKindMap.get(edgeKey)!
     flowEdges.push({
       id: `e:${edgeKey}`,
       source: ft.source,
       target: ft.target,
-      style: inCycle ? cycleEdgeStyle() : edgeStyleByStatus(status),
-      markerEnd: inCycle ? cycleEdgeMarker() : edgeMarkerByStatus(status),
-      data: { diffStatus: status, inCycle },
+      style: edgeStyle(status, kind),
+      markerEnd: edgeMarkerByStatus(status),
+      data: { diffStatus: status, kind },
     })
   }
 
@@ -269,16 +289,18 @@ export async function layoutGraph(
         children: nodes.map((n) => ({
           id: n.id,
           data: {
-            label: n.name,
+            kind: n.kind,
+            label: n.label,
             packagePath: n.package,
             file: n.file,
             line: n.line,
             changed: n.changed,
             diffStatus: n.diffStatus,
-            inCycle: cycleNodeIds.has(n.id),
             clusterId: cid,
             clusterColorHex: color.hex,
             layer,
+            implCount: interfaces.implCounts.get(n.id) ?? 0,
+            implExpanded: interfaces.expanded.has(n.id),
           },
         })),
       })

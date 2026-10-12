@@ -3,7 +3,9 @@ package job
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,6 +118,8 @@ type fakeSourceTree struct {
 	err      error
 
 	// 観測用: 何回呼ばれたか / どの worktree で呼ばれたか
+	// PrepareFromDir は head/base の goroutine から並行に呼ばれるため mu で保護する。
+	mu                  sync.Mutex
 	cloneBothCalls      int
 	prepareFromDirCalls int
 	headDir, baseDir    string
@@ -137,6 +141,8 @@ func (s *fakeSourceTree) CloneBoth(_ context.Context, pr domain.PRInfo, _ string
 }
 
 func (s *fakeSourceTree) PrepareFromDir(_ context.Context, rootDir string, changed []domain.ChangedFile) (*analyzer.PreparedSource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.prepareFromDirCalls++
 	if s.changedByDir == nil {
 		s.changedByDir = make(map[string][]domain.ChangedFile)
@@ -157,9 +163,11 @@ func (b *fakeCGBuilder) Build(_ context.Context, _ []*packages.Package, _ []stri
 type fakeClusterer struct {
 	result *domain.ClusterResult
 	err    error
+	got    *domain.Graph // Cluster に渡されたグラフ
 }
 
-func (c *fakeClusterer) Cluster(_ context.Context, _ *domain.Graph) (*domain.ClusterResult, error) {
+func (c *fakeClusterer) Cluster(_ context.Context, g *domain.Graph) (*domain.ClusterResult, error) {
+	c.got = g
 	return c.result, c.err
 }
 
@@ -183,6 +191,54 @@ func newWorkerWithFakes(
 }
 
 // --- tests ---
+
+// TestWorker_ClustersImpactSubgraph はクラスタリング（＝保存されるグラフ）が、変更関数と
+// その直接の呼び出し元・呼び出し先に絞ったグラフに対して行われることを確認する。
+func TestWorker_ClustersImpactSubgraph(t *testing.T) {
+	graph := &domain.Graph{
+		Nodes: []domain.Node{
+			{ID: "fn:S", File: "a.go", Changed: true},
+			{ID: "fn:N", File: "b.go"},
+			{ID: "fn:U", File: "c.go"},
+		},
+		Edges: []domain.Edge{{From: "fn:S", To: "fn:N"}},
+	}
+
+	jobs := newFakeJobStore()
+	jobs.jobs["job-1"] = &domain.Job{
+		ID:     "job-1",
+		Status: domain.JobStatusPending,
+		PR:     domain.PRInfo{Owner: "o", Repo: "r", Number: 1, HeadSHA: "head-sha", BaseSHA: "base-sha"},
+	}
+	st := &fakeSourceTree{prepared: &analyzer.PreparedSource{}}
+	clusterer := &fakeClusterer{result: &domain.ClusterResult{}}
+
+	w := newWorkerWithFakes(
+		jobs,
+		&fakeAnalysisRepo{},
+		&fakePRRepo{changed: []domain.ChangedFile{{Filename: "a.go", Status: domain.FileStatusModified}}},
+		st,
+		&fakeCGBuilder{graph: graph},
+		clusterer,
+	)
+
+	w.process(context.Background(), Item{JobID: "job-1", Token: "tok"})
+
+	if j := jobs.jobs["job-1"]; j.Status != domain.JobStatusDone {
+		t.Fatalf("expected done, got %s", j.Status)
+	}
+	if clusterer.got == nil {
+		t.Fatal("Cluster was not called")
+	}
+	var got []domain.NodeID
+	for _, n := range clusterer.got.Nodes {
+		got = append(got, n.ID)
+	}
+	want := []domain.NodeID{"fn:N", "fn:S"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("clustered nodes = %v, want %v", got, want)
+	}
+}
 
 func TestWorker_HappyPath(t *testing.T) {
 	graph := &domain.Graph{
@@ -234,6 +290,9 @@ func TestWorker_HappyPath(t *testing.T) {
 	}
 	if analyses.saved[0].ID != fixedID {
 		t.Errorf("unexpected analysis ID: %s", analyses.saved[0].ID)
+	}
+	if analyses.saved[0].AnalyzerVersion != domain.AnalyzerVersion {
+		t.Errorf("expected AnalyzerVersion %d, got %d", domain.AnalyzerVersion, analyses.saved[0].AnalyzerVersion)
 	}
 	// フェーズが順番どおりに記録されたことを確認（build_graph は sync.Once で 1 回のみ）
 	wantPhases := []domain.JobPhase{

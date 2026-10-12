@@ -1,5 +1,6 @@
 import { MarkerType, type Edge, type EdgeMarker } from '@xyflow/react'
 import type { CSSProperties } from 'react'
+import type { EdgeKind } from '@/types/api'
 
 /** 選択ノードから見たエッジの向き。in = 呼び出し元→選択, out = 選択→呼び出し先 */
 export type FocusDir = 'in' | 'out'
@@ -44,8 +45,12 @@ export function computeFocus(edges: Edge[], selectedNodeId: string): FocusResult
   return { nodeIds, edgeDir, callerCount, calleeCount }
 }
 
-export function focusEdgeStyle(dir: FocusDir): CSSProperties {
-  return { stroke: focusDirColor(dir), strokeWidth: 2.5, opacity: 1 }
+// implements エッジ（interface メソッド → 実装）の点線。呼び出しエッジ（実線）と区別する。
+export const IMPLEMENTS_EDGE_DASH = '2 4'
+
+export function focusEdgeStyle(dir: FocusDir, kind: EdgeKind): CSSProperties {
+  const style: CSSProperties = { stroke: focusDirColor(dir), strokeWidth: 2.5, opacity: 1 }
+  return kind === 'implements' ? { ...style, strokeDasharray: IMPLEMENTS_EDGE_DASH } : style
 }
 
 export function focusEdgeMarker(dir: FocusDir): EdgeMarker {

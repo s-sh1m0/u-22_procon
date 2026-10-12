@@ -65,6 +65,39 @@ func TestMergeWithDiffStatus_EdgesUnion(t *testing.T) {
 	}
 }
 
+// エッジの種類（call / implements）が base / head のどちらから来ても保たれること。
+func TestMergeWithDiffStatus_EdgeKindPreserved(t *testing.T) {
+	impl := func(from, to string) domain.Edge {
+		e := edge(from, to)
+		e.Kind = domain.EdgeKindImplements
+		return e
+	}
+	base := &domain.Graph{
+		Edges: []domain.Edge{impl("i", "a"), impl("i", "b")},
+	}
+	head := &domain.Graph{
+		Edges: []domain.Edge{impl("i", "a"), impl("i", "c"), edge("x", "i")},
+	}
+
+	got := MergeWithDiffStatus(base, head)
+
+	want := map[[2]domain.NodeID]domain.EdgeKind{
+		{"i", "a"}: domain.EdgeKindImplements, // existing
+		{"i", "b"}: domain.EdgeKindImplements, // removed
+		{"i", "c"}: domain.EdgeKindImplements, // added
+		{"x", "i"}: "",                        // call（種類未設定のまま）
+	}
+	if len(got.Edges) != len(want) {
+		t.Fatalf("len(edges)=%d want %d", len(got.Edges), len(want))
+	}
+	for _, e := range got.Edges {
+		k := [2]domain.NodeID{e.From, e.To}
+		if e.Kind != want[k] {
+			t.Errorf("edge %s->%s: Kind=%q want %q", e.From, e.To, e.Kind, want[k])
+		}
+	}
+}
+
 func TestMergeWithDiffStatus_RemovedNodeChangedReset(t *testing.T) {
 	base := &domain.Graph{
 		Nodes: []domain.Node{{ID: "a", Changed: true, DiffStatus: domain.DiffStatusExisting}},

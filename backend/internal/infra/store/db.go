@@ -63,6 +63,10 @@ func migrate(db *sql.DB) error {
 	if err := addColumnIfNotExists(db, "analyses", "changed_files", "TEXT"); err != nil {
 		return err
 	}
+	// 解析ロジックのバージョン。既存行は 0 になり、キャッシュとして使われず再解析される。
+	if err := addColumnIfNotExists(db, "analyses", "analyzer_version", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	return nil
 }
 

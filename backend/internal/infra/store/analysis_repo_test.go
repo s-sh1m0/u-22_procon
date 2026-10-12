@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -181,6 +183,70 @@ func TestAnalysisRepo_FindByPR_ReturnsLatest(t *testing.T) {
 	// 永続化された PR メタ情報（SHA）が引数 pr ではなく DB の値で復元されること。
 	if got.PR.HeadSHA != "head789" {
 		t.Errorf("expected persisted HeadSHA, got %q", got.PR.HeadSHA)
+	}
+}
+
+// Save した解析器のバージョンが FindByPR（キャッシュ判定の経路）で復元されること。
+func TestAnalysisRepo_FindByPR_AnalyzerVersion(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	repo := NewAnalysisRepo(db)
+	ctx := context.Background()
+	pr := domain.PRInfo{Owner: "o", Repo: "r", Number: 1}
+
+	a := &domain.Analysis{ID: "a1", PR: pr, Result: &domain.ClusterResult{}, AnalyzerVersion: 7, CreatedAt: time.Now().UTC()}
+	if err := repo.Save(ctx, a); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := repo.FindByPR(ctx, pr)
+	if err != nil {
+		t.Fatalf("FindByPR: %v", err)
+	}
+	if got == nil || got.AnalyzerVersion != 7 {
+		t.Errorf("expected AnalyzerVersion 7, got %+v", got)
+	}
+}
+
+// analyzer_version カラム導入前の DB を開くと、migrate でカラムが追加され、
+// 既存行のバージョンは 0（＝キャッシュとして使われない）になること。
+func TestOpen_MigratesAnalyzerVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = old.Exec(`CREATE TABLE analyses (
+		id TEXT PRIMARY KEY, owner TEXT NOT NULL, repo TEXT NOT NULL, pr_number INTEGER NOT NULL,
+		result TEXT, created_at DATETIME NOT NULL)`)
+	if err != nil {
+		t.Fatalf("create old table: %v", err)
+	}
+	_, err = old.Exec(`INSERT INTO analyses (id, owner, repo, pr_number, result, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"old", "o", "r", 1, `{}`, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("insert old row: %v", err)
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	got, err := NewAnalysisRepo(db).FindByPR(context.Background(), domain.PRInfo{Owner: "o", Repo: "r", Number: 1})
+	if err != nil {
+		t.Fatalf("FindByPR: %v", err)
+	}
+	if got == nil || got.AnalyzerVersion != 0 {
+		t.Errorf("expected AnalyzerVersion 0 for pre-migration row, got %+v", got)
 	}
 }
 

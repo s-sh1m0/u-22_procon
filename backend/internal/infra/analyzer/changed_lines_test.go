@@ -11,6 +11,10 @@ func TestChangedLines_FunctionChanged(t *testing.T) {
 			{Start: 30, End: 35},
 		},
 		"/repo/b.go": nil, // Patch 空 → ファイル単位フォールバック
+		"/repo/d.go": {
+			{Start: 21, End: 20}, // 20 行目と 21 行目の間で削除
+		},
+		"/repo/e.go": {}, // Patch はあるが変更位置なし
 	}
 
 	tests := []struct {
@@ -29,6 +33,10 @@ func TestChangedLines_FunctionChanged(t *testing.T) {
 		{"after all ranges", "/repo/a.go", 40, 50, false},
 		{"nil ranges (fallback)", "/repo/b.go", 1, 100, true},
 		{"unknown file", "/repo/c.go", 1, 100, false},
+		{"deletion inside function", "/repo/d.go", 15, 25, true},
+		{"deletion right after closing brace", "/repo/d.go", 10, 20, false},
+		{"deletion right before declaration", "/repo/d.go", 21, 30, false},
+		{"empty ranges (no fallback)", "/repo/e.go", 1, 100, false},
 	}
 
 	for _, tt := range tests {

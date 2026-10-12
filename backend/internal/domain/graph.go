@@ -44,22 +44,57 @@ const (
 	DiffStatusRemoved DiffStatus = "removed"
 )
 
+// NodeKind はノードの種類を表す。
+type NodeKind string
+
+const (
+	// NodeKindFunc は本体を持つ関数・メソッド。空文字も NodeKindFunc として扱う。
+	NodeKindFunc NodeKind = "func"
+	// NodeKindInterfaceMethod は interface 型のメソッド（本体を持たない）。
+	// interface 経由の呼び出しはこのノードを経由して実装につなぐ。
+	NodeKindInterfaceMethod NodeKind = "interface_method"
+)
+
+// EdgeKind はエッジの種類を表す。
+type EdgeKind string
+
+const (
+	// EdgeKindCall は呼び出し元から呼び出し先への呼び出し。空文字も EdgeKindCall として扱う。
+	EdgeKindCall EdgeKind = "call"
+	// EdgeKindImplements は interface メソッドから、それを実装するメソッドへのエッジ。
+	EdgeKindImplements EdgeKind = "implements"
+)
+
 // Node は関数・メソッドをグラフノードとして表す
 type Node struct {
 	ID         NodeID
+	Kind       NodeKind   // ノードの種類（空文字は NodeKindFunc）
 	Name       string     // 関数名
+	Receiver   string     // メソッドのレシーバ型名（ポインタ記号なし）。関数は空
 	Package    string     // パッケージパス
 	File       string     // ファイルパス
 	Line       int        // 定義行
+	EndLine    int        // 定義の終了行（関数本体の閉じ括弧の行。不明なら 0）
 	Changed    bool       // このPRで変更されたか（関数単位）
 	DiffStatus DiffStatus // PR差分におけるノードの状態
+}
+
+// IsInterfaceMethod はノードが interface メソッドかを返す。
+func (n Node) IsInterfaceMethod() bool {
+	return n.Kind == NodeKindInterfaceMethod
 }
 
 // Edge はノード間の呼び出し関係を表す
 type Edge struct {
 	From   NodeID
 	To     NodeID
+	Kind   EdgeKind   // エッジの種類（空文字は EdgeKindCall）
 	Status DiffStatus // PR差分におけるエッジの状態
+}
+
+// IsImplements はエッジが interface メソッドから実装への implements エッジかを返す。
+func (e Edge) IsImplements() bool {
+	return e.Kind == EdgeKindImplements
 }
 
 // Graph は呼び出しグラフ全体

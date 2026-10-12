@@ -47,16 +47,17 @@ func MergeWithDiffStatus(base, head *domain.Graph) *domain.Graph {
 		from domain.NodeID
 		to   domain.NodeID
 	}
-	edgeStatus := make(map[edgeKey]domain.DiffStatus, len(base.Edges)+len(head.Edges))
+	edgeMap := make(map[edgeKey]domain.Edge, len(base.Edges)+len(head.Edges))
 	for _, e := range head.Edges {
-		edgeStatus[edgeKey{e.From, e.To}] = domain.DiffStatusAdded
+		edgeMap[edgeKey{e.From, e.To}] = domain.Edge{Kind: e.Kind, Status: domain.DiffStatusAdded}
 	}
 	for _, e := range base.Edges {
 		k := edgeKey{e.From, e.To}
-		if _, ok := edgeStatus[k]; ok {
-			edgeStatus[k] = domain.DiffStatusExisting
+		if existing, ok := edgeMap[k]; ok {
+			existing.Status = domain.DiffStatusExisting
+			edgeMap[k] = existing
 		} else {
-			edgeStatus[k] = domain.DiffStatusRemoved
+			edgeMap[k] = domain.Edge{Kind: e.Kind, Status: domain.DiffStatusRemoved}
 		}
 	}
 
@@ -66,9 +67,10 @@ func MergeWithDiffStatus(base, head *domain.Graph) *domain.Graph {
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 
-	edges := make([]domain.Edge, 0, len(edgeStatus))
-	for k, st := range edgeStatus {
-		edges = append(edges, domain.Edge{From: k.from, To: k.to, Status: st})
+	edges := make([]domain.Edge, 0, len(edgeMap))
+	for k, e := range edgeMap {
+		e.From, e.To = k.from, k.to
+		edges = append(edges, e)
 	}
 	sort.Slice(edges, func(i, j int) bool {
 		if edges[i].From != edges[j].From {

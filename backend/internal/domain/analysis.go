@@ -5,6 +5,16 @@ import "time"
 // AnalysisID は解析結果の一意識別子
 type AnalysisID string
 
+// AnalyzerVersion は解析ロジックのバージョン。保存する解析結果に記録し、
+// 値が違う解析結果はキャッシュとして使わず再解析する。
+// グラフの範囲や changed 判定など、同じ PR でも解析結果が変わる変更を入れたら上げる。
+//
+// 履歴:
+//   - 0: analyzer_version カラム導入前に保存した結果
+//   - 1: 変更関数と直接の呼び出し元・呼び出し先だけを保存する（#151）
+//   - 2: interface 経由の呼び出しを interface メソッドノード経由にする（#160）
+const AnalyzerVersion = 2
+
 // PRInfo はGitHub PRの基本情報
 type PRInfo struct {
 	Owner   string
@@ -19,11 +29,12 @@ type PRInfo struct {
 
 // Analysis はPR解析の結果エンティティ
 type Analysis struct {
-	ID           AnalysisID
-	PR           PRInfo
-	Result       *ClusterResult
-	ChangedFiles []DiffFile
-	CreatedAt    time.Time
+	ID              AnalysisID
+	PR              PRInfo
+	Result          *ClusterResult
+	ChangedFiles    []DiffFile
+	AnalyzerVersion int // 解析したときの AnalyzerVersion
+	CreatedAt       time.Time
 }
 
 // ChangedFile はPRで変更されたファイル1件の情報。

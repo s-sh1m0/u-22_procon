@@ -1,5 +1,6 @@
-import { lazy, Suspense } from 'react'
-import type { DiffFile } from '@/types/api'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import type { MonacoDiffEditor } from '@monaco-editor/react'
+import type { DiffFile, DiffStatus } from '@/types/api'
 
 const DiffEditor = lazy(() =>
   import('@monaco-editor/react').then((m) => ({ default: m.DiffEditor })),
@@ -14,9 +15,37 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 
 type Props = {
   file: DiffFile
+  /** スクロール先の関数の定義行（1 始まり） */
+  line: number
+  /** removed の関数は変更前のファイル側に行がある */
+  diffStatus: DiffStatus
 }
 
-export default function DiffViewer({ file }: Props) {
+export default function DiffViewer({ file, line, diffStatus }: Props) {
+  const [editor, setEditor] = useState<MonacoDiffEditor | null>(null)
+  const handleMount = useCallback((e: MonacoDiffEditor) => setEditor(e), [])
+
+  // 関数の定義行を上端付近に出す。削除された関数は変更前（左）側にしか無いので左側をスクロールする
+  // （左右のスクロールは連動する）。差分の計算後に左右の行揃えの余白が入って位置がずれるので、
+  // 計算が終わったらもう一度スクロールする。
+  const reveal = useCallback(() => {
+    if (!editor || line < 1) return
+    const side = diffStatus === 'removed' ? editor.getOriginalEditor() : editor.getModifiedEditor()
+    side.setPosition({ lineNumber: line, column: 1 })
+    side.revealLineNearTop(line)
+  }, [editor, line, diffStatus])
+
+  useEffect(() => {
+    if (!editor) return
+    const sub = editor.onDidUpdateDiff(reveal)
+    return () => sub.dispose()
+  }, [editor, reveal])
+
+  // 別の関数を選んだとき。同じファイル内なら差分は計算し直されないので、ここでスクロールする。
+  useEffect(() => {
+    reveal()
+  }, [reveal, file.filename, line, diffStatus])
+
   const statusInfo = STATUS_LABELS[file.status] ?? {
     label: file.status,
     className: 'bg-stone-100 text-stone-600',
@@ -50,6 +79,7 @@ export default function DiffViewer({ file }: Props) {
             language="go"
             original={file.before_content}
             modified={file.after_content}
+            onMount={handleMount}
             options={{
               readOnly: true,
               renderSideBySide: true,
