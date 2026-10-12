@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# どこから実行してもリポジトリ直下に .env を作る
+cd "$(dirname "$0")"
+
 ENV_FILE=".env"
 
 echo "=== DiffGraph セットアップ ==="
