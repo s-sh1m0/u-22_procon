@@ -15,17 +15,16 @@ cancel() {
   exit 1
 }
 
-# 空でない値が入力されるまで同じ質問を繰り返し、結果を変数 $1 に入れる
+# 空でない値が入力されるまで同じ質問を繰り返し、結果を変数 answer に入れる
 ask_required() {
-  local var_name="$1" label="$2" input
-  while true; do
+  local label="$1"
+  answer=""
+  while [ -z "$answer" ]; do
     printf "%s: " "$label"
-    read -r input || cancel
-    if [ -n "$input" ]; then
-      printf -v "$var_name" '%s' "$input"
-      return
+    read -r answer || cancel
+    if [ -z "$answer" ]; then
+      echo "  空のままでは進めません。値を貼り付けて Enter を押してください。"
     fi
-    echo "  空のままでは進めません。値を貼り付けて Enter を押してください。"
   done
 }
 
@@ -83,8 +82,10 @@ cat <<EOF
 ステップ 1 でコピーした値を貼り付けて Enter を押してください。
 
 EOF
-ask_required github_client_id "Client ID"
-ask_required github_client_secret "Client Secret"
+ask_required "Client ID"
+github_client_id="$answer"
+ask_required "Client Secret"
+github_client_secret="$answer"
 
 cat <<EOF
 
