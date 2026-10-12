@@ -93,7 +93,8 @@ cat <<EOF
 
 EOF
 
-session_secret=$(openssl rand -base64 32)
+# openssl が無い環境でも動くよう、POSIX の od / tr で /dev/urandom の 32 バイトを 16 進文字列にする
+session_secret=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
 
 cat > "$ENV_FILE" <<EOF
 GITHUB_CLIENT_ID=${github_client_id}
