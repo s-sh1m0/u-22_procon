@@ -152,13 +152,13 @@ ID やファイルパスは必ず mono にする。視認性と「これはコ�
 | `GraphSearch` | グラフ左上の検索ボックス。関数名/パッケージをインクリメンタル検索→候補選択で展開+選択+中央寄せ（`fitView`）。折りたたみ中クラスタ内のノードも親を開いて到達する |
 | `GraphControls` | 右下フローティングパネル（frosted glass: `bg-white/90 backdrop-blur-md`）。ラベル付きセクションに分割: 表示モード切替（変更影響/全体）・クラスタモード（Louvain/Package/File）・展開/折畳アクションボタン・変更ノードステップナビゲーター。セグメントコントロールは pill 型（active=`bg-white shadow-sm`、inactive=`text-stone-500`）。ナビゲーターはレビュー優先度順に変更ノードを1つずつ巡回し、クラスタ自動展開+選択+中央寄せを行う |
 | `FocusLegend` | フォーカスモード中に左上（検索ボックスの下）に出る凡例（呼び出し元/先の方向色と件数） |
-| `DiffLegend` | ノード非選択時に `FocusLegend` と同じ位置に出る凡例。ノード右上のマーク（追加=緑 `+` / 変更=オレンジの点 / 削除=灰 `−`）と追加エッジ（緑線）、interface の実装エッジ（点線）の意味を示す。ノードを選ぶと `FocusLegend` に入れ替わる |
+| `DiffLegend` | ノード非選択時に `FocusLegend` と同じ位置に出る凡例。ノード右上のマーク（追加=緑 `+` / 変更=オレンジの点 / 削除=灰 `−`）と追加エッジ（緑線）・削除エッジ（赤の破線）、interface の実装エッジ（点線）の意味を示す。ノードを選ぶと `FocusLegend` に入れ替わる |
 | `DiffViewer` | `@monaco-editor/react` で before/after 表示。選択した関数の定義行を上端付近までスクロールする（`removed` は変更前＝左側の行） |
 | `ClusterSidebar` | クラスタ一覧（実装位置: `layout/`） |
 
 ### 3.6 グラフのフォーカスモードとエッジ方向
 
-- **エッジ矢印**: すべてのエッジに矢印マーカー（caller → callee の向き）を付ける。色は diff ステータスの stroke に揃える（added=emerald / removed=stone 破線 / existing=薄 stone）。
+- **エッジ矢印**: すべてのエッジに矢印マーカー（caller → callee の向き）を付ける。色は diff ステータスの stroke に揃える（added=emerald / removed=rose 破線（`REMOVED_EDGE_DASH`）/ existing=薄 stone）。削除された呼び出しは差分として目立たせるため、減光せず太さ 2 で描き、フォーカス中も方向色のまま破線を保つ。
 - **interface 経由の呼び出し**: バックエンドは interface 経由の呼び出しを「呼び出し元 → interface メソッドノード（呼び出し）→ 実装（`implements`）」の形で返す。`implements` エッジは diff ステータスの色のまま点線（`IMPLEMENTS_EDGE_DASH`、`src/lib/graphFocus.ts`）にし、フォーカス中も点線を保つ。クラスタ集約で呼び出しと混ざったら呼び出し（実線）にする。
 - **フォーカスモード**: 関数ノードを選択すると、直接の caller / callee と接続エッジだけを強調し、それ以外のノード・エッジを減光する（`DIMMED_OPACITY`）。Pane クリックで解除。
 - **方向色**（`src/lib/graphFocus.ts` に集約。グラフ機能上の意味色として hex 直書きを許容）:
