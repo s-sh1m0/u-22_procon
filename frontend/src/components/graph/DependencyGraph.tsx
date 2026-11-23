@@ -200,7 +200,11 @@ function GraphInner({
       if (!dir) return { ...e, style: DIMMED_EDGE_STYLE, markerEnd: undefined, animated: false }
       return {
         ...e,
-        style: focusEdgeStyle(dir, e.data?.kind === 'implements' ? 'implements' : 'call'),
+        style: focusEdgeStyle(
+          dir,
+          e.data?.kind === 'implements' ? 'implements' : 'call',
+          e.data?.diffStatus === 'removed' ? 'removed' : 'existing',
+        ),
         markerEnd: focusEdgeMarker(dir),
         animated: animate,
       }

@@ -1,6 +1,6 @@
 import { MarkerType, type Edge, type EdgeMarker } from '@xyflow/react'
 import type { CSSProperties } from 'react'
-import type { EdgeKind } from '@/types/api'
+import type { DiffStatus, EdgeKind } from '@/types/api'
 
 /** 選択ノードから見たエッジの向き。in = 呼び出し元→選択, out = 選択→呼び出し先 */
 export type FocusDir = 'in' | 'out'
@@ -48,9 +48,14 @@ export function computeFocus(edges: Edge[], selectedNodeId: string): FocusResult
 // implements エッジ（interface メソッド → 実装）の点線。呼び出しエッジ（実線）と区別する。
 export const IMPLEMENTS_EDGE_DASH = '2 4'
 
-export function focusEdgeStyle(dir: FocusDir, kind: EdgeKind): CSSProperties {
+// 削除された呼び出しの破線。フォーカス中も方向色のまま破線を保ち、現存する呼び出しと区別する。
+export const REMOVED_EDGE_DASH = '6 4'
+
+export function focusEdgeStyle(dir: FocusDir, kind: EdgeKind, status: DiffStatus): CSSProperties {
   const style: CSSProperties = { stroke: focusDirColor(dir), strokeWidth: 2.5, opacity: 1 }
-  return kind === 'implements' ? { ...style, strokeDasharray: IMPLEMENTS_EDGE_DASH } : style
+  if (kind === 'implements') return { ...style, strokeDasharray: IMPLEMENTS_EDGE_DASH }
+  if (status === 'removed') return { ...style, strokeDasharray: REMOVED_EDGE_DASH }
+  return style
 }
 
 export function focusEdgeMarker(dir: FocusDir): EdgeMarker {
