@@ -13,7 +13,7 @@ import type {
 import { getClusterColor } from './clusterColors'
 import { inferLayer } from './layerInference'
 import { nodeDisplayName } from './nodeLabel'
-import { IMPLEMENTS_EDGE_DASH } from './graphFocus'
+import { IMPLEMENTS_EDGE_DASH, REMOVED_EDGE_DASH } from './graphFocus'
 
 export const NODE_W = 200
 export const NODE_H = 60
@@ -103,7 +103,7 @@ function edgeColorByStatus(status: DiffStatus): string {
     case 'added':
       return '#10b981'
     case 'removed':
-      return '#a8a29e'
+      return '#fb7185'
     case 'existing':
     default:
       return '#d6d3d1'
@@ -127,7 +127,7 @@ function edgeStyleByStatus(status: DiffStatus): CSSProperties {
     case 'added':
       return { stroke, strokeWidth: 2.5 }
     case 'removed':
-      return { stroke, strokeWidth: 1.5, strokeDasharray: '6 4', opacity: 0.6 }
+      return { stroke, strokeWidth: 2, strokeDasharray: REMOVED_EDGE_DASH }
     case 'existing':
     default:
       return { stroke, strokeWidth: 1.5 }

@@ -26,6 +26,9 @@ export default function DiffLegend() {
         <LegendRow label="追加された呼び出し">
           <span className="h-0.5 w-4 rounded-full bg-emerald-500" />
         </LegendRow>
+        <LegendRow label="削除された呼び出し">
+          <span className="w-4 border-t-2 border-dashed border-rose-400" />
+        </LegendRow>
         <LegendRow label="interface の実装（interface をクリックで展開）">
           <span className="w-4 border-t-2 border-dotted border-stone-400" />
         </LegendRow>
